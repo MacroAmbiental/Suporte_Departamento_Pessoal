@@ -27,6 +27,9 @@ const MAX_FIRESTORE_FILE_BYTES = Number(
   import.meta.env.VITE_FIRESTORE_FILE_MAX_BYTES || 1_000_000
 );
 
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_BASE64_SIZE = MAX_FIRESTORE_FILE_BYTES; // mantém legado (1MB)
+
 type StoredFileManifest = {
   id: string;
   employeeId: string;
@@ -323,11 +326,19 @@ export async function uploadEmployeeDocumentFile(
   file: File
 ) {
   if (!storage) {
-    throw new Error(
-      "Firebase Storage não está configurado."
-    );
+    throw new Error("Firebase Storage não está configurado.");
   }
 
+  // BLOQUEIO GLOBAL (50MB)
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error("Arquivo excede o limite de 50MB.");
+  }
+
+  const shouldUseFirestoreFallback =
+    file.size <= MAX_BASE64_SIZE &&
+    FIRESTORE_FILE_STORAGE_ENABLED;
+
+  // PRIORIDADE: STORAGE (sempre que possível)
   try {
     const path = `employeeDocuments/${employeeId}/${Date.now()}-${safeFileName(file.name)}`;
 
@@ -337,9 +348,15 @@ export async function uploadEmployeeDocumentFile(
 
     return await getDownloadURL(fileRef);
   } catch (error) {
-    console.error("Erro ao enviar arquivo para o Storage:", error);
+    console.error("Erro ao enviar para Storage:", error);
 
-    // 👇 IMPORTANTE: não cai mais no Firestore automaticamente
+    // ⚠️ FALLBACK CONTROLADO (APENAS ARQUIVOS PEQUENOS)
+    if (shouldUseFirestoreFallback) {
+      console.warn("Usando fallback para Firestore (legado)");
+
+      return await saveFileToFirestore(employeeId, file);
+    }
+
     throw new Error(
       "Falha ao enviar arquivo. Tente novamente."
     );
