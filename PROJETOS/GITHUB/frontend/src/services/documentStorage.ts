@@ -322,27 +322,28 @@ export async function uploadEmployeeDocumentFile(
   employeeId: string,
   file: File
 ) {
-  if (storage) {
-    try {
-      const path = `employeeDocuments/${employeeId}/${Date.now()}-${safeFileName(
-        file.name
-      )}`;
-
-      const fileRef = ref(storage, path);
-
-      await uploadBytes(fileRef, file);
-
-      return await getDownloadURL(fileRef);
-    } catch (error) {
-      console.warn(
-        "Falha ao salvar no Firebase Storage. Utilizando Firestore.",
-        error
-      );
-    }
+  if (!storage) {
+    throw new Error(
+      "Firebase Storage não está configurado."
+    );
   }
 
-  // Compatibilidade / fallback
-  return saveFileToFirestore(employeeId, file);
+  try {
+    const path = `employeeDocuments/${employeeId}/${Date.now()}-${safeFileName(file.name)}`;
+
+    const fileRef = ref(storage, path);
+
+    await uploadBytes(fileRef, file);
+
+    return await getDownloadURL(fileRef);
+  } catch (error) {
+    console.error("Erro ao enviar arquivo para o Storage:", error);
+
+    // 👇 IMPORTANTE: não cai mais no Firestore automaticamente
+    throw new Error(
+      "Falha ao enviar arquivo. Tente novamente."
+    );
+  }
 }
 
 /**
