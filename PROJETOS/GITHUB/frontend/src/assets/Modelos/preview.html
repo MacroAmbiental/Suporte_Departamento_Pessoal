@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Registro de Empregado - Modelo em Branco</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:8px;background:#e9e9e9;font-family:Arial,Helvetica,sans-serif;color:#000}
+  .page{width:min(100%,980px);margin:0 auto 18px auto;background:#fff;padding:4px;page-break-after:always}
+  .title{border:1.6px solid #000;border-radius:10px;text-align:center;font-weight:700;font-size:20px;line-height:34px;height:36px;letter-spacing:.3px}
+  .grid{display:grid;gap:2px}
+  .box{border:1.2px solid #000;border-radius:9px;background:#fff;overflow:hidden}
+  .label{font-size:10px;line-height:1.1;padding:3px 5px 0 5px}
+  .value{min-height:15px;padding:0 5px 2px 5px;font-size:13px;line-height:1.2}
+  .thin-bottom{border-bottom:1px solid #000}
+  .section-title{border-bottom:1px solid #000;text-align:center;font-size:11px;line-height:15px;height:20px}
+  .row{display:grid}
+  .cell{border-right:1px solid #000;min-height:22px}
+  .cell:last-child{border-right:0}
+  .cellrow{border-bottom:1px solid #000}
+  .cellrow:last-child{border-bottom:0}
+  .empty{min-height:15px}
+  .line-area{padding:3px 6px}
+  .line{height:15px;border-bottom:1px solid #777}
+  .signature-space{height:62px;position:relative}
+  .signature-line{position:absolute;left:12%;right:12%;bottom:24px;border-top:1px solid #000}
+  .small{font-size:9px}
+
+  .top{grid-template-columns:18.5% 67.2% 14.3%;margin-top:2px}
+  .employee-benef{grid-template-columns:50% 50%;margin-top:2px}
+  .personal{grid-template-columns:12% 88%;margin-top:2px}
+  .p-row1{grid-template-columns:17% 44% 20% 19%}
+  .p-row2{grid-template-columns:12% 88%}
+  .p-row3{grid-template-columns:20% 14% 17% 20% 7% 7% 15%}
+  .p-row4{grid-template-columns:11% 10% 17% 8% 12% 22% 10% 10%}
+  .p-row5{grid-template-columns:17% 13% 15% 12% 17% 14% 12%}
+  .p-row6{grid-template-columns:12% 18% 18% 18% 22% 12%}
+  .admission{grid-template-columns:15% 11% 7% 38% 29%;margin-top:2px}
+  .fgts{grid-template-columns:9% 15% 46% 30%;margin-top:2px}
+  .pis-row1{grid-template-columns:12% 14% 17% 57%}
+  .pis-row2{grid-template-columns:16% 15% 69%}
+  .alter{grid-template-columns:51% 49%;min-height:62px}
+  .ferias-obs{grid-template-columns:54% 46%;margin-top:2px}
+  .ferias-inner{display:grid;grid-template-columns:31% 31% 38%;min-height:92px}
+  .lower{grid-template-columns:62% 38%;margin-top:2px}
+  .sind-sign{grid-template-columns:62% 38%;margin-top:2px}
+  .accident{min-height:88px}
+  .rescisao{min-height:88px}
+  .sindical{min-height:62px}
+  .obs-footer{margin-top:2px;border-top:1px solid #000;text-align:center;font-size:11px;line-height:14px;height:14px}
+
+  .split-2 > div:first-child{border-bottom:1px solid #000}
+  .split-3 > div{border-bottom:1px solid #000}
+  .split-3 > div:last-child{border-bottom:0}
+  .fill-h{height:100%}
+  .rescisao-body{padding:8px 7px;font-size:12px;line-height:1.9}
+  .rescisao-inline{display:grid;grid-template-columns:48% 52%}
+
+  .head2{border:1.2px solid #000;border-radius:9px;display:grid;grid-template-columns:78% 22%;min-height:70px;padding:4px}
+  .head2-left{font-size:12px;line-height:1.8}
+  .head2-right{text-align:right;font-size:12px;line-height:1.8;padding-right:2px}
+  .work{margin-top:6px;min-height:340px}
+  .work-title{border-bottom:1px solid #000;text-align:center;font-size:12px;line-height:24px;height:26px}
+  .work-body{display:grid;grid-template-columns:46% 54%;min-height:312px}
+  .work-left{border-right:1px solid #000}
+  .work-note{font-size:11px;padding:6px 6px;border-bottom:1px solid #000;height:28px;display:grid;grid-template-columns:18% 82%}
+  .work-note > div:last-child{border-left:1px solid #000;padding-left:8px}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th,td{border:1px solid #000;height:30px;text-align:center;padding:2px}
+  th{font-weight:700}
+
+  @media print{
+    @page{size:A4;margin:0}
+    body{background:#fff;padding:0}
+    .page{width:210mm;min-height:297mm;margin:0;padding:1.5mm 1.2mm 1mm 1.2mm}
+    .title{height:8.5mm;line-height:8mm;font-size:6.3mm;border-radius:3mm}
+    .box{border-radius:2.4mm}
+    .label{font-size:2.4mm;padding:.6mm 1mm 0 1mm}
+    .value{font-size:3.3mm;min-height:4.2mm;padding:0 1mm .4mm 1mm}
+    .section-title{font-size:2.55mm;line-height:4.5mm;height:4.8mm}
+    .cell{min-height:7.2mm}
+    .admission .box, .fgts .box{min-height:7.3mm}
+    .alter{min-height:20mm}
+    .ferias-inner{min-height:21mm}
+    .accident,.rescisao{min-height:18mm}
+    .sindical{min-height:20mm}
+    .signature-space{height:20mm}
+    .signature-line{bottom:8mm}
+    .obs-footer{font-size:2.6mm;line-height:4mm;height:4mm}
+    .head2{min-height:18mm;border-radius:2.4mm;padding:1mm}
+    .head2-left,.head2-right{font-size:3mm;line-height:1.6}
+    .work{min-height:60mm;margin-top:1.5mm}
+    .work-title{font-size:3.1mm;line-height:5mm;height:5.5mm}
+    .work-body{min-height:53mm}
+    .work-note{font-size:2.6mm;height:6.5mm;padding:1mm 1.2mm}
+    table{font-size:2.5mm}
+    th,td{height:6.8mm}
+  }
+</style>
+</head>
+<body>
+<section class="page">
+  <div class="title">REGISTRO DE EMPREGADO</div>
+
+  <div class="grid top">
+    <div class="box"><div class="label">Autenticar</div><div style="height:62px"></div></div>
+    <div class="box split-3">
+      <div>
+        <div class="label">Matrícula eSocial</div><div class="value"></div>
+      </div>
+      <div>
+        <div class="label">Empregador</div><div class="value"></div>
+      </div>
+      <div>
+        <div class="label">Endereço</div><div class="value"></div>
+      </div>
+    </div>
+    <div class="box split-2">
+      <div><div class="label">Nº</div><div class="value"></div></div>
+      <div><div class="label">CNPJ</div><div class="value"></div></div>
+    </div>
+  </div>
+
+  <div class="grid employee-benef">
+    <div class="box">
+      <div class="label">Empregado</div><div class="value"></div>
+      <div class="thin-bottom"></div>
+      <div class="label">Residência</div><div class="value" style="min-height:28px"></div>
+    </div>
+    <div class="box">
+      <div class="label">Beneficiários</div><div class="value" style="min-height:56px"></div>
+    </div>
+  </div>
+
+  <div class="grid personal">
+    <div class="box"><div style="height:185px"></div></div>
+    <div class="box">
+      <div class="row p-row1 cellrow">
+        <div class="cell"><div class="label">Data de nascimento</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Local do nascimento</div><div class="value"></div></div>
+        <div class="cell"><div class="label">País da nacionalidade</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Estado civil</div><div class="value"></div></div>
+      </div>
+      <div class="row p-row2 cellrow">
+        <div class="cell"><div class="label">FILIAÇÃO</div></div>
+        <div class="cell fill-h">
+          <div style="border-bottom:1px solid #000;height:50%"><div class="label">Pai</div><div class="value"></div></div>
+          <div style="height:50%"><div class="label">Mãe</div><div class="value"></div></div>
+        </div>
+      </div>
+      <div class="row p-row3 cellrow">
+        <div class="cell"><div class="label">Cédula de Identidade</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Data de emissão</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Órgão/UF emissor</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Título Eleitoral</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Zona</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Seção</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Inscr. Órgão de Classe</div><div class="value"></div></div>
+      </div>
+      <div class="row p-row4 cellrow">
+        <div class="cell"><div class="label">CTPS</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Série</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Data de expedição da CTPS</div><div class="value"></div></div>
+        <div class="cell"><div class="label">UF CTPS</div><div class="value"></div></div>
+        <div class="cell"><div class="label">CPF</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Cart. Nac. Habilitação</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Categoria</div><div class="value"></div></div>
+      </div>
+      <div class="row p-row5 cellrow">
+        <div class="cell"><div class="label">Doc. militar</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Categoria</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Cor</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Sexo</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Grau de instrução</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Telefone Residencial</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Telefone Celular</div><div class="value"></div></div>
+      </div>
+      <div class="row p-row6">
+        <div class="cell"><div class="label">Deficiência</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Cargo</div><div class="value"></div></div>
+        <div class="cell"><div class="label">Função</div><div class="value"></div></div>
+        <div class="cell"><div class="label">C.B.O.</div><div class="value"></div></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid admission">
+    <div class="box"><div class="label">Data de Admissão</div><div class="value"></div></div>
+    <div class="box"><div class="label">Salário</div><div class="value"></div></div>
+    <div class="box"><div class="label">Por</div><div class="value"></div></div>
+    <div class="box"><div class="label">Horário de Trabalho</div><div class="value"></div></div>
+    <div class="box"><div class="label">Horário de Intervalo</div><div class="value"></div></div>
+  </div>
+
+  <div class="grid fgts">
+    <div class="box"><div class="label">FGTS</div></div>
+    <div class="box"><div class="label">Opção em</div><div class="value"></div></div>
+    <div class="box"><div class="label">Conta vinculada no banco</div><div class="value"></div></div>
+    <div class="box"><div class="label">Data da Retificação</div><div class="value"></div></div>
+  </div>
+
+  <div class="box" style="margin-top:2px">
+    <div class="section-title">PROGRAMA DE INTEGRAÇÃO SOCIAL - PIS</div>
+    <div class="row pis-row1 cellrow">
+      <div class="cell"><div class="label">Cadastrado em</div><div class="value"></div></div>
+      <div class="cell"><div class="label">Sob nº</div><div class="value"></div></div>
+      <div class="cell"><div class="label">Domicílio bancário</div><div class="value"></div></div>
+      <div class="cell"></div>
+    </div>
+    <div class="row pis-row2">
+      <div class="cell"><div class="label">Nº banco</div><div class="value"></div></div>
+      <div class="cell"><div class="label">Agência código</div><div class="value"></div></div>
+      <div class="cell"><div class="label">End. da agência</div><div class="value"></div></div>
+    </div>
+  </div>
+
+  <div class="box" style="margin-top:2px">
+    <div class="section-title">ALTERAÇÕES DE SALÁRIO, CARGO E/OU FUNÇÃO</div>
+    <div class="alter">
+      <div class="line-area" style="border-right:1px solid #000">
+        <div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div>
+      </div>
+      <div class="line-area">
+        <div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid ferias-obs">
+    <div class="box">
+      <div class="ferias-inner">
+        <div style="border-right:1px solid #000"><div class="section-title">FÉRIAS - PERÍODO AQUISITIVO</div></div>
+        <div style="border-right:1px solid #000"><div class="section-title">FÉRIAS - PERÍODO DE GOZO</div></div>
+        <div><div class="section-title">FÉRIAS - PERÍODO ABONO PECUNIÁRIO</div></div>
+      </div>
+    </div>
+    <div class="box">
+      <div class="section-title">Obs.: (Anotar advertências, suspensões, transferências, etc.)</div>
+      <div class="line-area" style="height:80px">
+        <div class="line"></div><div class="line"></div><div class="line"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid lower">
+    <div class="box accident">
+      <div class="section-title">ACIDENTES DE TRABALHO, DOENÇAS OU DOENÇAS PROFISSIONAIS</div>
+    </div>
+    <div class="box rescisao">
+      <div class="section-title">RESCISÃO DE CONTRATO DE TRABALHO</div>
+      <div class="rescisao-body">
+        <div>Data da saída:</div>
+        <div class="rescisao-inline"><div>Data aviso ind.:</div><div>Data projeção:</div></div>
+        <div>Tipo do desligamento:</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid sind-sign">
+    <div class="box sindical">
+      <div class="section-title">CONTRIBUIÇÃO SINDICAL</div>
+      <div style="height:100%;border-top:0;display:grid;grid-template-columns:50% 50%">
+        <div style="border-right:1px solid #000"></div><div></div>
+      </div>
+    </div>
+    <div class="signature-space"><div class="signature-line"></div></div>
+  </div>
+
+  <div class="obs-footer">OBSERVAÇÕES</div>
+</section>
+
+<section class="page">
+  <div class="head2">
+    <div class="head2-left">
+      <div>REGISTRO DE EMPREGADO</div>
+      <div>&nbsp;</div>
+      <div>&nbsp;</div>
+    </div>
+    <div class="head2-right">
+      <div>Nº:</div>
+      <div>CNPJ:</div>
+    </div>
+  </div>
+
+  <div class="box work">
+    <div class="work-title">DISCRIMINAÇÃO DO HORÁRIO DE TRABALHO</div>
+    <div class="work-body">
+      <div class="work-left">
+        <div class="work-note"><div>Data:</div><div>Nome:</div></div>
+        <table>
+          <thead>
+            <tr><th>Dia</th><th>Tipo</th><th>Entrada</th><th>S. Intervalo</th><th>E. Intervalo</th><th>Saída</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Dom</td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>Seg</td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>Ter</td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>Qua</td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>Qui</td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>Sex</td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>Sab</td><td></td><td></td><td></td><td></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div></div>
+    </div>
+  </div>
+</section>
+</body>
+</html>

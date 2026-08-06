@@ -1,0 +1,23 @@
+AJUSTE DE CARGA DIARIA E HORA EXTRA
+
+A apuracao de NORMAIS, FALTAS, EXTRAS e CARGA usa a carga configurada para cada dia da semana no Painel de Calculo.
+
+Regra aplicada:
+- ENT. 1 define o inicio do expediente;
+- SAÍ. 2 define o fim do expediente principal;
+- a carga do dia e comparada diretamente com o periodo entre ENT. 1 e SAÍ. 2;
+- o intervalo registrado em SAÍ. 1 e ENT. 2 nao e abatido novamente da carga;
+- tudo que ultrapassar a carga configurada vai para EXTRAS;
+- um terceiro periodo completo, ENT. 3 e SAÍ. 3, e somado integralmente.
+
+Exemplo solicitado:
+- Sexta-feira configurada com 08:59 de carga;
+- ENT. 1 = 07:00;
+- SAÍ. 2 = 17:00;
+- periodo contabilizado = 10:00;
+- NORMAIS = 08:59;
+- EXTRAS = 01:01;
+- FALTAS = 00:00;
+- CARGA = 08:59.
+
+Sabado e domingo continuam com carga 00:00 quando configurados dessa forma, portanto todo o periodo contabilizado nesses dias e lancado como hora extra.
