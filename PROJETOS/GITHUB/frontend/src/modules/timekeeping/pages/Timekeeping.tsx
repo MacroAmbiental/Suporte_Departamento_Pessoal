@@ -40,6 +40,7 @@ import {
   cachedLegacyTimeRecordIds,
   loadTimeRecordsRange,
   pickPreferredTimeRecord,
+  saveTimeRecordsTree,
 } from "@/modules/timekeeping/data/timeRecordsRepository";
 import {
   buildCidOptions,
@@ -1137,6 +1138,80 @@ function scheduleDefaultsForDate(
   };
 }
 
+type TeamSchedulePunches = { ent1: string; sai1: string; ent2: string; sai2: string };
+
+type TeamScheduleGroup = {
+  teamId: string;
+  teamName: string;
+  lead?: Employee;
+  punches: TeamSchedulePunches;
+  applicable: boolean;
+  collaborators: Employee[];
+};
+
+function scheduleToTeamPunches(schedule?: WorkScheduleDay): TeamSchedulePunches {
+  return {
+    ent1: schedule?.start?.trim() || "",
+    sai1: schedule?.breakStart?.trim() || "",
+    ent2: schedule?.breakEnd?.trim() || "",
+    sai2: schedule?.end?.trim() || "",
+  };
+}
+
+function teamPunchesHaveAny(punches: TeamSchedulePunches) {
+  return [punches.ent1, punches.sai1, punches.ent2, punches.sai2].some((value) =>
+    hasFilledTimeValue(value),
+  );
+}
+
+function normalizeTeamPunch(value?: string | number | null) {
+  return hasFilledTimeValue(value) ? excelTimeToText(value) || String(value) : "";
+}
+
+function roleIsEncarregado(role?: string) {
+  return normalizeKey(role || "").includes("encarregad");
+}
+
+function teamNameMatchesEmployee(teamName: string, employeeName: string) {
+  const team = normalizeKey(teamName);
+  const employee = normalizeKey(employeeName);
+  if (!team || !employee) return false;
+  return (
+    team === employee ||
+    employee.startsWith(`${team}_`) ||
+    team.startsWith(`${employee}_`)
+  );
+}
+
+function findTeamLead(
+  teamId: string,
+  teamName: string,
+  members: Employee[],
+  allEmployees: Employee[],
+): Employee | undefined {
+  const byFlag = allEmployees.find(
+    (employee) => employee.teamId === teamId && employee.isTeamLead,
+  );
+  if (byFlag) return byFlag;
+
+  const byRole = members.find((employee) => roleIsEncarregado(employee.role));
+  if (byRole) return byRole;
+
+  const candidates = allEmployees.filter(
+    (employee) =>
+      (employee.isTeamLead || roleIsEncarregado(employee.role)) &&
+      teamNameMatchesEmployee(teamName, employee.name),
+  );
+  if (!candidates.length) return undefined;
+
+  const memberCompanyIds = new Set(members.map((member) => member.companyId));
+  const withSchedule = candidates.filter((employee) =>
+    Boolean(employee.workScheduleDays?.length),
+  );
+  const pool = withSchedule.length ? withSchedule : candidates;
+  return pool.find((employee) => memberCompanyIds.has(employee.companyId)) || pool[0];
+}
+
 function isEmployeeInNoticePeriod(employee: Employee, date: string) {
   const registrationData = employee.registrationData || {};
   const start = String(registrationData.noticeStartDate || "");
@@ -1637,11 +1712,11 @@ function createDisplayRecord(
     sai2: isSai2ManuallyZeroed(existingCustomFields)
       ? "00:00"
       : automaticScheduleTimeValue(
-          existingCustomFields.sai2,
-          scheduleDefaults.end,
-          settings.secullumEndTime || "17:00",
-          useDefaults,
-        ),
+        existingCustomFields.sai2,
+        scheduleDefaults.end,
+        settings.secullumEndTime || "17:00",
+        useDefaults,
+      ),
     normais: existingCustomFields.normais || "00:00",
     faltas: existingCustomFields.faltas || "00:00",
     extras: existingCustomFields.extras || "00:00",
@@ -1849,6 +1924,15 @@ export default function Timekeeping() {
     );
   });
 
+  const [teamScheduleModalOpen, setTeamScheduleModalOpen] = useState(false);
+  const [expandedTeamScheduleIds, setExpandedTeamScheduleIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [excludedTeamScheduleEmployeeIds, setExcludedTeamScheduleEmployeeIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const [applyingTeamSchedule, setApplyingTeamSchedule] = useState(false);
+
   const employeesForDaySave = useMemo(
     () =>
       employees.filter((employee) => {
@@ -2003,6 +2087,165 @@ export default function Timekeeping() {
     () => new Map(data.employees.map((employee) => [employee.id, employee])),
     [data.employees],
   );
+
+  const teamScheduleGroups = useMemo<TeamScheduleGroup[]>(() => {
+    const selected = filters.realTeamIds.filter(Boolean);
+    if (!selected.length) return [];
+
+    const membersByTeam = new Map<string, Employee[]>();
+    employees.forEach((employee) => {
+      const teamId = employee.teamId || "";
+      if (!teamId || !selected.includes(teamId)) return;
+      const list = membersByTeam.get(teamId) || [];
+      list.push(employee);
+      membersByTeam.set(teamId, list);
+    });
+
+    return selected
+      .map((teamId) => {
+        const members = membersByTeam.get(teamId) || [];
+        const teamName = teamById.get(teamId)?.name || "-";
+        const lead = findTeamLead(teamId, teamName, members, data.employees);
+        const schedule = lead ? scheduleForDate(lead, filters.date) : undefined;
+        const punches = scheduleToTeamPunches(schedule);
+        const collaborators = members.filter(
+          (employee) => !lead || employee.id !== lead.id,
+        );
+        return {
+          teamId,
+          teamName,
+          lead,
+          punches,
+          applicable: teamPunchesHaveAny(punches),
+          collaborators,
+        };
+      })
+      .filter((group) => group.lead || group.collaborators.length);
+  }, [employees, data.employees, filters.realTeamIds, filters.date, teamById]);
+
+  const teamScheduleSelectedCount = useMemo(
+    () =>
+      teamScheduleGroups.reduce((total, group) => {
+        if (!group.applicable) return total;
+        return (
+          total +
+          group.collaborators.filter(
+            (employee) => !excludedTeamScheduleEmployeeIds.has(employee.id),
+          ).length
+        );
+      }, 0),
+    [teamScheduleGroups, excludedTeamScheduleEmployeeIds],
+  );
+
+  function openTeamScheduleModal() {
+    setExcludedTeamScheduleEmployeeIds(new Set());
+    setExpandedTeamScheduleIds(new Set());
+    setTeamScheduleModalOpen(true);
+  }
+
+  function toggleTeamScheduleExpanded(teamId: string) {
+    setExpandedTeamScheduleIds((current) => {
+      const next = new Set(current);
+      if (next.has(teamId)) next.delete(teamId);
+      else next.add(teamId);
+      return next;
+    });
+  }
+
+  function toggleTeamScheduleEmployee(employeeId: string) {
+    setExcludedTeamScheduleEmployeeIds((current) => {
+      const next = new Set(current);
+      if (next.has(employeeId)) next.delete(employeeId);
+      else next.add(employeeId);
+      return next;
+    });
+  }
+
+  function teamScheduleCollaboratorState(
+    employee: Employee,
+    punches: TeamSchedulePunches,
+  ) {
+    const record = employeeRecord(employee.id);
+    const current = {
+      ent1: normalizeTeamPunch(record?.checkIn),
+      sai1: normalizeTeamPunch(record?.checkOut),
+      ent2: normalizeTeamPunch(record?.customFields?.ent2),
+      sai2: normalizeTeamPunch(record?.customFields?.sai2),
+    };
+    const hasRecord = [current.ent1, current.sai1, current.ent2, current.sai2].some(
+      Boolean,
+    );
+    const target = {
+      ent1: normalizeTeamPunch(punches.ent1),
+      sai1: normalizeTeamPunch(punches.sai1),
+      ent2: normalizeTeamPunch(punches.ent2),
+      sai2: normalizeTeamPunch(punches.sai2),
+    };
+    const differs =
+      hasRecord &&
+      (current.ent1 !== target.ent1 ||
+        current.sai1 !== target.sai1 ||
+        current.ent2 !== target.ent2 ||
+        current.sai2 !== target.sai2);
+    return { hasRecord, differs, current };
+  }
+
+  async function applyTeamSchedule() {
+    if (applyingTeamSchedule) return;
+    setApplyingTeamSchedule(true);
+    try {
+      const built: TimeRecord[] = [];
+      teamScheduleGroups.forEach((group) => {
+        if (!group.applicable) return;
+        group.collaborators.forEach((employee) => {
+          if (excludedTeamScheduleEmployeeIds.has(employee.id)) return;
+          const existing = employeeRecord(employee.id);
+          const patch: Partial<TimeRecord> = {
+            source: "manual",
+            checkIn: group.punches.ent1 || "00:00",
+            checkOut: group.punches.sai1 || "00:00",
+            customFields: {
+              ent2: group.punches.ent2 || "00:00",
+              sai2: group.punches.sai2 || "00:00",
+            },
+          };
+          if (isAbsenceStatus(existing?.status)) {
+            patch.status = "present";
+          }
+          const record = sanitizeTimeRecord({
+            ...makeRecord(employee, patch),
+            id: existing?.id || timeRecordDocumentId(filters.date, employee.id),
+            updatedAt: new Date().toISOString(),
+          });
+          built.push(record);
+        });
+      });
+
+      if (!built.length) {
+        setTeamScheduleModalOpen(false);
+        return;
+      }
+
+      setDraftRecordsByEmployeeId((current) => {
+        const next = { ...current };
+        built.forEach((record) => {
+          next[record.employeeId] = record;
+        });
+        return next;
+      });
+
+      await saveTimeRecordsTree(built);
+      setTeamScheduleModalOpen(false);
+    } catch (error) {
+      console.error("Não foi possível aplicar os horários da equipe.", error);
+      window.alert(
+        "Não foi possível aplicar os horários da equipe. Tente novamente.",
+      );
+    } finally {
+      setApplyingTeamSchedule(false);
+    }
+  }
+
   const companyGroupNameByCompanyId = useMemo(() => {
     const groupById = new Map(data.companyGroups.map((group) => [group.id, group]));
     const map = new Map<string, string>();
@@ -2050,10 +2293,14 @@ export default function Timekeeping() {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }, [data.timekeepingColumns, filters.companyIds]);
 
-  const unorderedColumns = useMemo<ColumnDescriptor[]>(
-    () => [...baseColumns, ...customColumns],
-    [customColumns],
-  );
+  const unorderedColumns = useMemo<ColumnDescriptor[]>(() => {
+    const seenKeys = new Set<string>();
+    return [...baseColumns, ...customColumns].filter((column) => {
+      if (seenKeys.has(column.key)) return false;
+      seenKeys.add(column.key);
+      return true;
+    });
+  }, [customColumns]);
   const columns = useMemo<ColumnDescriptor[]>(
     () => applyColumnOrder(unorderedColumns, columnOrder),
     [columnOrder, unorderedColumns],
@@ -2062,6 +2309,49 @@ export default function Timekeeping() {
     () => columns.map((column) => ({ key: column.key, label: column.label })),
     [columns],
   );
+
+  const teamFilterOptions = useMemo(() => {
+    const visibleTeams = data.teams.filter(
+      (team) =>
+        !filters.companyIds.length ||
+        filters.companyIds.includes(team.companyId),
+    );
+    const companyById = new Map(
+      data.companies.map((company) => [company.id, company.name] as const),
+    );
+    const memberCountByTeam = new Map<string, number>();
+    data.employees.forEach((employee) => {
+      if (!employee.teamId) return;
+      memberCountByTeam.set(
+        employee.teamId,
+        (memberCountByTeam.get(employee.teamId) || 0) + 1,
+      );
+    });
+    const nameCount = new Map<string, number>();
+    visibleTeams.forEach((team) => {
+      const key = normalizeKey(team.name);
+      nameCount.set(key, (nameCount.get(key) || 0) + 1);
+    });
+    let options = visibleTeams.map((team) => {
+      const duplicated = (nameCount.get(normalizeKey(team.name)) || 0) > 1;
+      const company = companyById.get(team.companyId) || "";
+      const count = memberCountByTeam.get(team.id) || 0;
+      const label = duplicated
+        ? `${team.name}${company ? ` — ${company}` : ""} (${count})`
+        : `${team.name} (${count})`;
+      return { value: team.id, label };
+    });
+    const labelCount = new Map<string, number>();
+    options.forEach((option) =>
+      labelCount.set(option.label, (labelCount.get(option.label) || 0) + 1),
+    );
+    options = options.map((option) =>
+      (labelCount.get(option.label) || 0) > 1
+        ? { ...option, label: `${option.label} · ${option.value.slice(0, 4)}` }
+        : option,
+    );
+    return options;
+  }, [data.teams, data.companies, data.employees, filters.companyIds]);
   const selectedReportColumnKeys = useMemo(
     () => sanitizeColumnSelection(
       reportColumnKeys,
@@ -2401,8 +2691,8 @@ export default function Timekeeping() {
         ...current,
         statusConditions: exists
           ? current.statusConditions.map((item) =>
-              item.id === normalized.id ? normalized : item,
-            )
+            item.id === normalized.id ? normalized : item,
+          )
           : [...current.statusConditions, normalized],
       };
     });
@@ -2532,8 +2822,8 @@ export default function Timekeeping() {
               overtimePercent: nextPercent,
               overtimeAmount: toFixed2(
                 Number(record.overtimeHours || 0) *
-                  baseHourValue *
-                  (1 + nextPercent / 100),
+                baseHourValue *
+                (1 + nextPercent / 100),
               ),
               updatedAt: new Date().toISOString(),
             };
@@ -2561,8 +2851,8 @@ export default function Timekeeping() {
             overtimePercent: nextPercent,
             overtimeAmount: toFixed2(
               Number(record.overtimeHours || 0) *
-                baseHourValue *
-                (1 + nextPercent / 100),
+              baseHourValue *
+              (1 + nextPercent / 100),
             ),
             updatedAt: new Date().toISOString(),
           };
@@ -2644,16 +2934,16 @@ export default function Timekeeping() {
     const requestedCheckOut = hasExplicitCheckOut ? patch.checkOut : current.checkOut;
     const checkOut = hasExplicitCheckOut
       ? automaticTimeValue(
-          requestedCheckOut,
-          scheduleDefaults.lunchOut,
-          shouldApplyDefaults,
-        )
+        requestedCheckOut,
+        scheduleDefaults.lunchOut,
+        shouldApplyDefaults,
+      )
       : automaticScheduleTimeValue(
-          requestedCheckOut,
-          scheduleDefaults.lunchOut,
-          calculationSettings.secullumLunchOutTime || "12:00",
-          shouldApplyDefaults,
-        );
+        requestedCheckOut,
+        scheduleDefaults.lunchOut,
+        calculationSettings.secullumLunchOutTime || "12:00",
+        shouldApplyDefaults,
+      );
     const status = patch.status ?? current.status;
 
     const patchCustomFields = (patch.customFields || {}) as Record<string, string>;
@@ -2676,21 +2966,21 @@ export default function Timekeeping() {
       ent2: hasExplicitEnt2
         ? String(patchCustomFields.ent2 || "00:00")
         : automaticScheduleTimeValue(
-            customFields.ent2,
-            scheduleDefaults.lunchReturn,
-            calculationSettings.secullumLunchReturnTime || "13:01",
-            shouldApplyDefaults,
-          ),
+          customFields.ent2,
+          scheduleDefaults.lunchReturn,
+          calculationSettings.secullumLunchReturnTime || "13:01",
+          shouldApplyDefaults,
+        ),
       sai2: sai2ManuallyZeroed
         ? "00:00"
         : hasExplicitSai2
           ? String(patchCustomFields.sai2 || "00:00")
           : automaticScheduleTimeValue(
-              customFields.sai2,
-              scheduleDefaults.end,
-              calculationSettings.secullumEndTime || "17:00",
-              shouldApplyDefaults,
-            ),
+            customFields.sai2,
+            scheduleDefaults.end,
+            calculationSettings.secullumEndTime || "17:00",
+            shouldApplyDefaults,
+          ),
     };
 
     const calculated = calculateSecullumMetrics(
@@ -2790,10 +3080,10 @@ export default function Timekeeping() {
       neutralStatus || fullDayAbsence
         ? 0
         : toFixed2(
-            Number(overtimeHours || 0) *
-              baseHourValue *
-              (1 + Number(overtimePercent || 0) / 100),
-          );
+          Number(overtimeHours || 0) *
+          baseHourValue *
+          (1 + Number(overtimePercent || 0) / 100),
+        );
     const finalCheckIn = checkIn || "00:00";
     const finalCheckOut = checkOut || "00:00";
 
@@ -3341,9 +3631,9 @@ export default function Timekeeping() {
       options: columnForm.linkedModule
         ? []
         : columnForm.options
-            .split(/[\n,;]/)
-            .map((item) => item.trim())
-            .filter(Boolean),
+          .split(/[\n,;]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
       optionColors: parseOptionColors(columnForm.optionColors),
       linkedModule: columnForm.linkedModule,
       relatedField: columnForm.relatedField,
@@ -3556,8 +3846,8 @@ export default function Timekeeping() {
         const existing =
           imported.employee && imported.date
             ? timeRecordByEmployeeDate.get(
-                `${imported.employee.id}:${imported.date}`,
-              )
+              `${imported.employee.id}:${imported.date}`,
+            )
             : undefined;
         imported.hasManualRecord = recordHasManualPoint(existing);
         imported.warning = buildSecullumWarning(imported);
@@ -3637,119 +3927,119 @@ export default function Timekeeping() {
     try {
       const obsoleteIds = new Set(cachedDuplicateTimeRecordIds(filters.date));
       const recordsToImport = validRows.map((row) => {
-          const employee = row.employee as Employee;
+        const employee = row.employee as Employee;
 
-          const existing = timeRecordByEmployeeDate.get(
-            `${employee.id}:${row.date}`,
-          );
+        const existing = timeRecordByEmployeeDate.get(
+          `${employee.id}:${row.date}`,
+        );
 
-          const hasImportedPunch = Boolean(
-            row.ent1 ||
-            row.sai1 ||
+        const hasImportedPunch = Boolean(
+          row.ent1 ||
+          row.sai1 ||
+          row.ent2 ||
+          row.sai2 ||
+          row.ent3 ||
+          row.sai3,
+        );
+        const importedDateIsHoliday = isHoliday(
+          row.date,
+          calculationSettings,
+        );
+        const scheduleDefaults = scheduleDefaultsForDate(
+          employee,
+          row.date,
+          calculationSettings,
+        );
+        const secullumFields = {
+          ent2:
             row.ent2 ||
+            (hasImportedPunch
+              ? scheduleDefaults.lunchReturn || ""
+              : ""),
+          sai2:
             row.sai2 ||
-            row.ent3 ||
-            row.sai3,
-          );
-          const importedDateIsHoliday = isHoliday(
-            row.date,
-            calculationSettings,
-          );
-          const scheduleDefaults = scheduleDefaultsForDate(
-            employee,
-            row.date,
-            calculationSettings,
-          );
-          const secullumFields = {
-            ent2:
-              row.ent2 ||
-              (hasImportedPunch
-                ? scheduleDefaults.lunchReturn || ""
-                : ""),
-            sai2:
-              row.sai2 ||
-              (hasImportedPunch
-                ? scheduleDefaults.end || ""
-                : ""),
-            ent3: row.ent3,
-            sai3: row.sai3,
-          };
-          const calculated = calculateSecullumMetrics(
-            row.ent1,
-            row.sai1 ||
-              (row.ent1 ? scheduleDefaults.lunchOut : ""),
-            secullumFields,
-            calculationSettings,
-            row.date,
-            employee,
-          );
-          const overtimePercent = overtimeRateForDate(
-            row.date,
-            calculationSettings,
-          );
-          const overtimeHours = calculated.overtimeHours;
-          const baseHourValue = Number(employee.salary || 0) / 220;
-          const expectedWorkMinutes = normalLimitMinutesForEmployeeDate(
-            employee,
-            row.date,
-            calculationSettings,
-          );
-          const importedStatus: AttendanceStatus =
-            !hasImportedPunch &&
+            (hasImportedPunch
+              ? scheduleDefaults.end || ""
+              : ""),
+          ent3: row.ent3,
+          sai3: row.sai3,
+        };
+        const calculated = calculateSecullumMetrics(
+          row.ent1,
+          row.sai1 ||
+          (row.ent1 ? scheduleDefaults.lunchOut : ""),
+          secullumFields,
+          calculationSettings,
+          row.date,
+          employee,
+        );
+        const overtimePercent = overtimeRateForDate(
+          row.date,
+          calculationSettings,
+        );
+        const overtimeHours = calculated.overtimeHours;
+        const baseHourValue = Number(employee.salary || 0) / 220;
+        const expectedWorkMinutes = normalLimitMinutesForEmployeeDate(
+          employee,
+          row.date,
+          calculationSettings,
+        );
+        const importedStatus: AttendanceStatus =
+          !hasImportedPunch &&
             (importedDateIsHoliday || expectedWorkMinutes <= 0)
-              ? "day_off"
-              : hasImportedPunch
-                ? "present"
-                : "absence_pending";
+            ? "day_off"
+            : hasImportedPunch
+              ? "present"
+              : "absence_pending";
 
-          const record: TimeRecord = {
-            id: timeRecordDocumentId(row.date, employee.id),
-            companyId: employee.companyId,
-            employeeId: employee.id,
-            date: row.date,
-            status: importedStatus,
-            source: "seculum",
-            functionName: employee.role || employee.position || "",
-            realTeamId: employee.teamId || "",
-            dayTeamId: existing?.dayTeamId ?? employee.teamId ?? "",
-            checkIn: row.ent1,
-            checkOut:
-              row.sai1 ||
-              (row.ent1 ? scheduleDefaults.lunchOut : ""),
-            usefulHours: calculated.usefulHours,
-            baseHours: calculated.baseHours,
-            intervalHours: toFixed2(calculationSettings.intervalMinutes / 60),
-            overtimePercent,
-            overtimeHours,
-            overtimeAmount: toFixed2(
-              overtimeHours * baseHourValue * (1 + overtimePercent / 100),
-            ),
-            cid: existing?.cid || "",
-            absenceCount:
-              importedStatus === "absence_pending" && !hasImportedPunch && expectedWorkMinutes > 0
-                ? 1
-                : calculated.absenceCount,
-            notes: existing?.notes || "",
-            customFields: removeUndefinedFields({
-              ...(existing?.customFields || {}),
-              ent2: secullumFields.ent2 || "",
-              sai2: secullumFields.sai2 || "",
-              ent3: row.ent3 || "",
-              sai3: row.sai3 || "",
-              normais: calculated.normais || "00:00",
-              faltas: calculated.faltas || "00:00",
-              extras: calculated.extras || "00:00",
-              carga: calculated.carga || "00:00",
-              secullumFileName: secullumFileName || "",
-              secullumImportedAt: new Date().toISOString(),
-              secullumWarning: row.warning || "",
-            }),
-            updatedAt: new Date().toISOString(),
-          };
+        const record: TimeRecord = {
+          id: timeRecordDocumentId(row.date, employee.id),
+          companyId: employee.companyId,
+          employeeId: employee.id,
+          date: row.date,
+          status: importedStatus,
+          source: "seculum",
+          functionName: employee.role || employee.position || "",
+          realTeamId: employee.teamId || "",
+          dayTeamId: existing?.dayTeamId ?? employee.teamId ?? "",
+          checkIn: row.ent1,
+          checkOut:
+            row.sai1 ||
+            (row.ent1 ? scheduleDefaults.lunchOut : ""),
+          usefulHours: calculated.usefulHours,
+          baseHours: calculated.baseHours,
+          intervalHours: toFixed2(calculationSettings.intervalMinutes / 60),
+          overtimePercent,
+          overtimeHours,
+          overtimeAmount: toFixed2(
+            overtimeHours * baseHourValue * (1 + overtimePercent / 100),
+          ),
+          cid: existing?.cid || "",
+          absenceCount:
+            importedStatus === "absence_pending" && !hasImportedPunch && expectedWorkMinutes > 0
+              ? 1
+              : calculated.absenceCount,
+          notes: existing?.notes || "",
+          customFields: removeUndefinedFields({
+            ...(existing?.customFields || {}),
+            ent2: secullumFields.ent2 || "",
+            sai2: secullumFields.sai2 || "",
+            ent3: row.ent3 || "",
+            sai3: row.sai3 || "",
+            normais: calculated.normais || "00:00",
+            faltas: calculated.faltas || "00:00",
+            extras: calculated.extras || "00:00",
+            carga: calculated.carga || "00:00",
+            secullumFileName: secullumFileName || "",
+            secullumImportedAt: new Date().toISOString(),
+            secullumWarning: row.warning || "",
+          }),
+          updatedAt: new Date().toISOString(),
+        };
 
-          if (existing?.id && existing.id !== record.id) obsoleteIds.add(existing.id);
-          return sanitizeTimeRecord(record);
-        });
+        if (existing?.id && existing.id !== record.id) obsoleteIds.add(existing.id);
+        return sanitizeTimeRecord(record);
+      });
 
       await data.saveTimekeepingDayRecords(recordsToImport, Array.from(obsoleteIds));
 
@@ -3928,8 +4218,8 @@ export default function Timekeeping() {
     const options = columnFilterOptions(column);
     const currentSelected = currentFilter.selected.length
       ? currentFilter.selected.filter(
-          (item) => item !== noColumnFilterSelectionKey,
-        )
+        (item) => item !== noColumnFilterSelectionKey,
+      )
       : options;
     const selected = currentSelected.includes(value)
       ? currentSelected.filter((item) => item !== value)
@@ -4370,8 +4660,8 @@ export default function Timekeeping() {
         dates.length === 1
           ? "Ponto"
           : safeSheetName(
-              `${String(index + 1).padStart(2, "0")} ${formatDateForDisplay(date).replace(/\//g, "-")}`,
-            );
+            `${String(index + 1).padStart(2, "0")} ${formatDateForDisplay(date).replace(/\//g, "-")}`,
+          );
       XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
     });
 
@@ -4453,10 +4743,9 @@ export default function Timekeeping() {
             <table>
               <thead><tr>${columnHeaders}</tr></thead>
               <tbody>
-                ${
-                  rows ||
-                  `<tr><td colspan="${selectedColumns.length}">Nenhum funcionário encontrado.</td></tr>`
-                }
+                ${rows ||
+          `<tr><td colspan="${selectedColumns.length}">Nenhum funcionário encontrado.</td></tr>`
+          }
               </tbody>
             </table>
           </section>
@@ -4586,8 +4875,8 @@ export default function Timekeeping() {
     const options = isFilterOpen ? columnFilterOptions(column) : [];
     const visibleOptions = normalizedFilterSearch
       ? options.filter((value) =>
-          normalizeSearch(value || "(vazio)").includes(normalizedFilterSearch),
-        )
+        normalizeSearch(value || "(vazio)").includes(normalizedFilterSearch),
+      )
       : options;
     const isFiltered = Boolean(filter.search.trim() || filter.selected.length);
 
@@ -4874,10 +5163,10 @@ export default function Timekeeping() {
       const condition = statusConditionFor(record.status);
       const statusStyle = condition
         ? {
-            backgroundColor: condition.rowColor,
-            color: condition.textColor,
-            borderColor: condition.textColor,
-          }
+          backgroundColor: condition.rowColor,
+          color: condition.textColor,
+          borderColor: condition.textColor,
+        }
         : undefined;
 
       return (
@@ -4959,8 +5248,8 @@ export default function Timekeeping() {
       const metricFallback = "00:00";
       const value = String(
         record.customFields?.[column.key] ||
-          calculated[column.key as keyof typeof calculated] ||
-          metricFallback,
+        calculated[column.key as keyof typeof calculated] ||
+        metricFallback,
       );
       const isManualMetric = isCalculatedMetricKey(column.key);
 
@@ -4990,10 +5279,10 @@ export default function Timekeeping() {
                   [column.key]: nextValue,
                   ...(column.key === "sai2"
                     ? {
-                        [manualZeroSai2Field]: hasFilledTimeValue(nextValue)
-                          ? "false"
-                          : "true",
-                      }
+                      [manualZeroSai2Field]: hasFilledTimeValue(nextValue)
+                        ? "false"
+                        : "true",
+                    }
                     : {}),
                 };
 
@@ -5094,10 +5383,10 @@ export default function Timekeeping() {
       const selectedCondition = statusConditionFor(record.status);
       const selectStyle = selectedCondition
         ? {
-            backgroundColor: selectedCondition.rowColor,
-            color: selectedCondition.textColor,
-            borderColor: selectedCondition.textColor,
-          }
+          backgroundColor: selectedCondition.rowColor,
+          color: selectedCondition.textColor,
+          borderColor: selectedCondition.textColor,
+        }
         : undefined;
 
       return (
@@ -5202,9 +5491,9 @@ export default function Timekeeping() {
             style={
               selectedColor
                 ? {
-                    borderColor: selectedColor,
-                    backgroundColor: `${selectedColor}22`,
-                  }
+                  borderColor: selectedColor,
+                  backgroundColor: `${selectedColor}22`,
+                }
                 : undefined
             }
             value={currentValue}
@@ -5436,30 +5725,14 @@ export default function Timekeeping() {
           placeholder="Equipe real"
           value={filters.realTeamIds}
           onChange={(realTeamIds) => setFilters({ ...filters, realTeamIds })}
-          options={sortOptions(
-            data.teams
-              .filter(
-                (team) =>
-                  !filters.companyIds.length ||
-                  filters.companyIds.includes(team.companyId),
-              )
-              .map((team) => ({ value: team.id, label: team.name })),
-          )}
+          options={sortOptions(teamFilterOptions)}
         />
         <MultiSelect
           label="Equipe do dia"
           placeholder="Equipe do dia"
           value={filters.dayTeamIds}
           onChange={(dayTeamIds) => setFilters({ ...filters, dayTeamIds })}
-          options={sortOptions(
-            data.teams
-              .filter(
-                (team) =>
-                  !filters.companyIds.length ||
-                  filters.companyIds.includes(team.companyId),
-              )
-              .map((team) => ({ value: team.id, label: team.name })),
-          )}
+          options={sortOptions(teamFilterOptions)}
         />
         <MultiSelect
           label="Funcionários"
@@ -6009,6 +6282,19 @@ export default function Timekeeping() {
             </p>
           </div>
           <div className="form-actions">
+            {canEditTimekeeping && filters.realTeamIds.length ? (
+              <button
+                className="btn btn-primary"
+                type="button"
+                data-testid="open-team-schedule-modal-btn"
+                disabled={busy}
+                title="Aplica o horário programado do encarregado a todos os colaboradores da equipe selecionada neste dia."
+                onClick={openTeamScheduleModal}
+              >
+                <Users size={16} /> Alterar horários para todos colaboradores da
+                equipe selecionada
+              </button>
+            ) : null}
             <button
               className={`btn ${isCurrentDateHoliday ? "btn-primary" : "btn-secondary"}`}
               type="button"
@@ -6878,6 +7164,203 @@ export default function Timekeeping() {
             </button>
           </div>
         </aside>
+      ) : null}
+
+      {teamScheduleModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-panel wizard-card"
+            style={{ maxWidth: 780, width: "100%" }}
+            data-testid="team-schedule-modal"
+          >
+            <div className="modal-header">
+              <h2>Alterar ponto da equipe</h2>
+              <button
+                className="icon-button"
+                type="button"
+                disabled={applyingTeamSchedule}
+                onClick={() => setTeamScheduleModalOpen(false)}
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="panel-subtitle" style={{ padding: "0 4px 10px" }}>
+              O horário programado de cada encarregado (ENT.1, SAÍ.1, ENT.2,
+              SAÍ.2) será replicado para os colaboradores da equipe no dia{" "}
+              {filters.date.split("-").reverse().join("/")}. Expanda uma equipe
+              para revisar os colaboradores e desmarcar quem não deve receber.
+            </p>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                maxHeight: 440,
+                overflowY: "auto",
+                padding: 4,
+              }}
+            >
+              {teamScheduleGroups.length === 0 ? (
+                <div className="alert">
+                  Nenhuma equipe encontrada com os filtros atuais.
+                </div>
+              ) : (
+                teamScheduleGroups.map((group) => {
+                  const expanded = expandedTeamScheduleIds.has(group.teamId);
+                  const activeCount = group.applicable
+                    ? group.collaborators.filter(
+                      (employee) =>
+                        !excludedTeamScheduleEmployeeIds.has(employee.id),
+                    ).length
+                    : 0;
+                  return (
+                    <div
+                      key={group.teamId}
+                      style={{
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 12,
+                        padding: 12,
+                        background: group.applicable ? "#ffffff" : "#fff7ed",
+                      }}
+                      data-testid={`team-schedule-group-${group.teamId}`}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          justifyContent: "space-between",
+                          gap: 12,
+                          cursor: "pointer",
+                        }}
+                        onClick={() => toggleTeamScheduleExpanded(group.teamId)}
+                        data-testid={`team-schedule-toggle-${group.teamId}`}
+                      >
+                        <div>
+                          <strong>{group.teamName}</strong>
+                          <div className="muted" style={{ fontSize: 13 }}>
+                            Encarregado:{" "}
+                            {group.lead ? group.lead.name : "— não encontrado —"}
+                          </div>
+                          <div className="muted" style={{ fontSize: 13 }}>
+                            {group.applicable
+                              ? `Horário programado · ENT.1 ${group.punches.ent1 || "--:--"} · SAÍ.1 ${group.punches.sai1 || "--:--"} · ENT.2 ${group.punches.ent2 || "--:--"} · SAÍ.2 ${group.punches.sai2 || "--:--"}`
+                              : "Encarregado sem jornada programada para este dia — não é possível aplicar."}
+                          </div>
+                        </div>
+                        <div
+                          className="muted"
+                          style={{ whiteSpace: "nowrap", fontWeight: 600 }}
+                        >
+                          {activeCount}/{group.collaborators.length}{" "}
+                          {expanded ? "▲" : "▼"}
+                        </div>
+                      </div>
+                      {expanded ? (
+                        <div
+                          style={{
+                            marginTop: 10,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 6,
+                          }}
+                        >
+                          {group.collaborators.length === 0 ? (
+                            <div className="muted" style={{ fontSize: 13 }}>
+                              Nenhum colaborador nesta equipe no filtro atual.
+                            </div>
+                          ) : (
+                            group.collaborators.map((employee) => {
+                              const state = teamScheduleCollaboratorState(
+                                employee,
+                                group.punches,
+                              );
+                              const checked =
+                                group.applicable &&
+                                !excludedTeamScheduleEmployeeIds.has(employee.id);
+                              return (
+                                <label
+                                  key={employee.id}
+                                  className="check-field"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                  }}
+                                  data-testid={`team-schedule-employee-${employee.id}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    disabled={
+                                      !group.applicable || applyingTeamSchedule
+                                    }
+                                    checked={checked}
+                                    onChange={() =>
+                                      toggleTeamScheduleEmployee(employee.id)
+                                    }
+                                    data-testid={`team-schedule-employee-checkbox-${employee.id}`}
+                                  />
+                                  <span style={{ flex: 1 }}>
+                                    {employee.name}{" "}
+                                    <span
+                                      className="muted"
+                                      style={{ fontSize: 12 }}
+                                    >
+                                      · {employee.role || employee.position || "-"}
+                                    </span>
+                                  </span>
+                                  {state.differs ? (
+                                    <span
+                                      title={`Já possui ponto lançado: ENT.1 ${state.current.ent1 || "--:--"} · SAÍ.1 ${state.current.sai1 || "--:--"} · ENT.2 ${state.current.ent2 || "--:--"} · SAÍ.2 ${state.current.sai2 || "--:--"}`}
+                                      style={{
+                                        color: "#b45309",
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                      }}
+                                      data-testid={`team-schedule-conflict-${employee.id}`}
+                                    >
+                                      já preenchido (será substituído)
+                                    </span>
+                                  ) : null}
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div
+              className="form-actions"
+              style={{ marginTop: 14, justifyContent: "space-between" }}
+            >
+              <button
+                className="btn btn-ghost"
+                type="button"
+                disabled={applyingTeamSchedule}
+                onClick={() => setTeamScheduleModalOpen(false)}
+                data-testid="team-schedule-cancel-btn"
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={applyingTeamSchedule || teamScheduleSelectedCount === 0}
+                onClick={() => void applyTeamSchedule()}
+                data-testid="team-schedule-confirm-btn"
+              >
+                <Check size={16} />{" "}
+                {applyingTeamSchedule
+                  ? "Registrando..."
+                  : `Registrar todos os ${teamScheduleSelectedCount} funcionário(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {confirmDialog ? (
