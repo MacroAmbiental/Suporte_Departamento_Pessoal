@@ -34,18 +34,18 @@ const navItems: {
   screen: AppScreen;
   end?: boolean;
 }[] = [
-  { to: "/app", label: "Painel", icon: LayoutDashboard, screen: "dashboard", end: true },
-  { to: "/app/companies", label: "Empresas", icon: Building2, screen: "companies" },
-  { to: "/app/records", label: "Registros", icon: Files, screen: "records" },
-  { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
-  { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits" },
-  { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping" },
-  { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
-  { to: "/app/talent-bank", label: "Banco de talentos", icon: Briefcase, screen: "talentBank" },
-  { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications" },
-  { to: "/app/monitoring", label: "Monitoramento", icon: Activity, screen: "monitoring" },
-  { to: "/app/permissions", label: "Permissões do sistema", icon: ShieldCheck, screen: "permissions" },
-];
+    { to: "/app", label: "Painel", icon: LayoutDashboard, screen: "dashboard", end: true },
+    { to: "/app/companies", label: "Empresas", icon: Building2, screen: "companies" },
+    { to: "/app/records", label: "Registros", icon: Files, screen: "records" },
+    { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
+    { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits" },
+    { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping" },
+    { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
+    { to: "/app/talent-bank", label: "Banco de talentos", icon: Briefcase, screen: "talentBank" },
+    { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications" },
+    { to: "/app/monitoring", label: "Monitoramento", icon: Activity, screen: "monitoring" },
+    { to: "/app/permissions", label: "Permissões do sistema", icon: ShieldCheck, screen: "permissions" },
+  ];
 
 const sortableTableSelector = "table.data-table, table.talent-table, table.schedule-table";
 const ignoredSortableHeaderLabels = new Set(["acoes"]);
@@ -356,7 +356,7 @@ export default function Layout() {
             </div>
           ) : null}
         </header>
-        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}`}>
+        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "timekeeping" ? " is-fullwidth" : ""}`}>
           <Outlet />
         </main>
         {undoState ? (

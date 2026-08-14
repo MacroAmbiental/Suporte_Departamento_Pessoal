@@ -1723,11 +1723,11 @@ function createDisplayRecord(
     sai2: isSai2ManuallyZeroed(existingCustomFields)
       ? "00:00"
       : automaticScheduleTimeValue(
-          existingCustomFields.sai2,
-          scheduleDefaults.end,
-          settings.secullumEndTime || "17:00",
-          useDefaults,
-        ),
+        existingCustomFields.sai2,
+        scheduleDefaults.end,
+        settings.secullumEndTime || "17:00",
+        useDefaults,
+      ),
     normais: existingCustomFields.normais || "00:00",
     faltas: existingCustomFields.faltas || "00:00",
     extras: existingCustomFields.extras || "00:00",
@@ -2757,8 +2757,8 @@ export default function Timekeeping() {
         ...current,
         statusConditions: exists
           ? current.statusConditions.map((item) =>
-              item.id === normalized.id ? normalized : item,
-            )
+            item.id === normalized.id ? normalized : item,
+          )
           : [...current.statusConditions, normalized],
       };
     });
@@ -2888,8 +2888,8 @@ export default function Timekeeping() {
               overtimePercent: nextPercent,
               overtimeAmount: toFixed2(
                 Number(record.overtimeHours || 0) *
-                  baseHourValue *
-                  (1 + nextPercent / 100),
+                baseHourValue *
+                (1 + nextPercent / 100),
               ),
               updatedAt: new Date().toISOString(),
             };
@@ -2917,8 +2917,8 @@ export default function Timekeeping() {
             overtimePercent: nextPercent,
             overtimeAmount: toFixed2(
               Number(record.overtimeHours || 0) *
-                baseHourValue *
-                (1 + nextPercent / 100),
+              baseHourValue *
+              (1 + nextPercent / 100),
             ),
             updatedAt: new Date().toISOString(),
           };
@@ -3000,16 +3000,16 @@ export default function Timekeeping() {
     const requestedCheckOut = hasExplicitCheckOut ? patch.checkOut : current.checkOut;
     const checkOut = hasExplicitCheckOut
       ? automaticTimeValue(
-          requestedCheckOut,
-          scheduleDefaults.lunchOut,
-          shouldApplyDefaults,
-        )
+        requestedCheckOut,
+        scheduleDefaults.lunchOut,
+        shouldApplyDefaults,
+      )
       : automaticScheduleTimeValue(
-          requestedCheckOut,
-          scheduleDefaults.lunchOut,
-          calculationSettings.secullumLunchOutTime || "12:00",
-          shouldApplyDefaults,
-        );
+        requestedCheckOut,
+        scheduleDefaults.lunchOut,
+        calculationSettings.secullumLunchOutTime || "12:00",
+        shouldApplyDefaults,
+      );
     const status = patch.status ?? current.status;
 
     const patchCustomFields = (patch.customFields || {}) as Record<string, string>;
@@ -3032,21 +3032,21 @@ export default function Timekeeping() {
       ent2: hasExplicitEnt2
         ? String(patchCustomFields.ent2 || "00:00")
         : automaticScheduleTimeValue(
-            customFields.ent2,
-            scheduleDefaults.lunchReturn,
-            calculationSettings.secullumLunchReturnTime || "13:01",
-            shouldApplyDefaults,
-          ),
+          customFields.ent2,
+          scheduleDefaults.lunchReturn,
+          calculationSettings.secullumLunchReturnTime || "13:01",
+          shouldApplyDefaults,
+        ),
       sai2: sai2ManuallyZeroed
         ? "00:00"
         : hasExplicitSai2
           ? String(patchCustomFields.sai2 || "00:00")
           : automaticScheduleTimeValue(
-              customFields.sai2,
-              scheduleDefaults.end,
-              calculationSettings.secullumEndTime || "17:00",
-              shouldApplyDefaults,
-            ),
+            customFields.sai2,
+            scheduleDefaults.end,
+            calculationSettings.secullumEndTime || "17:00",
+            shouldApplyDefaults,
+          ),
     };
 
     const calculated = calculateSecullumMetrics(
@@ -3146,10 +3146,10 @@ export default function Timekeeping() {
       neutralStatus || fullDayAbsence
         ? 0
         : toFixed2(
-            Number(overtimeHours || 0) *
-              baseHourValue *
-              (1 + Number(overtimePercent || 0) / 100),
-          );
+          Number(overtimeHours || 0) *
+          baseHourValue *
+          (1 + Number(overtimePercent || 0) / 100),
+        );
     const finalCheckIn = checkIn || "00:00";
     const finalCheckOut = checkOut || "00:00";
 
@@ -3697,9 +3697,9 @@ export default function Timekeeping() {
       options: columnForm.linkedModule
         ? []
         : columnForm.options
-            .split(/[\n,;]/)
-            .map((item) => item.trim())
-            .filter(Boolean),
+          .split(/[\n,;]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
       optionColors: parseOptionColors(columnForm.optionColors),
       linkedModule: columnForm.linkedModule,
       relatedField: columnForm.relatedField,
@@ -3912,8 +3912,8 @@ export default function Timekeeping() {
         const existing =
           imported.employee && imported.date
             ? timeRecordByEmployeeDate.get(
-                `${imported.employee.id}:${imported.date}`,
-              )
+              `${imported.employee.id}:${imported.date}`,
+            )
             : undefined;
         imported.hasManualRecord = recordHasManualPoint(existing);
         imported.warning = buildSecullumWarning(imported);
@@ -3993,119 +3993,119 @@ export default function Timekeeping() {
     try {
       const obsoleteIds = new Set(cachedDuplicateTimeRecordIds(filters.date));
       const recordsToImport = validRows.map((row) => {
-          const employee = row.employee as Employee;
+        const employee = row.employee as Employee;
 
-          const existing = timeRecordByEmployeeDate.get(
-            `${employee.id}:${row.date}`,
-          );
+        const existing = timeRecordByEmployeeDate.get(
+          `${employee.id}:${row.date}`,
+        );
 
-          const hasImportedPunch = Boolean(
-            row.ent1 ||
-            row.sai1 ||
+        const hasImportedPunch = Boolean(
+          row.ent1 ||
+          row.sai1 ||
+          row.ent2 ||
+          row.sai2 ||
+          row.ent3 ||
+          row.sai3,
+        );
+        const importedDateIsHoliday = isHoliday(
+          row.date,
+          calculationSettings,
+        );
+        const scheduleDefaults = scheduleDefaultsForDate(
+          employee,
+          row.date,
+          calculationSettings,
+        );
+        const secullumFields = {
+          ent2:
             row.ent2 ||
+            (hasImportedPunch
+              ? scheduleDefaults.lunchReturn || ""
+              : ""),
+          sai2:
             row.sai2 ||
-            row.ent3 ||
-            row.sai3,
-          );
-          const importedDateIsHoliday = isHoliday(
-            row.date,
-            calculationSettings,
-          );
-          const scheduleDefaults = scheduleDefaultsForDate(
-            employee,
-            row.date,
-            calculationSettings,
-          );
-          const secullumFields = {
-            ent2:
-              row.ent2 ||
-              (hasImportedPunch
-                ? scheduleDefaults.lunchReturn || ""
-                : ""),
-            sai2:
-              row.sai2 ||
-              (hasImportedPunch
-                ? scheduleDefaults.end || ""
-                : ""),
-            ent3: row.ent3,
-            sai3: row.sai3,
-          };
-          const calculated = calculateSecullumMetrics(
-            row.ent1,
-            row.sai1 ||
-              (row.ent1 ? scheduleDefaults.lunchOut : ""),
-            secullumFields,
-            calculationSettings,
-            row.date,
-            employee,
-          );
-          const overtimePercent = overtimeRateForDate(
-            row.date,
-            calculationSettings,
-          );
-          const overtimeHours = calculated.overtimeHours;
-          const baseHourValue = Number(employee.salary || 0) / 220;
-          const expectedWorkMinutes = normalLimitMinutesForEmployeeDate(
-            employee,
-            row.date,
-            calculationSettings,
-          );
-          const importedStatus: AttendanceStatus =
-            !hasImportedPunch &&
+            (hasImportedPunch
+              ? scheduleDefaults.end || ""
+              : ""),
+          ent3: row.ent3,
+          sai3: row.sai3,
+        };
+        const calculated = calculateSecullumMetrics(
+          row.ent1,
+          row.sai1 ||
+          (row.ent1 ? scheduleDefaults.lunchOut : ""),
+          secullumFields,
+          calculationSettings,
+          row.date,
+          employee,
+        );
+        const overtimePercent = overtimeRateForDate(
+          row.date,
+          calculationSettings,
+        );
+        const overtimeHours = calculated.overtimeHours;
+        const baseHourValue = Number(employee.salary || 0) / 220;
+        const expectedWorkMinutes = normalLimitMinutesForEmployeeDate(
+          employee,
+          row.date,
+          calculationSettings,
+        );
+        const importedStatus: AttendanceStatus =
+          !hasImportedPunch &&
             (importedDateIsHoliday || expectedWorkMinutes <= 0)
-              ? "day_off"
-              : hasImportedPunch
-                ? "present"
-                : "absence_pending";
+            ? "day_off"
+            : hasImportedPunch
+              ? "present"
+              : "absence_pending";
 
-          const record: TimeRecord = {
-            id: timeRecordDocumentId(row.date, employee.id),
-            companyId: employee.companyId,
-            employeeId: employee.id,
-            date: row.date,
-            status: importedStatus,
-            source: "seculum",
-            functionName: employee.role || employee.position || "",
-            realTeamId: employee.teamId || "",
-            dayTeamId: existing?.dayTeamId ?? employee.teamId ?? "",
-            checkIn: row.ent1,
-            checkOut:
-              row.sai1 ||
-              (row.ent1 ? scheduleDefaults.lunchOut : ""),
-            usefulHours: calculated.usefulHours,
-            baseHours: calculated.baseHours,
-            intervalHours: toFixed2(calculationSettings.intervalMinutes / 60),
-            overtimePercent,
-            overtimeHours,
-            overtimeAmount: toFixed2(
-              overtimeHours * baseHourValue * (1 + overtimePercent / 100),
-            ),
-            cid: existing?.cid || "",
-            absenceCount:
-              importedStatus === "absence_pending" && !hasImportedPunch && expectedWorkMinutes > 0
-                ? 1
-                : calculated.absenceCount,
-            notes: existing?.notes || "",
-            customFields: removeUndefinedFields({
-              ...(existing?.customFields || {}),
-              ent2: secullumFields.ent2 || "",
-              sai2: secullumFields.sai2 || "",
-              ent3: row.ent3 || "",
-              sai3: row.sai3 || "",
-              normais: calculated.normais || "00:00",
-              faltas: calculated.faltas || "00:00",
-              extras: calculated.extras || "00:00",
-              carga: calculated.carga || "00:00",
-              secullumFileName: secullumFileName || "",
-              secullumImportedAt: new Date().toISOString(),
-              secullumWarning: row.warning || "",
-            }),
-            updatedAt: new Date().toISOString(),
-          };
+        const record: TimeRecord = {
+          id: timeRecordDocumentId(row.date, employee.id),
+          companyId: employee.companyId,
+          employeeId: employee.id,
+          date: row.date,
+          status: importedStatus,
+          source: "seculum",
+          functionName: employee.role || employee.position || "",
+          realTeamId: employee.teamId || "",
+          dayTeamId: existing?.dayTeamId ?? employee.teamId ?? "",
+          checkIn: row.ent1,
+          checkOut:
+            row.sai1 ||
+            (row.ent1 ? scheduleDefaults.lunchOut : ""),
+          usefulHours: calculated.usefulHours,
+          baseHours: calculated.baseHours,
+          intervalHours: toFixed2(calculationSettings.intervalMinutes / 60),
+          overtimePercent,
+          overtimeHours,
+          overtimeAmount: toFixed2(
+            overtimeHours * baseHourValue * (1 + overtimePercent / 100),
+          ),
+          cid: existing?.cid || "",
+          absenceCount:
+            importedStatus === "absence_pending" && !hasImportedPunch && expectedWorkMinutes > 0
+              ? 1
+              : calculated.absenceCount,
+          notes: existing?.notes || "",
+          customFields: removeUndefinedFields({
+            ...(existing?.customFields || {}),
+            ent2: secullumFields.ent2 || "",
+            sai2: secullumFields.sai2 || "",
+            ent3: row.ent3 || "",
+            sai3: row.sai3 || "",
+            normais: calculated.normais || "00:00",
+            faltas: calculated.faltas || "00:00",
+            extras: calculated.extras || "00:00",
+            carga: calculated.carga || "00:00",
+            secullumFileName: secullumFileName || "",
+            secullumImportedAt: new Date().toISOString(),
+            secullumWarning: row.warning || "",
+          }),
+          updatedAt: new Date().toISOString(),
+        };
 
-          if (existing?.id && existing.id !== record.id) obsoleteIds.add(existing.id);
-          return sanitizeTimeRecord(record);
-        });
+        if (existing?.id && existing.id !== record.id) obsoleteIds.add(existing.id);
+        return sanitizeTimeRecord(record);
+      });
 
       await data.saveTimekeepingDayRecords(recordsToImport, Array.from(obsoleteIds));
 
@@ -4284,8 +4284,8 @@ export default function Timekeeping() {
     const options = columnFilterOptions(column);
     const currentSelected = currentFilter.selected.length
       ? currentFilter.selected.filter(
-          (item) => item !== noColumnFilterSelectionKey,
-        )
+        (item) => item !== noColumnFilterSelectionKey,
+      )
       : options;
     const selected = currentSelected.includes(value)
       ? currentSelected.filter((item) => item !== value)
@@ -4726,8 +4726,8 @@ export default function Timekeeping() {
         dates.length === 1
           ? "Ponto"
           : safeSheetName(
-              `${String(index + 1).padStart(2, "0")} ${formatDateForDisplay(date).replace(/\//g, "-")}`,
-            );
+            `${String(index + 1).padStart(2, "0")} ${formatDateForDisplay(date).replace(/\//g, "-")}`,
+          );
       XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
     });
 
@@ -4809,10 +4809,9 @@ export default function Timekeeping() {
             <table>
               <thead><tr>${columnHeaders}</tr></thead>
               <tbody>
-                ${
-                  rows ||
-                  `<tr><td colspan="${selectedColumns.length}">Nenhum funcionário encontrado.</td></tr>`
-                }
+                ${rows ||
+          `<tr><td colspan="${selectedColumns.length}">Nenhum funcionário encontrado.</td></tr>`
+          }
               </tbody>
             </table>
           </section>
@@ -4942,8 +4941,8 @@ export default function Timekeeping() {
     const options = isFilterOpen ? columnFilterOptions(column) : [];
     const visibleOptions = normalizedFilterSearch
       ? options.filter((value) =>
-          normalizeSearch(value || "(vazio)").includes(normalizedFilterSearch),
-        )
+        normalizeSearch(value || "(vazio)").includes(normalizedFilterSearch),
+      )
       : options;
     const isFiltered = Boolean(filter.search.trim() || filter.selected.length);
 
@@ -5287,7 +5286,7 @@ export default function Timekeeping() {
   ) {
     if (secullumStatus === "loading") {
       return primary ? (
-        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
           Secullum: carregando…
         </div>
       ) : null;
@@ -5295,7 +5294,7 @@ export default function Timekeeping() {
     if (secullumStatus === "error") {
       return primary ? (
         <div
-          style={{ fontSize: 10, marginTop: 2, color: "#dc2626" }}
+          style={{ fontSize: 12, marginTop: 2, color: "#dc2626" }}
           title={secullumError}
         >
           Secullum: falha na API
@@ -5306,7 +5305,7 @@ export default function Timekeeping() {
       const row = secullumByCpf.get(secullumOnlyDigits(employee.cpf));
       if (!row) {
         return primary ? (
-          <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
             Secullum: sem registro nesse dia
           </div>
         ) : null;
@@ -5314,7 +5313,7 @@ export default function Timekeeping() {
       const value = String(row[field] ?? "").trim();
       return (
         <div
-          style={{ fontSize: 10, marginTop: 2, color: "#2563eb" }}
+          style={{ fontSize: 12, marginTop: 2, color: "#2563eb" }}
           title="Batida registrada no Secullum (somente leitura)"
           data-testid={`secullum-hint-${field}-${employee.id}`}
         >
@@ -5354,10 +5353,10 @@ export default function Timekeeping() {
       const condition = statusConditionFor(record.status);
       const statusStyle = condition
         ? {
-            backgroundColor: condition.rowColor,
-            color: condition.textColor,
-            borderColor: condition.textColor,
-          }
+          backgroundColor: condition.rowColor,
+          color: condition.textColor,
+          borderColor: condition.textColor,
+        }
         : undefined;
 
       return (
@@ -5441,8 +5440,8 @@ export default function Timekeeping() {
       const metricFallback = "00:00";
       const value = String(
         record.customFields?.[column.key] ||
-          calculated[column.key as keyof typeof calculated] ||
-          metricFallback,
+        calculated[column.key as keyof typeof calculated] ||
+        metricFallback,
       );
       const isManualMetric = isCalculatedMetricKey(column.key);
 
@@ -5472,10 +5471,10 @@ export default function Timekeeping() {
                   [column.key]: nextValue,
                   ...(column.key === "sai2"
                     ? {
-                        [manualZeroSai2Field]: hasFilledTimeValue(nextValue)
-                          ? "false"
-                          : "true",
-                      }
+                      [manualZeroSai2Field]: hasFilledTimeValue(nextValue)
+                        ? "false"
+                        : "true",
+                    }
                     : {}),
                 };
 
@@ -5581,10 +5580,10 @@ export default function Timekeeping() {
       const selectedCondition = statusConditionFor(record.status);
       const selectStyle = selectedCondition
         ? {
-            backgroundColor: selectedCondition.rowColor,
-            color: selectedCondition.textColor,
-            borderColor: selectedCondition.textColor,
-          }
+          backgroundColor: selectedCondition.rowColor,
+          color: selectedCondition.textColor,
+          borderColor: selectedCondition.textColor,
+        }
         : undefined;
 
       return (
@@ -5702,9 +5701,9 @@ export default function Timekeeping() {
             style={
               selectedColor
                 ? {
-                    borderColor: selectedColor,
-                    backgroundColor: `${selectedColor}22`,
-                  }
+                  borderColor: selectedColor,
+                  backgroundColor: `${selectedColor}22`,
+                }
                 : undefined
             }
             value={currentValue}
@@ -7453,16 +7452,16 @@ export default function Timekeeping() {
                     key: keyof TeamSchedulePunches;
                     label: string;
                   }> = [
-                    { key: "ent1", label: "ENT.1" },
-                    { key: "sai1", label: "SAÍ.1" },
-                    { key: "ent2", label: "ENT.2" },
-                    { key: "sai2", label: "SAÍ.2" },
-                  ];
+                      { key: "ent1", label: "ENT.1" },
+                      { key: "sai1", label: "SAÍ.1" },
+                      { key: "ent2", label: "ENT.2" },
+                      { key: "sai2", label: "SAÍ.2" },
+                    ];
                   const activeCount = groupHasPunch
                     ? group.targets.filter(
-                        (employee) =>
-                          !excludedTeamScheduleEmployeeIds.has(employee.id),
-                      ).length
+                      (employee) =>
+                        !excludedTeamScheduleEmployeeIds.has(employee.id),
+                    ).length
                     : 0;
                   return (
                     <div

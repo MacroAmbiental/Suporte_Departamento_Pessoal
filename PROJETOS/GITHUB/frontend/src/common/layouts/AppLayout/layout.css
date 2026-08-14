@@ -250,6 +250,15 @@
   width: min(100%, 1760px);
 }
 
+/* Controle de ponto: usa a largura total da tela para exibir a tabela grande. */
+.workspace.is-fullwidth,
+.workspace.is-fullwidth.is-wide {
+  width: 100%;
+  max-width: none;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
 .app-shell.sidebar-collapsed .app-sidebar {
   width: 0;
   min-width: 0;
