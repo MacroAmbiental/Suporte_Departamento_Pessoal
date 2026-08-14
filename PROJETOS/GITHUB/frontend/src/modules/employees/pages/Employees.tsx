@@ -54,21 +54,6 @@ type UndoState = { message: string; undo: () => Promise<void> } | null;
 type EmployeeKind = "contract" | "company" | "diarist";
 type StatusScheduleAction = "deactivate" | "reactivate";
 type BirthdayFilterMode = "month" | "year" | "full";
-type EmployeeFilterName =
-  | "group"
-  | "company"
-  | "department"
-  | "sector"
-  | "subsector"
-  | "team"
-  | "role"
-  | "employee"
-  | "cpf"
-  | "username"
-  | "status"
-  | "employeeKind"
-  | "birthday"
-  | "search";
 
 interface EmployeeWizardForm extends Partial<Employee> {
   employeeKind: EmployeeKind;
@@ -562,38 +547,6 @@ function sourceIdForGroupUnit(group: EmployeeFormGroup | undefined, type: Compan
   return unit?.links.find((link) => link.companyId === companyId)?.sourceId || "";
 }
 
-function groupUnitFilterValue(groupId: string, unitId: string) {
-  return `group:${groupId}:${unitId}`;
-}
-
-function teamFilterValue(teamId: string) {
-  return `team:${teamId}`;
-}
-
-function parseGroupUnitFilterValue(value: string) {
-  const [prefix, groupId, unitId] = value.split(":");
-  return prefix === "group" && groupId && unitId ? { groupId, unitId } : null;
-}
-
-function groupUnitFilterKey(groupId: string, unitId: string) {
-  return `${groupId}:${unitId}`;
-}
-
-function selectedGroupUnitFilterKeys(values: string[]) {
-  return new Set(values
-    .map(parseGroupUnitFilterValue)
-    .filter((selection): selection is { groupId: string; unitId: string } => Boolean(selection))
-    .map((selection) => groupUnitFilterKey(selection.groupId, selection.unitId)));
-}
-
-function matchesSelectedFilterValues(values: string[], selected: string[]) {
-  return !selected.length || selected.some((value) => values.includes(value));
-}
-
-function compareFilterOptionLabels(left: { label: string }, right: { label: string }) {
-  return left.label.localeCompare(right.label, "pt-BR");
-}
-
 function suggestUsername(name: string) {
   return createUsernameFromName(name);
 }
@@ -629,7 +582,6 @@ export default function Employees() {
   const [form, setForm] = useState<EmployeeWizardForm>(emptyEmployee);
   const [groupUnitSelection, setGroupUnitSelection] = useState<EmployeeGroupUnitSelection>(emptyGroupUnitSelection);
   const initialEmployeeFilters = {
-    groupIds: [] as string[],
     companyIds: [] as string[],
     departmentIds: [] as string[],
     sectorIds: [] as string[],
@@ -760,7 +712,6 @@ export default function Employees() {
 
   const companyById = useMemo(() => new Map(data.companies.map((company) => [company.id, company])), [data.companies]);
   const teamById = useMemo(() => new Map(data.teams.map((team) => [team.id, team])), [data.teams]);
-  const groupById = useMemo(() => new Map(storedCompanyGroups.map((group) => [group.id, group])), [storedCompanyGroups]);
   const groupByCompanyId = useMemo(() => {
     const map = new Map<string, EmployeeFormGroup>();
     storedCompanyGroups.forEach((group) => {
@@ -768,114 +719,6 @@ export default function Employees() {
     });
     return map;
   }, [storedCompanyGroups]);
-
-  const deriveFilterCompanyIdsFromDepartmentIds = useCallback((departmentIds: string[]) => {
-    return Array.from(new Set(data.departments
-      .filter((department) => departmentIds.includes(department.id))
-      .map((department) => department.companyId)
-      .filter(Boolean)));
-  }, [data.departments]);
-
-  const deriveFilterDepartmentIdsFromSectorIds = useCallback((sectorIds: string[]) => {
-    return Array.from(new Set(data.sectors
-      .filter((sector) => sectorIds.includes(sector.id))
-      .map((sector) => sector.departmentId)
-      .filter(Boolean)));
-  }, [data.sectors]);
-
-  const deriveFilterCompanyIdsFromSectorIds = useCallback((sectorIds: string[]) => {
-    return Array.from(new Set(data.sectors
-      .filter((sector) => sectorIds.includes(sector.id))
-      .map((sector) => sector.companyId)
-      .filter(Boolean)));
-  }, [data.sectors]);
-
-  const deriveFilterSectorIdsFromSubsectorIds = useCallback((subsectorIds: string[]) => {
-    return Array.from(new Set(data.subsectors
-      .filter((subsector) => subsectorIds.includes(subsector.id))
-      .map((subsector) => subsector.sectorId)
-      .filter(Boolean)));
-  }, [data.subsectors]);
-
-  const deriveFilterDepartmentIdsFromSubsectorIds = useCallback((subsectorIds: string[]) => {
-    return Array.from(new Set(data.subsectors
-      .filter((subsector) => subsectorIds.includes(subsector.id))
-      .map((subsector) => subsector.departmentId)
-      .filter(Boolean)));
-  }, [data.subsectors]);
-
-  const deriveFilterCompanyIdsFromSubsectorIds = useCallback((subsectorIds: string[]) => {
-    return Array.from(new Set(data.subsectors
-      .filter((subsector) => subsectorIds.includes(subsector.id))
-      .map((subsector) => subsector.companyId)
-      .filter(Boolean)));
-  }, [data.subsectors]);
-
-  const handleFilterDepartmentIdsChange = useCallback((departmentIds: string[]) => {
-    setFilters((current) => ({
-      ...current,
-      companyIds: current.companyIds.length ? current.companyIds : deriveFilterCompanyIdsFromDepartmentIds(departmentIds),
-      departmentIds,
-      sectorIds: [],
-      subsectorIds: [],
-      teamIds: [],
-      roleValues: [],
-      employeeIds: [],
-      cpfValues: [],
-      usernameValues: [],
-    }));
-  }, [deriveFilterCompanyIdsFromDepartmentIds]);
-
-  const handleFilterSectorIdsChange = useCallback((sectorIds: string[]) => {
-    setFilters((current) => {
-      const derivedDepartmentIds = deriveFilterDepartmentIdsFromSectorIds(sectorIds);
-      return {
-        ...current,
-        companyIds: current.companyIds.length ? current.companyIds : deriveFilterCompanyIdsFromSectorIds(sectorIds),
-        departmentIds: Array.from(new Set([...current.departmentIds, ...derivedDepartmentIds])),
-        sectorIds,
-        subsectorIds: [],
-        teamIds: [],
-        roleValues: [],
-        employeeIds: [],
-        cpfValues: [],
-        usernameValues: [],
-      };
-    });
-  }, [deriveFilterDepartmentIdsFromSectorIds, deriveFilterCompanyIdsFromSectorIds]);
-
-  const handleFilterSubsectorIdsChange = useCallback((subsectorIds: string[]) => {
-    setFilters((current) => {
-      const derivedSectorIds = deriveFilterSectorIdsFromSubsectorIds(subsectorIds);
-      const derivedDepartmentIds = deriveFilterDepartmentIdsFromSubsectorIds(subsectorIds);
-      return {
-        ...current,
-        companyIds: current.companyIds.length ? current.companyIds : deriveFilterCompanyIdsFromSubsectorIds(subsectorIds),
-        departmentIds: Array.from(new Set([...current.departmentIds, ...derivedDepartmentIds])),
-        sectorIds: Array.from(new Set([...current.sectorIds, ...derivedSectorIds])),
-        subsectorIds,
-        teamIds: [],
-        roleValues: [],
-        employeeIds: [],
-        cpfValues: [],
-        usernameValues: [],
-      };
-    });
-  }, [deriveFilterSectorIdsFromSubsectorIds, deriveFilterDepartmentIdsFromSubsectorIds, deriveFilterCompanyIdsFromSubsectorIds]);
-  const selectedFilterGroups = useMemo(() => filters.groupIds
-    .map((groupId) => groupById.get(groupId))
-    .filter((group): group is EmployeeFormGroup => Boolean(group)), [filters.groupIds, groupById]);
-  const selectedFilterStructureGroups = useMemo(() => selectedFilterGroups.filter((group) => (
-    !filters.companyIds.length || group.companyIds.some((companyId) => filters.companyIds.includes(companyId))
-  )), [filters.companyIds, selectedFilterGroups]);
-  const selectedFilterUsesGroupStructure = selectedFilterStructureGroups.some((group) => group.units.length);
-  const selectedFilterGroupCompanyIds = useMemo(() => {
-    const companyIds = new Set<string>();
-    selectedFilterGroups.forEach((group) => {
-      group.companyIds.forEach((companyId) => companyIds.add(companyId));
-    });
-    return companyIds;
-  }, [selectedFilterGroups]);
   const groupForCompany = (companyId: string) => groupByCompanyId.get(companyId);
   const selectedFormGroup = form.companyId ? groupForCompany(form.companyId) : undefined;
   const selectedFormUsesGroupStructure = Boolean(selectedFormGroup?.units.length);
@@ -888,29 +731,6 @@ export default function Employees() {
     return group.units.find((unit) => unit.id === unitId && unit.type === type)?.name || "";
   }
 
-  const employeeGroupId = useCallback((employee: Employee) => (
-    groupByCompanyId.get(employee.companyId)?.id || ""
-  ), [groupByCompanyId]);
-
-  const employeeStructureFilterValues = useCallback((employee: Employee, type: CompanyGroupUnitType) => {
-    const values = new Set<string>();
-    const sourceId = employeeSourceId(employee, type);
-    if (sourceId) {
-      values.add(type === "team" ? teamFilterValue(sourceId) : sourceId);
-    }
-
-    const group = groupByCompanyId.get(employee.companyId);
-    if (group?.units.length) {
-      const selection = employeeGroupUnitSelection(group, employee);
-      const unitId = selection[groupUnitSelectionKey(type)];
-      if (groupUnitExists(group, unitId, type)) {
-        values.add(groupUnitFilterValue(group.id, unitId));
-      }
-    }
-
-    return Array.from(values);
-  }, [groupByCompanyId]);
-
   const employeeTeamFilterOption = useCallback((employee: Employee) => {
     const group = groupByCompanyId.get(employee.companyId);
     if (group?.units.length) {
@@ -919,7 +739,7 @@ export default function Employees() {
       const unit = group.units.find((item) => item.id === unitId && item.type === "team");
       if (unit) {
         return {
-          value: groupUnitFilterValue(group.id, unit.id),
+          value: `group:${group.id}:${unit.id}`,
           label: `${unit.name} · ${group.name}`,
         };
       }
@@ -929,7 +749,7 @@ export default function Employees() {
     if (!team) return null;
     const company = companyById.get(team.companyId || employee.companyId);
     return {
-      value: teamFilterValue(team.id),
+      value: `team:${team.id}`,
       label: company?.name ? `${team.name} · ${company.name}` : team.name,
     };
   }, [companyById, groupByCompanyId, teamById]);
@@ -948,19 +768,12 @@ export default function Employees() {
     ? selectedFormGroup?.units.filter((item) => (
       item.type === "sector" && (!selectedDepartmentId || !item.parentUnitId || item.parentUnitId === selectedDepartmentId)
     )) || []
-    : data.sectors.filter((item) => (
-      (!form.companyId || item.companyId === form.companyId)
-      && (!form.departmentId || item.departmentId === form.departmentId)
-    ));
+    : data.sectors.filter((item) => !form.departmentId || item.departmentId === form.departmentId);
   const subsectors = selectedFormUsesGroupStructure
     ? selectedFormGroup?.units.filter((item) => (
       item.type === "subsector" && (!selectedSectorId || !item.parentUnitId || item.parentUnitId === selectedSectorId)
     )) || []
-    : data.subsectors.filter((item) => (
-      (!form.companyId || item.companyId === form.companyId)
-      && (!form.departmentId || item.departmentId === form.departmentId)
-      && (!form.sectorId || item.sectorId === form.sectorId)
-    ));
+    : data.subsectors.filter((item) => !form.sectorId || item.sectorId === form.sectorId);
   const teams = selectedFormUsesGroupStructure
     ? selectedFormGroup?.units.filter((item) => item.type === "team") || []
     : data.teams.filter((item) => !form.companyId || item.companyId === form.companyId);
@@ -1003,9 +816,41 @@ export default function Employees() {
     setForm({ ...form, teamId, isTeamLead: teamId ? Boolean(form.isTeamLead) : false });
   }
 
+  const employeeOptions = useMemo(() => (
+    data.employees.map((item) => ({ value: item.id, label: item.name }))
+  ), [data.employees]);
+
+  const teamOptions = useMemo(() => {
+    const options = new Map<string, { value: string; label: string }>();
+    data.employees.forEach((employee) => {
+      const option = employeeTeamFilterOption(employee);
+      if (option && !options.has(option.value)) options.set(option.value, option);
+    });
+    return Array.from(options.values());
+  }, [data.employees, employeeTeamFilterOption]);
+
+  const roleOptions = useMemo(() => {
+    const options = new Map<string, { value: string; label: string }>();
+    data.employees.forEach((employee) => {
+      const label = employee.role?.trim();
+      if (!label) return;
+      const value = normalizeFilterValue(label);
+      if (!options.has(value)) options.set(value, { value, label });
+    });
+    return Array.from(options.values());
+  }, [data.employees]);
+
+  const cpfOptions = useMemo(() => (
+    Array.from(new Set(data.employees.map((item) => item.cpf?.trim() || ""))).filter(Boolean).map((cpf) => ({ value: cpf, label: cpf }))
+  ), [data.employees]);
+
   const systemUserByEmployeeId = useMemo(() => new Map(
     data.systemUsers.filter((systemUser) => systemUser.employeeId).map((systemUser) => [systemUser.employeeId as string, systemUser]),
   ), [data.systemUsers]);
+
+  const usernameOptions = useMemo(() => data.systemUsers
+    .map((systemUser) => ({ value: systemUser.username, label: systemUser.username }))
+    .sort((left, right) => left.label.localeCompare(right.label, "pt-BR")), [data.systemUsers]);
 
   const birthdayYearOptions = useMemo(() => {
     const years = new Set<string>();
@@ -1074,228 +919,34 @@ export default function Employees() {
     return "";
   }
 
-  const employeeMatchesFilters = useCallback((employee: Employee, ignoredFilters: ReadonlyArray<EmployeeFilterName> = []) => {
-    const ignored = new Set<EmployeeFilterName>(ignoredFilters);
+  const filteredEmployees = useMemo(() => data.employees.filter((employee) => {
     const login = systemUserByEmployeeId.get(employee.id);
     const teamOption = employeeTeamFilterOption(employee);
     const search = `${employee.name} ${employee.registration} ${employee.cpf} ${employee.role} ${employee.position} ${teamOption?.label || ""} ${login?.username || ""}`.toLowerCase();
     const displayStatus = getEmployeeDisplayStatus(employee);
     const employeeKind = getEmployeeKind(employee);
     return (
-      (ignored.has("group") || !filters.groupIds.length || filters.groupIds.includes(employeeGroupId(employee)))
-      && (ignored.has("company") || !filters.companyIds.length || filters.companyIds.includes(employee.companyId))
-      && (ignored.has("department") || matchesSelectedFilterValues(employeeStructureFilterValues(employee, "department"), filters.departmentIds))
-      && (ignored.has("sector") || matchesSelectedFilterValues(employeeStructureFilterValues(employee, "sector"), filters.sectorIds))
-      && (ignored.has("subsector") || matchesSelectedFilterValues(employeeStructureFilterValues(employee, "subsector"), filters.subsectorIds))
-      && (ignored.has("team") || matchesSelectedFilterValues(employeeStructureFilterValues(employee, "team"), filters.teamIds))
-      && (ignored.has("role") || !filters.roleValues.length || filters.roleValues.includes(normalizeFilterValue(employee.role)))
-      && (ignored.has("employee") || !filters.employeeIds.length || filters.employeeIds.includes(employee.id))
-      && (ignored.has("cpf") || !filters.cpfValues.length || filters.cpfValues.includes(employee.cpf?.trim() || ""))
-      && (ignored.has("username") || !filters.usernameValues.length || filters.usernameValues.includes(login?.username || ""))
-      && (ignored.has("status") || !filters.statuses.length || filters.statuses.includes(displayStatus))
-      && (ignored.has("employeeKind") || !filters.employeeKinds.length || filters.employeeKinds.includes(employeeKind))
-      && (ignored.has("birthday") || matchesBirthdayFilter(
+      (!filters.companyIds.length || filters.companyIds.includes(employee.companyId))
+      && (!filters.departmentIds.length || filters.departmentIds.includes(employee.departmentId))
+      && (!filters.sectorIds.length || filters.sectorIds.includes(employee.sectorId))
+      && (!filters.subsectorIds.length || filters.subsectorIds.includes(employee.subsectorId ?? ""))
+      && (!filters.teamIds.length || filters.teamIds.includes(teamOption?.value || ""))
+      && (!filters.roleValues.length || filters.roleValues.includes(normalizeFilterValue(employee.role)))
+      && (!filters.employeeIds.length || filters.employeeIds.includes(employee.id))
+      && (!filters.cpfValues.length || filters.cpfValues.includes(employee.cpf?.trim() || ""))
+      && (!filters.usernameValues.length || filters.usernameValues.includes(login?.username || ""))
+      && (!filters.statuses.length || filters.statuses.includes(displayStatus))
+      && (!filters.employeeKinds.length || filters.employeeKinds.includes(employeeKind))
+      && matchesBirthdayFilter(
         employee.registrationData?.birthDate,
         filters.birthdayMode,
         filters.birthdayMonth,
         filters.birthdayYear,
         filters.birthdayDate,
-      ))
-      && (ignored.has("search") || !filters.search || search.includes(filters.search.toLowerCase()))
+      )
+      && (!filters.search || search.includes(filters.search.toLowerCase()))
     );
-  }, [
-    employeeGroupId,
-    employeeStructureFilterValues,
-    employeeTeamFilterOption,
-    filters,
-    systemUserByEmployeeId,
-  ]);
-
-  const groupOptions = useMemo(() => storedCompanyGroups
-    .filter((group) => group.active !== false)
-    .map((group) => ({ value: group.id, label: group.name }))
-    .sort(compareFilterOptionLabels), [storedCompanyGroups]);
-
-  const companyOptions = useMemo(() => data.companies
-    .filter((company) => !filters.groupIds.length || selectedFilterGroupCompanyIds.has(company.id))
-    .map((company) => ({ value: company.id, label: company.name }))
-    .sort(compareFilterOptionLabels), [data.companies, filters.groupIds.length, selectedFilterGroupCompanyIds]);
-
-  const departmentOptions = useMemo(() => {
-    if (selectedFilterUsesGroupStructure) {
-      return selectedFilterStructureGroups.flatMap((group) => group.units
-        .filter((unit) => unit.type === "department")
-        .map((unit) => ({ value: groupUnitFilterValue(group.id, unit.id), label: `${unit.name} - ${group.name}` })))
-        .sort(compareFilterOptionLabels);
-    }
-
-    return data.departments
-      .filter((department) => (
-        (!filters.groupIds.length || selectedFilterGroupCompanyIds.has(department.companyId))
-        && (!filters.companyIds.length || filters.companyIds.includes(department.companyId))
-      ))
-      .map((department) => {
-        const company = companyById.get(department.companyId);
-        return { value: department.id, label: company?.name ? `${department.name} - ${company.name}` : department.name };
-      })
-      .sort(compareFilterOptionLabels);
-  }, [companyById, data.departments, filters.companyIds, filters.groupIds.length, selectedFilterGroupCompanyIds, selectedFilterStructureGroups, selectedFilterUsesGroupStructure]);
-
-  const sectorOptions = useMemo(() => {
-    if (selectedFilterUsesGroupStructure) {
-      const selectedDepartmentKeys = selectedGroupUnitFilterKeys(filters.departmentIds);
-      return selectedFilterStructureGroups.flatMap((group) => group.units
-        .filter((unit) => (
-          unit.type === "sector"
-          && (
-            !selectedDepartmentKeys.size
-            || !unit.parentUnitId
-            || selectedDepartmentKeys.has(groupUnitFilterKey(group.id, unit.parentUnitId))
-          )
-        ))
-        .map((unit) => ({ value: groupUnitFilterValue(group.id, unit.id), label: `${unit.name} - ${group.name}` })))
-        .sort(compareFilterOptionLabels);
-    }
-
-    const legalDepartmentIds = filters.departmentIds.filter((value) => !parseGroupUnitFilterValue(value));
-    return data.sectors
-      .filter((sector) => (
-        (!filters.groupIds.length || selectedFilterGroupCompanyIds.has(sector.companyId))
-        && (!filters.companyIds.length || filters.companyIds.includes(sector.companyId))
-        && (!legalDepartmentIds.length || legalDepartmentIds.includes(sector.departmentId))
-      ))
-      .map((sector) => {
-        const company = companyById.get(sector.companyId);
-        return { value: sector.id, label: company?.name ? `${sector.name} - ${company.name}` : sector.name };
-      })
-      .sort(compareFilterOptionLabels);
-  }, [companyById, data.sectors, filters.companyIds, filters.departmentIds, filters.groupIds.length, selectedFilterGroupCompanyIds, selectedFilterStructureGroups, selectedFilterUsesGroupStructure]);
-
-  const subsectorOptions = useMemo(() => {
-    if (selectedFilterUsesGroupStructure) {
-      const selectedSectorKeys = selectedGroupUnitFilterKeys(filters.sectorIds);
-      return selectedFilterStructureGroups.flatMap((group) => group.units
-        .filter((unit) => (
-          unit.type === "subsector"
-          && (
-            !selectedSectorKeys.size
-            || !unit.parentUnitId
-            || selectedSectorKeys.has(groupUnitFilterKey(group.id, unit.parentUnitId))
-          )
-        ))
-        .map((unit) => ({ value: groupUnitFilterValue(group.id, unit.id), label: `${unit.name} - ${group.name}` })))
-        .sort(compareFilterOptionLabels);
-    }
-
-    const legalSectorIds = filters.sectorIds.filter((value) => !parseGroupUnitFilterValue(value));
-    return data.subsectors
-      .filter((subsector) => (
-        (!filters.groupIds.length || selectedFilterGroupCompanyIds.has(subsector.companyId))
-        && (!filters.companyIds.length || filters.companyIds.includes(subsector.companyId))
-        && (!legalSectorIds.length || legalSectorIds.includes(subsector.sectorId))
-        && (!filters.departmentIds.length || filters.departmentIds.includes(subsector.departmentId))
-      ))
-      .map((subsector) => {
-        const company = companyById.get(subsector.companyId);
-        return { value: subsector.id, label: company?.name ? `${subsector.name} - ${company.name}` : subsector.name };
-      })
-      .sort(compareFilterOptionLabels);
-  }, [companyById, data.subsectors, filters.companyIds, filters.departmentIds, filters.groupIds.length, filters.sectorIds, selectedFilterGroupCompanyIds, selectedFilterStructureGroups, selectedFilterUsesGroupStructure]);
-
-  const teamOptions = useMemo(() => {
-    const options = new Map<string, { value: string; label: string }>();
-    data.employees
-      .filter((employee) => employeeMatchesFilters(employee, [
-        "team",
-        "role",
-        "employee",
-        "cpf",
-        "username",
-        "status",
-        "employeeKind",
-        "birthday",
-        "search",
-      ]))
-      .forEach((employee) => {
-        const option = employeeTeamFilterOption(employee);
-        if (option && !options.has(option.value)) options.set(option.value, option);
-      });
-    return Array.from(options.values()).sort(compareFilterOptionLabels);
-  }, [data.employees, employeeMatchesFilters, employeeTeamFilterOption]);
-
-  const roleOptions = useMemo(() => {
-    const options = new Map<string, { value: string; label: string }>();
-    data.employees
-      .filter((employee) => employeeMatchesFilters(employee, [
-        "role",
-        "employee",
-        "cpf",
-        "username",
-        "status",
-        "employeeKind",
-        "birthday",
-        "search",
-      ]))
-      .forEach((employee) => {
-        const label = employee.role?.trim();
-        if (!label) return;
-        const value = normalizeFilterValue(label);
-        if (!options.has(value)) options.set(value, { value, label });
-      });
-    return Array.from(options.values()).sort(compareFilterOptionLabels);
-  }, [data.employees, employeeMatchesFilters]);
-
-  const employeeOptions = useMemo(() => data.employees
-    .filter((employee) => employeeMatchesFilters(employee, [
-      "employee",
-      "cpf",
-      "username",
-      "status",
-      "employeeKind",
-      "birthday",
-      "search",
-    ]))
-    .map((employee) => ({ value: employee.id, label: employee.name }))
-    .sort(compareFilterOptionLabels), [data.employees, employeeMatchesFilters]);
-
-  const cpfOptions = useMemo(() => {
-    const options = new Map<string, { value: string; label: string }>();
-    data.employees
-      .filter((employee) => employeeMatchesFilters(employee, [
-        "cpf",
-        "username",
-        "status",
-        "employeeKind",
-        "birthday",
-        "search",
-      ]))
-      .forEach((employee) => {
-        const cpf = employee.cpf?.trim() || "";
-        if (cpf && !options.has(cpf)) options.set(cpf, { value: cpf, label: cpf });
-      });
-    return Array.from(options.values()).sort(compareFilterOptionLabels);
-  }, [data.employees, employeeMatchesFilters]);
-
-  const usernameOptions = useMemo(() => {
-    const options = new Map<string, { value: string; label: string }>();
-    data.employees
-      .filter((employee) => employeeMatchesFilters(employee, [
-        "username",
-        "status",
-        "employeeKind",
-        "birthday",
-        "search",
-      ]))
-      .forEach((employee) => {
-        const username = systemUserByEmployeeId.get(employee.id)?.username || "";
-        if (username && !options.has(username)) options.set(username, { value: username, label: username });
-      });
-    return Array.from(options.values()).sort(compareFilterOptionLabels);
-  }, [data.employees, employeeMatchesFilters, systemUserByEmployeeId]);
-
-  const filteredEmployees = useMemo(() => (
-    data.employees.filter((employee) => employeeMatchesFilters(employee))
-  ), [data.employees, employeeMatchesFilters]);
+  }), [data.employees, employeeTeamFilterOption, filters, systemUserByEmployeeId]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
   const paginatedEmployees = useMemo(() => {
@@ -1400,8 +1051,7 @@ export default function Employees() {
       });
   }, [data.employees, data.upsertEmployee]);
   const hasActiveFilters = Boolean(
-    filters.groupIds.length
-    || filters.companyIds.length
+    filters.companyIds.length
     || filters.departmentIds.length
     || filters.sectorIds.length
     || filters.subsectorIds.length
@@ -2281,18 +1931,10 @@ export default function Employees() {
 
     return {
       companyId,
-      departmentId: groupUnitSelection.departmentUnitId
-        ? sourceIdForGroupUnit(selectedFormGroup, "department", groupUnitSelection.departmentUnitId, companyId)
-        : "",
-      sectorId: groupUnitSelection.sectorUnitId
-        ? sourceIdForGroupUnit(selectedFormGroup, "sector", groupUnitSelection.sectorUnitId, companyId)
-        : "",
-      subsectorId: groupUnitSelection.subsectorUnitId
-        ? sourceIdForGroupUnit(selectedFormGroup, "subsector", groupUnitSelection.subsectorUnitId, companyId)
-        : "",
-      teamId: groupUnitSelection.teamUnitId
-        ? sourceIdForGroupUnit(selectedFormGroup, "team", groupUnitSelection.teamUnitId, companyId)
-        : "",
+      departmentId: sourceIdForGroupUnit(selectedFormGroup, "department", groupUnitSelection.departmentUnitId, companyId) || form.departmentId || "",
+      sectorId: sourceIdForGroupUnit(selectedFormGroup, "sector", groupUnitSelection.sectorUnitId, companyId) || form.sectorId || "",
+      subsectorId: sourceIdForGroupUnit(selectedFormGroup, "subsector", groupUnitSelection.subsectorUnitId, companyId) || form.subsectorId || "",
+      teamId: sourceIdForGroupUnit(selectedFormGroup, "team", groupUnitSelection.teamUnitId, companyId) || form.teamId || "",
     };
   }
 
@@ -2300,11 +1942,12 @@ export default function Employees() {
     const group = employee.companyId ? groupForCompany(employee.companyId) : undefined;
     if (!group?.units.length) return;
 
+    const inferred = employeeGroupUnitSelection(group, employee);
     const unitIdFor = (type: CompanyGroupUnitType) => {
       const key = groupUnitSelectionKey(type);
       return groupUnitExists(group, groupUnitSelection[key], type)
         ? groupUnitSelection[key]
-        : "";
+        : inferred[key];
     };
     const existing = group.employeeAssignments.find((item) => item.employeeId === employee.id);
 
@@ -2819,88 +2462,51 @@ export default function Employees() {
       <div className="filters-panel">
         <Search size={18} />
         <MultiSelect
-          label="Grupos"
-          placeholder="Grupos"
-          value={filters.groupIds}
-          onChange={(groupIds) => setFilters({
-            ...filters,
-            groupIds,
-            companyIds: [],
-            departmentIds: [],
-            sectorIds: [],
-            subsectorIds: [],
-            teamIds: [],
-            roleValues: [],
-            employeeIds: [],
-            cpfValues: [],
-            usernameValues: [],
-          })}
-          options={groupOptions}
-        />
-        <MultiSelect
           label="Empresas"
           placeholder="Empresas"
           value={filters.companyIds}
-          onChange={(companyIds) => setFilters({
-            ...filters,
-            companyIds,
-            departmentIds: [],
-            sectorIds: [],
-            subsectorIds: [],
-            teamIds: [],
-            roleValues: [],
-            employeeIds: [],
-            cpfValues: [],
-            usernameValues: [],
-          })}
-          options={companyOptions}
+          onChange={(companyIds) => setFilters({ ...filters, companyIds, departmentIds: [], sectorIds: [], subsectorIds: [], teamIds: [] })}
+          options={data.companies.map((item) => ({ value: item.id, label: item.name }))}
         />
         <MultiSelect
           label="Departamentos"
           placeholder="Departamentos"
           value={filters.departmentIds}
-          onChange={handleFilterDepartmentIdsChange}
-          options={departmentOptions}
+          onChange={(departmentIds) => setFilters({ ...filters, departmentIds, sectorIds: [], subsectorIds: [] })}
+          options={data.departments
+            .filter((item) => !filters.companyIds.length || filters.companyIds.includes(item.companyId))
+            .map((item) => ({ value: item.id, label: item.name }))}
         />
         <MultiSelect
           label="Setores"
           placeholder="Setores"
           value={filters.sectorIds}
-          onChange={handleFilterSectorIdsChange}
-          options={sectorOptions}
+          onChange={(sectorIds) => setFilters({ ...filters, sectorIds, subsectorIds: [] })}
+          options={data.sectors
+            .filter((item) => !filters.departmentIds.length || filters.departmentIds.includes(item.departmentId))
+            .map((item) => ({ value: item.id, label: item.name }))}
         />
         <MultiSelect
           label="Subsetores"
           placeholder="Subsetores"
           value={filters.subsectorIds}
-          onChange={handleFilterSubsectorIdsChange}
-          options={subsectorOptions}
+          onChange={(subsectorIds) => setFilters({ ...filters, subsectorIds })}
+          options={data.subsectors
+            .filter((item) => !filters.sectorIds.length || filters.sectorIds.includes(item.sectorId))
+            .map((item) => ({ value: item.id, label: item.name }))}
         />
         <MultiSelect
           label="Equipes"
           placeholder="Equipes"
           value={filters.teamIds}
-          onChange={(teamIds) => setFilters({
-            ...filters,
-            teamIds,
-            roleValues: [],
-            employeeIds: [],
-            cpfValues: [],
-            usernameValues: [],
-          })}
+          onChange={(teamIds) => setFilters({ ...filters, teamIds })}
           options={teamOptions}
         />
         <MultiSelect
           label="Funções"
           placeholder="Funções"
           value={filters.roleValues}
-          onChange={(roleValues) => setFilters({
-            ...filters,
-            roleValues,
-            employeeIds: [],
-            cpfValues: [],
-            usernameValues: [],
-          })}
+          onChange={(roleValues) => setFilters({ ...filters, roleValues })}
           options={roleOptions}
         />
         <MultiSelect
@@ -3366,9 +2972,9 @@ export default function Employees() {
                   <label className="check-field is-wide-field"><input type="checkbox" checked={form.diaristUseStructure} onChange={(e) => setForm({ ...form, diaristUseStructure: e.target.checked, companyId: e.target.checked ? form.companyId : "", departmentId: e.target.checked ? form.departmentId : "", sectorId: e.target.checked ? form.sectorId : "", subsectorId: e.target.checked ? form.subsectorId : "", teamId: e.target.checked ? form.teamId : "" })} /> Vincular este diarista à estrutura da empresa</label>
                 ) : null}
                 <label className="field">Empresa<select required={form.employeeKind !== "diarist" || form.diaristUseStructure} disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={form.companyId} onChange={(e) => handleCompanyChange(e.target.value)}><option value="">Selecione</option>{data.companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field">Grupo empresarial<input readOnly value={selectedFormGroup?.name || (form.companyId ? "Grupo individual automático" : "Selecione a empresa")} /><small>{selectedFormUsesGroupStructure ? "Os campos abaixo usam a estrutura unificada deste grupo." : "Vínculo automático pelo CNPJ. O grupo não altera a estrutura da empresa."}</small></label>
-                <label className="field">Departamento<select disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={departmentSelectValue} onChange={(e) => handleDepartmentChange(e.target.value)}><option value="">Sem departamento</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="field">Setor<select disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={sectorSelectValue} onChange={(e) => handleSectorChange(e.target.value)}><option value="">Sem setor</option>{sectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="field">Subsetor<select disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={subsectorSelectValue} onChange={(e) => handleSubsectorChange(e.target.value)}><option value="">Sem subsetor</option>{subsectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="field">Departamento<select required={form.employeeKind !== "diarist" || form.diaristUseStructure} disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={departmentSelectValue} onChange={(e) => handleDepartmentChange(e.target.value)}><option value="">Selecione</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="field">Setor<select required={form.employeeKind !== "diarist" || form.diaristUseStructure} disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={sectorSelectValue} onChange={(e) => handleSectorChange(e.target.value)}><option value="">Selecione</option>{sectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="field">Subsetor<select disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={subsectorSelectValue} onChange={(e) => handleSubsectorChange(e.target.value)}><option value="">Nenhum</option>{subsectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="field">Equipe<select disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={teamSelectValue} onChange={(e) => handleTeamChange(e.target.value)}><option value="">Sem equipe</option>{teams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="check-field"><input type="checkbox" checked={Boolean(form.isTeamLead)} disabled={!teamSelectValue} onChange={(e) => setForm({ ...form, isTeamLead: e.target.checked })} /> Encarregado da equipe</label>
               </div>

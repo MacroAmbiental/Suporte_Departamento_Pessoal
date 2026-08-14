@@ -1806,38 +1806,12 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
   }, [data]);
 
   const upsertCompanyGroupEmployeeAssignment = useCallback(async (payload: UpsertPayload<CompanyGroupEmployeeAssignment>) => {
-    const snapshot = dataRef.current;
-    const group = snapshot.companyGroups.find((item) => item.id === payload.groupId);
-    const employee = snapshot.employees.find((item) => item.id === payload.employeeId);
+    const group = data.companyGroups.find((item) => item.id === payload.groupId);
+    const employee = data.employees.find((item) => item.id === payload.employeeId);
     if (!group) throw new Error("Grupo não encontrado.");
     if (!employee) throw new Error("Funcionário não encontrado.");
-
-    const allowed = can("companies", "edit")
-      || can("companies", "create")
-      || can("employees", "edit")
-      || can("employees", "create");
-    if (!allowed) throw new Error("Usuário sem permissão para alterar o vínculo do funcionário no grupo.");
-
-    const existing = payload.id
-      ? snapshot.companyGroupEmployeeAssignments.find((item) => item.id === payload.id)
-      : snapshot.companyGroupEmployeeAssignments.find((item) => (
-        item.groupId === payload.groupId && item.employeeId === payload.employeeId
-      ));
-    const id = payload.id || existing?.id || `${payload.groupId}-${payload.employeeId}`;
-    const item = { ...payload, id } as CompanyGroupEmployeeAssignment;
-    const saved = await updateCollection<CompanyGroupEmployeeAssignment>("companyGroupEmployeeAssignments", item);
-
-    registerUndo(existing ? "Vínculo do funcionário no grupo editado." : "Vínculo do funcionário no grupo criado.", async () => {
-      if (existing) {
-        await restoreItem("companyGroupEmployeeAssignments", existing);
-        return;
-      }
-
-      await removeLocalAndRemoteItem("companyGroupEmployeeAssignments", id);
-    });
-
-    return saved;
-  }, [can, registerUndo, removeLocalAndRemoteItem, restoreItem, updateCollection]);
+    return upsert<CompanyGroupEmployeeAssignment>("companyGroupEmployeeAssignments", "group-employee-assignment", payload);
+  }, [data.companyGroups, data.employees, upsert]);
 
   const upsertCompanyGroupLeadershipAssignment = useCallback(async (payload: UpsertPayload<CompanyGroupLeadershipAssignment>) => {
     const graph = buildCompanyGroupGraphPayload(payload.groupId);

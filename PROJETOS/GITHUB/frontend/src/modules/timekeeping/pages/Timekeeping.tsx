@@ -16,6 +16,7 @@ import {
   Plus,
   Save,
   Search,
+  RefreshCw,
   Upload,
   Users,
   X,
@@ -29,6 +30,9 @@ import {
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { firebaseApp, firestore } from "@/services/firebase";
 import type * as XLSXTypes from "xlsx";
 import { useTimekeepingContext } from "@/modules/timekeeping/context/TimekeepingContext";
 import {
@@ -40,7 +44,6 @@ import {
   cachedLegacyTimeRecordIds,
   loadTimeRecordsRange,
   pickPreferredTimeRecord,
-  saveTimeRecordsTree,
 } from "@/modules/timekeeping/data/timeRecordsRepository";
 import {
   buildCidOptions,
@@ -1138,8 +1141,15 @@ function scheduleDefaultsForDate(
   };
 }
 
-type TeamSchedulePunches = { ent1: string; sai1: string; ent2: string; sai2: string };
+type SecullumDayRow = {
+  entrada1: string;
+  saida1: string;
+  entrada2: string;
+  saida2: string;
+  nome?: string;
+};
 
+type TeamSchedulePunches = { ent1: string; sai1: string; ent2: string; sai2: string };
 type TeamScheduleGroup = {
   teamId: string;
   teamName: string;
@@ -1147,6 +1157,7 @@ type TeamScheduleGroup = {
   punches: TeamSchedulePunches;
   applicable: boolean;
   collaborators: Employee[];
+  targets: Employee[];
 };
 
 function scheduleToTeamPunches(schedule?: WorkScheduleDay): TeamSchedulePunches {
@@ -1712,11 +1723,11 @@ function createDisplayRecord(
     sai2: isSai2ManuallyZeroed(existingCustomFields)
       ? "00:00"
       : automaticScheduleTimeValue(
-        existingCustomFields.sai2,
-        scheduleDefaults.end,
-        settings.secullumEndTime || "17:00",
-        useDefaults,
-      ),
+          existingCustomFields.sai2,
+          scheduleDefaults.end,
+          settings.secullumEndTime || "17:00",
+          useDefaults,
+        ),
     normais: existingCustomFields.normais || "00:00",
     faltas: existingCustomFields.faltas || "00:00",
     extras: existingCustomFields.extras || "00:00",
@@ -1932,6 +1943,19 @@ export default function Timekeeping() {
     Set<string>
   >(() => new Set());
   const [applyingTeamSchedule, setApplyingTeamSchedule] = useState(false);
+  const [secullumStatus, setSecullumStatus] = useState<
+    "idle" | "loading" | "ok" | "error"
+  >("idle");
+  const [secullumByCpf, setSecullumByCpf] = useState<Map<string, SecullumDayRow>>(
+    () => new Map(),
+  );
+  const [secullumError, setSecullumError] = useState("");
+  const [secullumLastSync, setSecullumLastSync] = useState("");
+  const [teamScheduleEdits, setTeamScheduleEdits] = useState<
+    Record<string, TeamSchedulePunches>
+  >({});
+  const [noBreakTeamScheduleEmployeeIds, setNoBreakTeamScheduleEmployeeIds] =
+    useState<Set<string>>(() => new Set());
 
   const employeesForDaySave = useMemo(
     () =>
@@ -2111,6 +2135,7 @@ export default function Timekeeping() {
         const collaborators = members.filter(
           (employee) => !lead || employee.id !== lead.id,
         );
+        const targets = lead ? [lead, ...collaborators] : collaborators;
         return {
           teamId,
           teamName,
@@ -2118,6 +2143,7 @@ export default function Timekeeping() {
           punches,
           applicable: teamPunchesHaveAny(punches),
           collaborators,
+          targets,
         };
       })
       .filter((group) => group.lead || group.collaborators.length);
@@ -2126,20 +2152,29 @@ export default function Timekeeping() {
   const teamScheduleSelectedCount = useMemo(
     () =>
       teamScheduleGroups.reduce((total, group) => {
-        if (!group.applicable) return total;
+        const edit = teamScheduleEdits[group.teamId];
+        const punches: TeamSchedulePunches = {
+          ent1: (edit?.ent1 || "").trim() || group.punches.ent1,
+          sai1: (edit?.sai1 || "").trim() || group.punches.sai1,
+          ent2: (edit?.ent2 || "").trim() || group.punches.ent2,
+          sai2: (edit?.sai2 || "").trim() || group.punches.sai2,
+        };
+        if (!teamPunchesHaveAny(punches)) return total;
         return (
           total +
-          group.collaborators.filter(
+          group.targets.filter(
             (employee) => !excludedTeamScheduleEmployeeIds.has(employee.id),
           ).length
         );
       }, 0),
-    [teamScheduleGroups, excludedTeamScheduleEmployeeIds],
+    [teamScheduleGroups, teamScheduleEdits, excludedTeamScheduleEmployeeIds],
   );
 
   function openTeamScheduleModal() {
     setExcludedTeamScheduleEmployeeIds(new Set());
-    setExpandedTeamScheduleIds(new Set());
+    setNoBreakTeamScheduleEmployeeIds(new Set());
+    setTeamScheduleEdits({});
+    setExpandedTeamScheduleIds(new Set(teamScheduleGroups.map((group) => group.teamId)));
     setTeamScheduleModalOpen(true);
   }
 
@@ -2159,6 +2194,38 @@ export default function Timekeeping() {
       else next.add(employeeId);
       return next;
     });
+  }
+
+  function toggleTeamScheduleNoBreak(employeeId: string) {
+    setNoBreakTeamScheduleEmployeeIds((current) => {
+      const next = new Set(current);
+      if (next.has(employeeId)) next.delete(employeeId);
+      else next.add(employeeId);
+      return next;
+    });
+  }
+
+  function updateTeamScheduleEdit(
+    teamId: string,
+    field: keyof TeamSchedulePunches,
+    value: string,
+  ) {
+    setTeamScheduleEdits((current) => {
+      const base = current[teamId] || { ent1: "", sai1: "", ent2: "", sai2: "" };
+      return { ...current, [teamId]: { ...base, [field]: value } };
+    });
+  }
+
+  function effectiveTeamPunches(group: TeamScheduleGroup): TeamSchedulePunches {
+    const edit = teamScheduleEdits[group.teamId];
+    const pick = (field: keyof TeamSchedulePunches) =>
+      (edit?.[field] || "").trim() || group.punches[field] || "";
+    return {
+      ent1: pick("ent1"),
+      sai1: pick("sai1"),
+      ent2: pick("ent2"),
+      sai2: pick("sai2"),
+    };
   }
 
   function teamScheduleCollaboratorState(
@@ -2196,22 +2263,22 @@ export default function Timekeeping() {
     try {
       const built: TimeRecord[] = [];
       teamScheduleGroups.forEach((group) => {
-        if (!group.applicable) return;
-        group.collaborators.forEach((employee) => {
+        const punches = effectiveTeamPunches(group);
+        if (!teamPunchesHaveAny(punches)) return;
+        group.targets.forEach((employee) => {
           if (excludedTeamScheduleEmployeeIds.has(employee.id)) return;
+          const didBreak = !noBreakTeamScheduleEmployeeIds.has(employee.id);
           const existing = employeeRecord(employee.id);
           const patch: Partial<TimeRecord> = {
             source: "manual",
-            checkIn: group.punches.ent1 || "00:00",
-            checkOut: group.punches.sai1 || "00:00",
+            status: "present",
+            checkIn: punches.ent1 || "00:00",
+            checkOut: didBreak ? punches.sai1 || "00:00" : "00:00",
             customFields: {
-              ent2: group.punches.ent2 || "00:00",
-              sai2: group.punches.sai2 || "00:00",
+              ent2: didBreak ? punches.ent2 || "00:00" : "00:00",
+              sai2: punches.sai2 || "00:00",
             },
           };
-          if (isAbsenceStatus(existing?.status)) {
-            patch.status = "present";
-          }
           const record = sanitizeTimeRecord({
             ...makeRecord(employee, patch),
             id: existing?.id || timeRecordDocumentId(filters.date, employee.id),
@@ -2234,7 +2301,6 @@ export default function Timekeeping() {
         return next;
       });
 
-      await saveTimeRecordsTree(built);
       setTeamScheduleModalOpen(false);
     } catch (error) {
       console.error("Não foi possível aplicar os horários da equipe.", error);
@@ -2691,8 +2757,8 @@ export default function Timekeeping() {
         ...current,
         statusConditions: exists
           ? current.statusConditions.map((item) =>
-            item.id === normalized.id ? normalized : item,
-          )
+              item.id === normalized.id ? normalized : item,
+            )
           : [...current.statusConditions, normalized],
       };
     });
@@ -2822,8 +2888,8 @@ export default function Timekeeping() {
               overtimePercent: nextPercent,
               overtimeAmount: toFixed2(
                 Number(record.overtimeHours || 0) *
-                baseHourValue *
-                (1 + nextPercent / 100),
+                  baseHourValue *
+                  (1 + nextPercent / 100),
               ),
               updatedAt: new Date().toISOString(),
             };
@@ -2851,8 +2917,8 @@ export default function Timekeeping() {
             overtimePercent: nextPercent,
             overtimeAmount: toFixed2(
               Number(record.overtimeHours || 0) *
-              baseHourValue *
-              (1 + nextPercent / 100),
+                baseHourValue *
+                (1 + nextPercent / 100),
             ),
             updatedAt: new Date().toISOString(),
           };
@@ -2934,16 +3000,16 @@ export default function Timekeeping() {
     const requestedCheckOut = hasExplicitCheckOut ? patch.checkOut : current.checkOut;
     const checkOut = hasExplicitCheckOut
       ? automaticTimeValue(
-        requestedCheckOut,
-        scheduleDefaults.lunchOut,
-        shouldApplyDefaults,
-      )
+          requestedCheckOut,
+          scheduleDefaults.lunchOut,
+          shouldApplyDefaults,
+        )
       : automaticScheduleTimeValue(
-        requestedCheckOut,
-        scheduleDefaults.lunchOut,
-        calculationSettings.secullumLunchOutTime || "12:00",
-        shouldApplyDefaults,
-      );
+          requestedCheckOut,
+          scheduleDefaults.lunchOut,
+          calculationSettings.secullumLunchOutTime || "12:00",
+          shouldApplyDefaults,
+        );
     const status = patch.status ?? current.status;
 
     const patchCustomFields = (patch.customFields || {}) as Record<string, string>;
@@ -2966,21 +3032,21 @@ export default function Timekeeping() {
       ent2: hasExplicitEnt2
         ? String(patchCustomFields.ent2 || "00:00")
         : automaticScheduleTimeValue(
-          customFields.ent2,
-          scheduleDefaults.lunchReturn,
-          calculationSettings.secullumLunchReturnTime || "13:01",
-          shouldApplyDefaults,
-        ),
+            customFields.ent2,
+            scheduleDefaults.lunchReturn,
+            calculationSettings.secullumLunchReturnTime || "13:01",
+            shouldApplyDefaults,
+          ),
       sai2: sai2ManuallyZeroed
         ? "00:00"
         : hasExplicitSai2
           ? String(patchCustomFields.sai2 || "00:00")
           : automaticScheduleTimeValue(
-            customFields.sai2,
-            scheduleDefaults.end,
-            calculationSettings.secullumEndTime || "17:00",
-            shouldApplyDefaults,
-          ),
+              customFields.sai2,
+              scheduleDefaults.end,
+              calculationSettings.secullumEndTime || "17:00",
+              shouldApplyDefaults,
+            ),
     };
 
     const calculated = calculateSecullumMetrics(
@@ -3080,10 +3146,10 @@ export default function Timekeeping() {
       neutralStatus || fullDayAbsence
         ? 0
         : toFixed2(
-          Number(overtimeHours || 0) *
-          baseHourValue *
-          (1 + Number(overtimePercent || 0) / 100),
-        );
+            Number(overtimeHours || 0) *
+              baseHourValue *
+              (1 + Number(overtimePercent || 0) / 100),
+          );
     const finalCheckIn = checkIn || "00:00";
     const finalCheckOut = checkOut || "00:00";
 
@@ -3631,9 +3697,9 @@ export default function Timekeeping() {
       options: columnForm.linkedModule
         ? []
         : columnForm.options
-          .split(/[\n,;]/)
-          .map((item) => item.trim())
-          .filter(Boolean),
+            .split(/[\n,;]/)
+            .map((item) => item.trim())
+            .filter(Boolean),
       optionColors: parseOptionColors(columnForm.optionColors),
       linkedModule: columnForm.linkedModule,
       relatedField: columnForm.relatedField,
@@ -3846,8 +3912,8 @@ export default function Timekeeping() {
         const existing =
           imported.employee && imported.date
             ? timeRecordByEmployeeDate.get(
-              `${imported.employee.id}:${imported.date}`,
-            )
+                `${imported.employee.id}:${imported.date}`,
+              )
             : undefined;
         imported.hasManualRecord = recordHasManualPoint(existing);
         imported.warning = buildSecullumWarning(imported);
@@ -3927,119 +3993,119 @@ export default function Timekeeping() {
     try {
       const obsoleteIds = new Set(cachedDuplicateTimeRecordIds(filters.date));
       const recordsToImport = validRows.map((row) => {
-        const employee = row.employee as Employee;
+          const employee = row.employee as Employee;
 
-        const existing = timeRecordByEmployeeDate.get(
-          `${employee.id}:${row.date}`,
-        );
+          const existing = timeRecordByEmployeeDate.get(
+            `${employee.id}:${row.date}`,
+          );
 
-        const hasImportedPunch = Boolean(
-          row.ent1 ||
-          row.sai1 ||
-          row.ent2 ||
-          row.sai2 ||
-          row.ent3 ||
-          row.sai3,
-        );
-        const importedDateIsHoliday = isHoliday(
-          row.date,
-          calculationSettings,
-        );
-        const scheduleDefaults = scheduleDefaultsForDate(
-          employee,
-          row.date,
-          calculationSettings,
-        );
-        const secullumFields = {
-          ent2:
-            row.ent2 ||
-            (hasImportedPunch
-              ? scheduleDefaults.lunchReturn || ""
-              : ""),
-          sai2:
-            row.sai2 ||
-            (hasImportedPunch
-              ? scheduleDefaults.end || ""
-              : ""),
-          ent3: row.ent3,
-          sai3: row.sai3,
-        };
-        const calculated = calculateSecullumMetrics(
-          row.ent1,
-          row.sai1 ||
-          (row.ent1 ? scheduleDefaults.lunchOut : ""),
-          secullumFields,
-          calculationSettings,
-          row.date,
-          employee,
-        );
-        const overtimePercent = overtimeRateForDate(
-          row.date,
-          calculationSettings,
-        );
-        const overtimeHours = calculated.overtimeHours;
-        const baseHourValue = Number(employee.salary || 0) / 220;
-        const expectedWorkMinutes = normalLimitMinutesForEmployeeDate(
-          employee,
-          row.date,
-          calculationSettings,
-        );
-        const importedStatus: AttendanceStatus =
-          !hasImportedPunch &&
-            (importedDateIsHoliday || expectedWorkMinutes <= 0)
-            ? "day_off"
-            : hasImportedPunch
-              ? "present"
-              : "absence_pending";
-
-        const record: TimeRecord = {
-          id: timeRecordDocumentId(row.date, employee.id),
-          companyId: employee.companyId,
-          employeeId: employee.id,
-          date: row.date,
-          status: importedStatus,
-          source: "seculum",
-          functionName: employee.role || employee.position || "",
-          realTeamId: employee.teamId || "",
-          dayTeamId: existing?.dayTeamId ?? employee.teamId ?? "",
-          checkIn: row.ent1,
-          checkOut:
+          const hasImportedPunch = Boolean(
+            row.ent1 ||
             row.sai1 ||
-            (row.ent1 ? scheduleDefaults.lunchOut : ""),
-          usefulHours: calculated.usefulHours,
-          baseHours: calculated.baseHours,
-          intervalHours: toFixed2(calculationSettings.intervalMinutes / 60),
-          overtimePercent,
-          overtimeHours,
-          overtimeAmount: toFixed2(
-            overtimeHours * baseHourValue * (1 + overtimePercent / 100),
-          ),
-          cid: existing?.cid || "",
-          absenceCount:
-            importedStatus === "absence_pending" && !hasImportedPunch && expectedWorkMinutes > 0
-              ? 1
-              : calculated.absenceCount,
-          notes: existing?.notes || "",
-          customFields: removeUndefinedFields({
-            ...(existing?.customFields || {}),
-            ent2: secullumFields.ent2 || "",
-            sai2: secullumFields.sai2 || "",
-            ent3: row.ent3 || "",
-            sai3: row.sai3 || "",
-            normais: calculated.normais || "00:00",
-            faltas: calculated.faltas || "00:00",
-            extras: calculated.extras || "00:00",
-            carga: calculated.carga || "00:00",
-            secullumFileName: secullumFileName || "",
-            secullumImportedAt: new Date().toISOString(),
-            secullumWarning: row.warning || "",
-          }),
-          updatedAt: new Date().toISOString(),
-        };
+            row.ent2 ||
+            row.sai2 ||
+            row.ent3 ||
+            row.sai3,
+          );
+          const importedDateIsHoliday = isHoliday(
+            row.date,
+            calculationSettings,
+          );
+          const scheduleDefaults = scheduleDefaultsForDate(
+            employee,
+            row.date,
+            calculationSettings,
+          );
+          const secullumFields = {
+            ent2:
+              row.ent2 ||
+              (hasImportedPunch
+                ? scheduleDefaults.lunchReturn || ""
+                : ""),
+            sai2:
+              row.sai2 ||
+              (hasImportedPunch
+                ? scheduleDefaults.end || ""
+                : ""),
+            ent3: row.ent3,
+            sai3: row.sai3,
+          };
+          const calculated = calculateSecullumMetrics(
+            row.ent1,
+            row.sai1 ||
+              (row.ent1 ? scheduleDefaults.lunchOut : ""),
+            secullumFields,
+            calculationSettings,
+            row.date,
+            employee,
+          );
+          const overtimePercent = overtimeRateForDate(
+            row.date,
+            calculationSettings,
+          );
+          const overtimeHours = calculated.overtimeHours;
+          const baseHourValue = Number(employee.salary || 0) / 220;
+          const expectedWorkMinutes = normalLimitMinutesForEmployeeDate(
+            employee,
+            row.date,
+            calculationSettings,
+          );
+          const importedStatus: AttendanceStatus =
+            !hasImportedPunch &&
+            (importedDateIsHoliday || expectedWorkMinutes <= 0)
+              ? "day_off"
+              : hasImportedPunch
+                ? "present"
+                : "absence_pending";
 
-        if (existing?.id && existing.id !== record.id) obsoleteIds.add(existing.id);
-        return sanitizeTimeRecord(record);
-      });
+          const record: TimeRecord = {
+            id: timeRecordDocumentId(row.date, employee.id),
+            companyId: employee.companyId,
+            employeeId: employee.id,
+            date: row.date,
+            status: importedStatus,
+            source: "seculum",
+            functionName: employee.role || employee.position || "",
+            realTeamId: employee.teamId || "",
+            dayTeamId: existing?.dayTeamId ?? employee.teamId ?? "",
+            checkIn: row.ent1,
+            checkOut:
+              row.sai1 ||
+              (row.ent1 ? scheduleDefaults.lunchOut : ""),
+            usefulHours: calculated.usefulHours,
+            baseHours: calculated.baseHours,
+            intervalHours: toFixed2(calculationSettings.intervalMinutes / 60),
+            overtimePercent,
+            overtimeHours,
+            overtimeAmount: toFixed2(
+              overtimeHours * baseHourValue * (1 + overtimePercent / 100),
+            ),
+            cid: existing?.cid || "",
+            absenceCount:
+              importedStatus === "absence_pending" && !hasImportedPunch && expectedWorkMinutes > 0
+                ? 1
+                : calculated.absenceCount,
+            notes: existing?.notes || "",
+            customFields: removeUndefinedFields({
+              ...(existing?.customFields || {}),
+              ent2: secullumFields.ent2 || "",
+              sai2: secullumFields.sai2 || "",
+              ent3: row.ent3 || "",
+              sai3: row.sai3 || "",
+              normais: calculated.normais || "00:00",
+              faltas: calculated.faltas || "00:00",
+              extras: calculated.extras || "00:00",
+              carga: calculated.carga || "00:00",
+              secullumFileName: secullumFileName || "",
+              secullumImportedAt: new Date().toISOString(),
+              secullumWarning: row.warning || "",
+            }),
+            updatedAt: new Date().toISOString(),
+          };
+
+          if (existing?.id && existing.id !== record.id) obsoleteIds.add(existing.id);
+          return sanitizeTimeRecord(record);
+        });
 
       await data.saveTimekeepingDayRecords(recordsToImport, Array.from(obsoleteIds));
 
@@ -4218,8 +4284,8 @@ export default function Timekeeping() {
     const options = columnFilterOptions(column);
     const currentSelected = currentFilter.selected.length
       ? currentFilter.selected.filter(
-        (item) => item !== noColumnFilterSelectionKey,
-      )
+          (item) => item !== noColumnFilterSelectionKey,
+        )
       : options;
     const selected = currentSelected.includes(value)
       ? currentSelected.filter((item) => item !== value)
@@ -4575,7 +4641,7 @@ export default function Timekeeping() {
         2,
         0,
         maxColumn,
-        `Dia de referência: ${dayReferenceText(date)} | Sistema: Secullum Ponto Web`,
+        `Dia de referência: ${dayReferenceText(date)}`,
         infoValueStyle,
       );
       paintMerge(
@@ -4627,7 +4693,7 @@ export default function Timekeeping() {
         footerRow,
         0,
         maxColumn,
-        `Emitido em: ${emittedAtText} | www.secullum.com.br`,
+        `Emitido em: ${emittedAtText}`,
         footerCenterStyle,
       );
 
@@ -4660,8 +4726,8 @@ export default function Timekeeping() {
         dates.length === 1
           ? "Ponto"
           : safeSheetName(
-            `${String(index + 1).padStart(2, "0")} ${formatDateForDisplay(date).replace(/\//g, "-")}`,
-          );
+              `${String(index + 1).padStart(2, "0")} ${formatDateForDisplay(date).replace(/\//g, "-")}`,
+            );
       XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
     });
 
@@ -4743,9 +4809,10 @@ export default function Timekeeping() {
             <table>
               <thead><tr>${columnHeaders}</tr></thead>
               <tbody>
-                ${rows ||
-          `<tr><td colspan="${selectedColumns.length}">Nenhum funcionário encontrado.</td></tr>`
-          }
+                ${
+                  rows ||
+                  `<tr><td colspan="${selectedColumns.length}">Nenhum funcionário encontrado.</td></tr>`
+                }
               </tbody>
             </table>
           </section>
@@ -4875,8 +4942,8 @@ export default function Timekeeping() {
     const options = isFilterOpen ? columnFilterOptions(column) : [];
     const visibleOptions = normalizedFilterSearch
       ? options.filter((value) =>
-        normalizeSearch(value || "(vazio)").includes(normalizedFilterSearch),
-      )
+          normalizeSearch(value || "(vazio)").includes(normalizedFilterSearch),
+        )
       : options;
     const isFiltered = Boolean(filter.search.trim() || filter.selected.length);
 
@@ -5135,6 +5202,130 @@ export default function Timekeeping() {
     );
   }
 
+  const secullumOnlyDigits = (value?: string) => (value || "").replace(/\D/g, "");
+
+  async function fetchSecullumDay(persist: boolean) {
+    const date = filters.date;
+    if (!date) return;
+    setSecullumStatus("loading");
+    setSecullumError("");
+    try {
+      if (!firebaseApp) throw new Error("Firebase não configurado.");
+      const functions = getFunctions(firebaseApp);
+      const call = httpsCallable(functions, "obterBatidasSecullum");
+      const callResp = await call({ data: date });
+      const rows = callResp.data as Array<Record<string, unknown>>;
+      const map = new Map<string, SecullumDayRow>();
+      (Array.isArray(rows) ? rows : []).forEach((row: Record<string, unknown>) => {
+        const key = secullumOnlyDigits(
+          String(row.cpfDigits || row.cpf || ""),
+        );
+        if (!key) return;
+        map.set(key, {
+          entrada1: String(row.entrada1 ?? ""),
+          saida1: String(row.saida1 ?? ""),
+          entrada2: String(row.entrada2 ?? ""),
+          saida2: String(row.saida2 ?? ""),
+          nome: row.nome ? String(row.nome) : undefined,
+        });
+      });
+      setSecullumByCpf(map);
+      setSecullumStatus("ok");
+      const now = new Date().toISOString();
+      setSecullumLastSync(now);
+      if (persist && firestore) {
+        try {
+          await setDoc(
+            doc(firestore, "secullumSync", date),
+            { date, updatedAt: now, total: map.size },
+            { merge: true },
+          );
+        } catch (persistError) {
+          console.error("Falha ao registrar sync Secullum:", persistError);
+        }
+      }
+    } catch (error) {
+      console.error("Secullum:", error);
+      setSecullumError(
+        error instanceof Error
+          ? error.message
+          : "Falha ao consultar a API do Secullum.",
+      );
+      setSecullumStatus("error");
+    }
+  }
+
+  // Carrega as batidas do Secullum automaticamente ao trocar o dia do filtro.
+  useEffect(() => {
+    void fetchSecullumDay(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.date]);
+
+  // Le a ultima atualizacao registrada no banco para o dia selecionado.
+  useEffect(() => {
+    let active = true;
+    if (!firestore || !filters.date) return;
+    getDoc(doc(firestore, "secullumSync", filters.date))
+      .then((snap) => {
+        if (active && snap.exists()) {
+          const data = snap.data() as { updatedAt?: string };
+          if (data.updatedAt) setSecullumLastSync(data.updatedAt);
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      });
+    return () => {
+      active = false;
+    };
+  }, [filters.date]);
+
+  function renderSecullumHint(
+    employee: Employee,
+    field: "entrada1" | "saida1" | "entrada2" | "saida2",
+    primary: boolean,
+  ) {
+    if (secullumStatus === "loading") {
+      return primary ? (
+        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+          Secullum: carregando…
+        </div>
+      ) : null;
+    }
+    if (secullumStatus === "error") {
+      return primary ? (
+        <div
+          style={{ fontSize: 10, marginTop: 2, color: "#dc2626" }}
+          title={secullumError}
+        >
+          Secullum: falha na API
+        </div>
+      ) : null;
+    }
+    if (secullumStatus === "ok") {
+      const row = secullumByCpf.get(secullumOnlyDigits(employee.cpf));
+      if (!row) {
+        return primary ? (
+          <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+            Secullum: sem registro nesse dia
+          </div>
+        ) : null;
+      }
+      const value = String(row[field] ?? "").trim();
+      return (
+        <div
+          style={{ fontSize: 10, marginTop: 2, color: "#2563eb" }}
+          title="Batida registrada no Secullum (somente leitura)"
+          data-testid={`secullum-hint-${field}-${employee.id}`}
+        >
+          Sec: {value || "--"}
+        </div>
+      );
+    }
+    return null;
+  }
+
+
   function renderCell(
     employee: Employee,
     record: TimeRecord,
@@ -5163,10 +5354,10 @@ export default function Timekeeping() {
       const condition = statusConditionFor(record.status);
       const statusStyle = condition
         ? {
-          backgroundColor: condition.rowColor,
-          color: condition.textColor,
-          borderColor: condition.textColor,
-        }
+            backgroundColor: condition.rowColor,
+            color: condition.textColor,
+            borderColor: condition.textColor,
+          }
         : undefined;
 
       return (
@@ -5204,6 +5395,7 @@ export default function Timekeeping() {
               <X size={13} />
             </button>
           </div>
+          {renderSecullumHint(employee, "entrada1", true)}
         </td>
       );
     }
@@ -5221,6 +5413,7 @@ export default function Timekeeping() {
               })
             }
           />
+          {renderSecullumHint(employee, "saida1", false)}
         </td>
       );
     }
@@ -5248,8 +5441,8 @@ export default function Timekeeping() {
       const metricFallback = "00:00";
       const value = String(
         record.customFields?.[column.key] ||
-        calculated[column.key as keyof typeof calculated] ||
-        metricFallback,
+          calculated[column.key as keyof typeof calculated] ||
+          metricFallback,
       );
       const isManualMetric = isCalculatedMetricKey(column.key);
 
@@ -5279,10 +5472,10 @@ export default function Timekeeping() {
                   [column.key]: nextValue,
                   ...(column.key === "sai2"
                     ? {
-                      [manualZeroSai2Field]: hasFilledTimeValue(nextValue)
-                        ? "false"
-                        : "true",
-                    }
+                        [manualZeroSai2Field]: hasFilledTimeValue(nextValue)
+                          ? "false"
+                          : "true",
+                      }
                     : {}),
                 };
 
@@ -5310,6 +5503,11 @@ export default function Timekeeping() {
               </button>
             ) : null}
           </div>
+          {column.key === "ent2"
+            ? renderSecullumHint(employee, "entrada2", false)
+            : column.key === "sai2"
+              ? renderSecullumHint(employee, "saida2", false)
+              : null}
         </td>
       );
     }
@@ -5383,10 +5581,10 @@ export default function Timekeeping() {
       const selectedCondition = statusConditionFor(record.status);
       const selectStyle = selectedCondition
         ? {
-          backgroundColor: selectedCondition.rowColor,
-          color: selectedCondition.textColor,
-          borderColor: selectedCondition.textColor,
-        }
+            backgroundColor: selectedCondition.rowColor,
+            color: selectedCondition.textColor,
+            borderColor: selectedCondition.textColor,
+          }
         : undefined;
 
       return (
@@ -5395,15 +5593,28 @@ export default function Timekeeping() {
             className={`badge ${badgeClass(record.status)}`}
             style={selectStyle}
             value={record.status}
-            onChange={(event) =>
-              void saveRecord(employee, {
-                status: event.target.value as AttendanceStatus,
+            onChange={(event) => {
+              const nextStatus = event.target.value as AttendanceStatus;
+              const patch: Partial<TimeRecord> = {
+                status: nextStatus,
                 customFields: {
                   ...(record.customFields || {}),
                   [manualStatusSelectedField]: "true",
                 },
-              })
-            }
+              };
+              if (isAbsenceStatus(nextStatus)) {
+                patch.checkIn = "00:00";
+                patch.checkOut = "00:00";
+                patch.customFields = {
+                  ...patch.customFields,
+                  ent2: "00:00",
+                  sai2: "00:00",
+                  ent3: "00:00",
+                  sai3: "00:00",
+                };
+              }
+              void saveRecord(employee, patch);
+            }}
           >
             {sortOptions(
               availableStatuses.map((status) => ({
@@ -5491,9 +5702,9 @@ export default function Timekeeping() {
             style={
               selectedColor
                 ? {
-                  borderColor: selectedColor,
-                  backgroundColor: `${selectedColor}22`,
-                }
+                    borderColor: selectedColor,
+                    backgroundColor: `${selectedColor}22`,
+                  }
                 : undefined
             }
             value={currentValue}
@@ -6282,7 +6493,34 @@ export default function Timekeeping() {
             </p>
           </div>
           <div className="form-actions">
-            {canEditTimekeeping && filters.realTeamIds.length ? (
+            <button
+              className="btn btn-secondary"
+              type="button"
+              data-testid="secullum-refresh-btn"
+              disabled={secullumStatus === "loading"}
+              title={
+                secullumLastSync
+                  ? `Última atualização do Secullum: ${new Date(secullumLastSync).toLocaleString("pt-BR")}`
+                  : "Atualiza as batidas do Secullum para o dia selecionado."
+              }
+              onClick={() => void fetchSecullumDay(true)}
+            >
+              <RefreshCw size={16} />{" "}
+              {secullumStatus === "loading"
+                ? "Atualizando Secullum…"
+                : "Atualizar Secullum"}
+            </button>
+            {secullumLastSync ? (
+              <span
+                className="muted"
+                style={{ fontSize: 11, alignSelf: "center" }}
+                data-testid="secullum-last-sync"
+              >
+                Secullum atualizado em{" "}
+                {new Date(secullumLastSync).toLocaleString("pt-BR")}
+              </span>
+            ) : null}
+            {canEditTimekeeping && !tableLocked && filters.realTeamIds.length ? (
               <button
                 className="btn btn-primary"
                 type="button"
@@ -7208,11 +7446,23 @@ export default function Timekeeping() {
               ) : (
                 teamScheduleGroups.map((group) => {
                   const expanded = expandedTeamScheduleIds.has(group.teamId);
-                  const activeCount = group.applicable
-                    ? group.collaborators.filter(
-                      (employee) =>
-                        !excludedTeamScheduleEmployeeIds.has(employee.id),
-                    ).length
+                  const punches = effectiveTeamPunches(group);
+                  const groupHasPunch = teamPunchesHaveAny(punches);
+                  const edit = teamScheduleEdits[group.teamId];
+                  const punchFields: Array<{
+                    key: keyof TeamSchedulePunches;
+                    label: string;
+                  }> = [
+                    { key: "ent1", label: "ENT.1" },
+                    { key: "sai1", label: "SAÍ.1" },
+                    { key: "ent2", label: "ENT.2" },
+                    { key: "sai2", label: "SAÍ.2" },
+                  ];
+                  const activeCount = groupHasPunch
+                    ? group.targets.filter(
+                        (employee) =>
+                          !excludedTeamScheduleEmployeeIds.has(employee.id),
+                      ).length
                     : 0;
                   return (
                     <div
@@ -7221,7 +7471,7 @@ export default function Timekeeping() {
                         border: "1px solid #e2e8f0",
                         borderRadius: 12,
                         padding: 12,
-                        background: group.applicable ? "#ffffff" : "#fff7ed",
+                        background: "#ffffff",
                       }}
                       data-testid={`team-schedule-group-${group.teamId}`}
                     >
@@ -7243,16 +7493,16 @@ export default function Timekeeping() {
                             {group.lead ? group.lead.name : "— não encontrado —"}
                           </div>
                           <div className="muted" style={{ fontSize: 13 }}>
-                            {group.applicable
-                              ? `Horário programado · ENT.1 ${group.punches.ent1 || "--:--"} · SAÍ.1 ${group.punches.sai1 || "--:--"} · ENT.2 ${group.punches.ent2 || "--:--"} · SAÍ.2 ${group.punches.sai2 || "--:--"}`
-                              : "Encarregado sem jornada programada para este dia — não é possível aplicar."}
+                            {group.lead
+                              ? `Programado do encarregado · ENT.1 ${group.punches.ent1 || "--:--"} · SAÍ.1 ${group.punches.sai1 || "--:--"} · ENT.2 ${group.punches.ent2 || "--:--"} · SAÍ.2 ${group.punches.sai2 || "--:--"}`
+                              : "Sem jornada programada — preencha os campos abaixo."}
                           </div>
                         </div>
                         <div
                           className="muted"
                           style={{ whiteSpace: "nowrap", fontWeight: 600 }}
                         >
-                          {activeCount}/{group.collaborators.length}{" "}
+                          {activeCount}/{group.targets.length}{" "}
                           {expanded ? "▲" : "▼"}
                         </div>
                       </div>
@@ -7262,69 +7512,172 @@ export default function Timekeeping() {
                             marginTop: 10,
                             display: "flex",
                             flexDirection: "column",
-                            gap: 6,
+                            gap: 10,
                           }}
                         >
-                          {group.collaborators.length === 0 ? (
+                          <div>
+                            <div
+                              className="muted"
+                              style={{ fontSize: 12, marginBottom: 4 }}
+                            >
+                              Jornada a aplicar (deixe em branco para usar o
+                              horário programado do encarregado):
+                            </div>
+                            <div
+                              style={{ display: "flex", flexWrap: "wrap", gap: 10 }}
+                            >
+                              {punchFields.map((field) => (
+                                <label
+                                  key={field.key}
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    fontSize: 12,
+                                    gap: 2,
+                                  }}
+                                >
+                                  <span style={{ fontWeight: 600 }}>
+                                    {field.label}
+                                  </span>
+                                  <input
+                                    type="time"
+                                    disabled={applyingTeamSchedule}
+                                    value={edit?.[field.key] ?? ""}
+                                    placeholder={group.punches[field.key] || ""}
+                                    onChange={(event) =>
+                                      updateTeamScheduleEdit(
+                                        group.teamId,
+                                        field.key,
+                                        event.target.value,
+                                      )
+                                    }
+                                    data-testid={`team-schedule-input-${group.teamId}-${field.key}`}
+                                    style={{ padding: "4px 6px" }}
+                                  />
+                                  <span
+                                    className="muted"
+                                    style={{ fontSize: 11 }}
+                                  >
+                                    prog. {group.punches[field.key] || "--:--"}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          {group.targets.length === 0 ? (
                             <div className="muted" style={{ fontSize: 13 }}>
                               Nenhum colaborador nesta equipe no filtro atual.
                             </div>
                           ) : (
-                            group.collaborators.map((employee) => {
-                              const state = teamScheduleCollaboratorState(
-                                employee,
-                                group.punches,
-                              );
-                              const checked =
-                                group.applicable &&
-                                !excludedTeamScheduleEmployeeIds.has(employee.id);
-                              return (
-                                <label
-                                  key={employee.id}
-                                  className="check-field"
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 8,
-                                  }}
-                                  data-testid={`team-schedule-employee-${employee.id}`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    disabled={
-                                      !group.applicable || applyingTeamSchedule
-                                    }
-                                    checked={checked}
-                                    onChange={() =>
-                                      toggleTeamScheduleEmployee(employee.id)
-                                    }
-                                    data-testid={`team-schedule-employee-checkbox-${employee.id}`}
-                                  />
-                                  <span style={{ flex: 1 }}>
-                                    {employee.name}{" "}
-                                    <span
-                                      className="muted"
-                                      style={{ fontSize: 12 }}
-                                    >
-                                      · {employee.role || employee.position || "-"}
-                                    </span>
-                                  </span>
-                                  {state.differs ? (
-                                    <span
-                                      title={`Já possui ponto lançado: ENT.1 ${state.current.ent1 || "--:--"} · SAÍ.1 ${state.current.sai1 || "--:--"} · ENT.2 ${state.current.ent2 || "--:--"} · SAÍ.2 ${state.current.sai2 || "--:--"}`}
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 6,
+                              }}
+                            >
+                              {group.targets.map((employee) => {
+                                const state = teamScheduleCollaboratorState(
+                                  employee,
+                                  punches,
+                                );
+                                const isLead = group.lead?.id === employee.id;
+                                const checked = !excludedTeamScheduleEmployeeIds.has(
+                                  employee.id,
+                                );
+                                const didBreak = !noBreakTeamScheduleEmployeeIds.has(
+                                  employee.id,
+                                );
+                                return (
+                                  <div
+                                    key={employee.id}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      flexWrap: "wrap",
+                                    }}
+                                    data-testid={`team-schedule-employee-${employee.id}`}
+                                  >
+                                    <label
+                                      className="check-field"
                                       style={{
-                                        color: "#b45309",
-                                        fontSize: 12,
-                                        fontWeight: 600,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        flex: 1,
+                                        minWidth: 200,
                                       }}
-                                      data-testid={`team-schedule-conflict-${employee.id}`}
                                     >
-                                      já preenchido (será substituído)
-                                    </span>
-                                  ) : null}
-                                </label>
-                              );
-                            })
+                                      <input
+                                        type="checkbox"
+                                        disabled={applyingTeamSchedule}
+                                        checked={checked}
+                                        onChange={() =>
+                                          toggleTeamScheduleEmployee(employee.id)
+                                        }
+                                        data-testid={`team-schedule-employee-checkbox-${employee.id}`}
+                                      />
+                                      <span style={{ flex: 1 }}>
+                                        {employee.name}{" "}
+                                        {isLead ? (
+                                          <span
+                                            style={{
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              color: "#1d4ed8",
+                                            }}
+                                          >
+                                            (encarregado)
+                                          </span>
+                                        ) : null}{" "}
+                                        <span
+                                          className="muted"
+                                          style={{ fontSize: 12 }}
+                                        >
+                                          · {employee.role || employee.position || "-"}
+                                        </span>
+                                      </span>
+                                    </label>
+                                    {state.differs ? (
+                                      <span
+                                        title={`Já possui ponto lançado: ENT.1 ${state.current.ent1 || "--:--"} · SAÍ.1 ${state.current.sai1 || "--:--"} · ENT.2 ${state.current.ent2 || "--:--"} · SAÍ.2 ${state.current.sai2 || "--:--"}`}
+                                        style={{
+                                          color: "#b45309",
+                                          fontSize: 12,
+                                          fontWeight: 600,
+                                        }}
+                                        data-testid={`team-schedule-conflict-${employee.id}`}
+                                      >
+                                        já preenchido
+                                      </span>
+                                    ) : null}
+                                    <label
+                                      className="check-field"
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        fontSize: 12,
+                                        whiteSpace: "nowrap",
+                                      }}
+                                      title="Se desmarcar, o intervalo (SAÍ.1 e ENT.2) não será gravado para este funcionário."
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        disabled={applyingTeamSchedule || !checked}
+                                        checked={checked && didBreak}
+                                        onChange={() =>
+                                          toggleTeamScheduleNoBreak(employee.id)
+                                        }
+                                        data-testid={`team-schedule-break-checkbox-${employee.id}`}
+                                      />
+                                      Fez intervalo
+                                    </label>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       ) : null}

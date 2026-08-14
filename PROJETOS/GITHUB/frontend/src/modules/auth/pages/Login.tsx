@@ -10,6 +10,7 @@ import "./login.css";
 export default function Login() {
   const navigate = useNavigate();
   const { user, login } = useAuth();
+  // const [texto, settexto] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,6 +19,31 @@ export default function Login() {
   useEffect(() => {
     if (user) navigate("/app", { replace: true });
   }, [navigate, user]);
+
+
+  // useEffect(() => {
+  //   async function gerarHashSHA256(texto = "123456") {
+  //     const encoder = new TextEncoder();
+  //     const data = encoder.encode(texto);
+
+  //     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  //     const hashArray = Array.from(new Uint8Array(hashBuffer));
+  //     const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+
+  //     return hashHex;
+  //   }
+
+
+  //   // Teste no front-end
+  //   gerarHashSHA256("123456").then(hash => {
+  //     console.log("Hash gerado:", hash);
+  //     alert("Hash gerado: " + hash);
+  //     settexto(hash)
+  //   });
+
+
+  // }, []);
+
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,7 +65,8 @@ export default function Login() {
     <main className="login-page" style={{ backgroundImage: `linear-gradient(rgba(9, 22, 34, 0.66), rgba(9, 22, 34, 0.82)), url(${bg})` }}>
       <form className="login-card" onSubmit={handleSubmit}>
         <img src={logo} alt="Macro Ambiental, Dinâmica Construções e RC Silva" />
-
+        {/* <input type="text"
+        value={texto} /> */}
         <label>
           <input
             value={username}
