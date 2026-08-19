@@ -3192,6 +3192,7 @@ button:disabled:hover {
 .timekeeping-table th,
 .timekeeping-table td {
   min-width: 180px;
+  font-size: 15px;
 }
 
 .timekeeping-table th {
@@ -3212,7 +3213,7 @@ button:disabled:hover {
   border: 1px solid var(--border-color, #d7e3ee);
   border-radius: 10px;
   padding: 8px 10px;
-  font: inherit;
+  font-size: 15px;
   background: #fff;
 }
 

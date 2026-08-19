@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { canNavigateAway } from "../../navGuard";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useDomainData } from "@/hooks/useDomainData";
@@ -318,7 +319,13 @@ export default function Layout() {
                 to={securePath(item.screen)}
                 end={item.end}
                 className={({ isActive }) => (isActive ? "is-active" : undefined)}
-                onClick={() => setMenuOpen(false)}
+                onClick={(event) => {
+                  if (!canNavigateAway()) {
+                    event.preventDefault();
+                    return;
+                  }
+                  setMenuOpen(false);
+                }}
               >
                 <Icon size={17} />
                 <span>{item.label}</span>

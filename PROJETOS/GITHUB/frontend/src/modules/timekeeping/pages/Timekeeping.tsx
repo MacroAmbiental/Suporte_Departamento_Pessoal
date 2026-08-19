@@ -20,6 +20,7 @@ import {
   Upload,
   Users,
   X,
+  Zap,
 } from "lucide-react";
 import {
   useEffect,
@@ -30,7 +31,8 @@ import {
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, collection, addDoc } from "firebase/firestore";
+import { setNavGuard } from "../../../common/navGuard";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { firebaseApp, firestore } from "@/services/firebase";
 import type * as XLSXTypes from "xlsx";
@@ -1141,12 +1143,44 @@ function scheduleDefaultsForDate(
   };
 }
 
+type SecullumOriginCode =
+  | "celular"
+  | "computador"
+  | "manual"
+  | "automatico"
+  | "api"
+  | "secullum";
+
 type SecullumDayRow = {
   entrada1: string;
   saida1: string;
   entrada2: string;
   saida2: string;
   nome?: string;
+  origem?: {
+    entrada1?: string;
+    saida1?: string;
+    entrada2?: string;
+    saida2?: string;
+  };
+};
+
+const SECULLUM_ORIGIN_COLORS: Record<SecullumOriginCode, string> = {
+  celular: "#0ea5e9",
+  computador: "#1e3a8a",
+  manual: "#dc2626",
+  automatico: "#ca8a04",
+  api: "#111827",
+  secullum: "#2563eb",
+};
+
+const SECULLUM_ORIGIN_LABELS: Record<SecullumOriginCode, string> = {
+  celular: "Secullum — Celular",
+  computador: "Secullum — Computador",
+  manual: "Secullum — Manual",
+  automatico: "Secullum — Automático",
+  api: "Registrado no Secullum via Macro Ambiental",
+  secullum: "Secullum — origem não identificada",
 };
 
 type TeamSchedulePunches = { ent1: string; sai1: string; ent2: string; sai2: string };
@@ -1951,6 +1985,20 @@ export default function Timekeeping() {
   );
   const [secullumError, setSecullumError] = useState("");
   const [secullumLastSync, setSecullumLastSync] = useState("");
+  const [secullumSendConfirm, setSecullumSendConfirm] = useState<{
+    employee: Employee;
+    field: "entrada1" | "saida1" | "entrada2" | "saida2";
+    coluna: string;
+    hora: string;
+    macroValue: string;
+    secValue: string;
+  } | null>(null);
+  const [secullumSendBusy, setSecullumSendBusy] = useState(false);
+  const [secullumSendError, setSecullumSendError] = useState("");
+  const secullumSeqRef = useRef(0);
+  // Data digitada no input (aplicada ao filtro com debounce para evitar
+  // re-renderizar a tabela inteira a cada tecla).
+  const [pendingDate, setPendingDate] = useState(filters.date);
   const [teamScheduleEdits, setTeamScheduleEdits] = useState<
     Record<string, TeamSchedulePunches>
   >({});
@@ -2443,15 +2491,57 @@ export default function Timekeeping() {
     [columns],
   );
 
+  // Substitui campos zerados da Macro Ambiental pelo valor do Secullum (somente com
+  // a tabela desbloqueada). Reflete tanto na exibição quanto no "Salvar dia do mês".
+  function substituteEmptyFromSecullum(
+    employee: Employee,
+    base?: TimeRecord,
+    opts?: { forSave?: boolean },
+  ): TimeRecord | undefined {
+    // Para o SALVAR: só substitui com a tabela liberada (evita gravar ao só visualizar).
+    // Para a EXIBIÇÃO: sempre substitui, para mostrar os horários coloridos por origem.
+    if (opts?.forSave && tableLocked) return base;
+    const cpf = (employee.cpf || "").replace(/\D/g, "");
+    const sec = cpf ? secullumByCpf.get(cpf) : undefined;
+    if (!sec) return base;
+    const cf = { ...((base?.customFields || {}) as Record<string, string>) };
+    const next = { ...(base || {}) } as TimeRecord;
+    let changed = false;
+    if (!hasFilledTimeValue(base?.checkIn) && hasFilledTimeValue(sec.entrada1)) {
+      next.checkIn = sec.entrada1;
+      changed = true;
+    }
+    if (!hasFilledTimeValue(base?.checkOut) && hasFilledTimeValue(sec.saida1)) {
+      next.checkOut = sec.saida1;
+      changed = true;
+    }
+    if (!hasFilledTimeValue(cf.ent2) && hasFilledTimeValue(sec.entrada2)) {
+      cf.ent2 = sec.entrada2;
+      changed = true;
+    }
+    if (
+      !isSai2ManuallyZeroed(cf) &&
+      !hasFilledTimeValue(cf.sai2) &&
+      hasFilledTimeValue(sec.saida2)
+    ) {
+      cf.sai2 = sec.saida2;
+      changed = true;
+    }
+    if (!changed) return base;
+    next.customFields = cf;
+    return next;
+  }
+
   const displayRecordByEmployeeId = useMemo(() => {
     const map = new Map<string, TimeRecord>();
     employees.forEach((employee) => {
       const existing =
         draftRecordsByEmployeeId[employee.id] ||
         timeRecordByEmployeeDate.get(`${employee.id}:${filters.date}`);
+      const withSec = substituteEmptyFromSecullum(employee, existing);
       map.set(
         employee.id,
-        createDisplayRecord(employee, filters.date, existing, calculationSettings),
+        createDisplayRecord(employee, filters.date, withSec, calculationSettings),
       );
     });
     return map;
@@ -2461,6 +2551,8 @@ export default function Timekeeping() {
     employees,
     filters.date,
     timeRecordByEmployeeDate,
+    secullumByCpf,
+    tableLocked,
   ]);
 
   const wholeDaySavePlan = useMemo(() => {
@@ -2470,8 +2562,11 @@ export default function Timekeeping() {
       const current =
         draftRecordsByEmployeeId[employee.id] ||
         timeRecordByEmployeeDate.get(`${employee.id}:${filters.date}`);
+      const currentWithSec = substituteEmptyFromSecullum(employee, current, {
+        forSave: true,
+      });
       return sanitizeTimeRecord({
-        ...createDisplayRecord(employee, filters.date, current, calculationSettings),
+        ...createDisplayRecord(employee, filters.date, currentWithSec, calculationSettings),
         id: timeRecordDocumentId(filters.date, employee.id),
         updatedAt: current?.updatedAt || "",
       });
@@ -2527,6 +2622,8 @@ export default function Timekeeping() {
     filters.date,
     savedDayTables,
     timeRecordByEmployeeDate,
+    secullumByCpf,
+    tableLocked,
   ]);
 
   const tableFilteredEmployees = useMemo(
@@ -3471,6 +3568,48 @@ export default function Timekeeping() {
         saveTimekeepingDayTable(dayTable),
       ]);
       setSavedDayTables((current) => [dayTable, ...current.filter((table) => table.id !== dayTable.id)]);
+
+      // Auditoria (Firestore) das alterações de horário persistidas neste dia.
+      void (async () => {
+        const timeFields: Array<{
+          field: "entrada1" | "saida1" | "entrada2" | "saida2";
+          getter: (r: TimeRecord) => string;
+        }> = [
+            { field: "entrada1", getter: (r) => String(r.checkIn ?? "") },
+            { field: "saida1", getter: (r) => String(r.checkOut ?? "") },
+            {
+              field: "entrada2",
+              getter: (r) => String((r.customFields as Record<string, string>)?.ent2 ?? ""),
+            },
+            {
+              field: "saida2",
+              getter: (r) => String((r.customFields as Record<string, string>)?.sai2 ?? ""),
+            },
+          ];
+        for (const record of recordsToWrite) {
+          const employee = employeeById.get(record.employeeId);
+          if (!employee) continue;
+          const stored = timeRecordByEmployeeDate.get(
+            `${record.employeeId}:${record.date}`,
+          );
+          for (const { field, getter } of timeFields) {
+            const before = stored ? getter(stored) : "";
+            const after = getter(record);
+            if ((before || "").trim() === (after || "").trim()) continue;
+            await writeTimekeepingAudit({
+              employee,
+              field,
+              previousValue: before,
+              newValue: after,
+              previousOrigin: "firebase",
+              newOrigin: "firebase",
+              action: "alteracao_jornada_firebase",
+              result: "sucesso",
+              integratedWithSecullum: false,
+            });
+          }
+        }
+      })();
 
       const benefitsToSync = recordsToWrite.filter((record) => {
         const stored = timeRecordByEmployeeDate.get(`${record.employeeId}:${record.date}`);
@@ -5206,6 +5345,7 @@ export default function Timekeeping() {
   async function fetchSecullumDay(persist: boolean) {
     const date = filters.date;
     if (!date) return;
+    const seq = ++secullumSeqRef.current;
     setSecullumStatus("loading");
     setSecullumError("");
     try {
@@ -5213,6 +5353,8 @@ export default function Timekeeping() {
       const functions = getFunctions(firebaseApp);
       const call = httpsCallable(functions, "obterBatidasSecullum");
       const callResp = await call({ data: date });
+      // Descarta respostas obsoletas (usuário já trocou a data).
+      if (seq !== secullumSeqRef.current) return;
       const rows = callResp.data as Array<Record<string, unknown>>;
       const map = new Map<string, SecullumDayRow>();
       (Array.isArray(rows) ? rows : []).forEach((row: Record<string, unknown>) => {
@@ -5226,6 +5368,7 @@ export default function Timekeeping() {
           entrada2: String(row.entrada2 ?? ""),
           saida2: String(row.saida2 ?? ""),
           nome: row.nome ? String(row.nome) : undefined,
+          origem: (row.origem as SecullumDayRow["origem"]) ?? undefined,
         });
       });
       setSecullumByCpf(map);
@@ -5244,6 +5387,7 @@ export default function Timekeeping() {
         }
       }
     } catch (error) {
+      if (seq !== secullumSeqRef.current) return;
       console.error("Secullum:", error);
       setSecullumError(
         error instanceof Error
@@ -5254,8 +5398,67 @@ export default function Timekeeping() {
     }
   }
 
+  // Sincroniza a data pendente quando o filtro muda por fora (ex.: limpar filtros).
+  useEffect(() => {
+    setPendingDate(filters.date);
+  }, [filters.date]);
+
+  // Confirma descarte de edições não salvas (área de edição) antes de mudar a lista.
+  function confirmDiscardDraft(): boolean {
+    const n = Object.keys(draftRecordsByEmployeeId).length;
+    if (n === 0) return true;
+    return window.confirm(
+      `Você tem ${n} registro(s) com edições ainda não enviados ao banco de dados na área de edição.\n\n` +
+      `Se continuar, essas ${n} alteração(ões) serão perdidas. Deseja continuar?`,
+    );
+  }
+
+  // Mantém a contagem de edições não salvas acessível aos guards de navegação.
+  const draftCountRef = useRef(0);
+  draftCountRef.current = Object.keys(draftRecordsByEmployeeId).length;
+
+  // Bloqueia a saída da PÁGINA da aplicação (sidebar) e refresh/fechar do navegador
+  // quando há edições não salvas. NÃO afeta a paginação da lista.
+  useEffect(() => {
+    setNavGuard(() => {
+      const n = draftCountRef.current;
+      if (n === 0) return true;
+      return window.confirm(
+        `Você tem ${n} registro(s) com edições não salvas no Controle de Ponto.\n\n` +
+        `Se sair desta página, essas ${n} alteração(ões) serão perdidas. Deseja sair mesmo assim?`,
+      );
+    });
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (draftCountRef.current > 0) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      setNavGuard(null);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, []);
+
+  // Aplica a data digitada ao filtro somente ao sair do campo / pressionar Enter
+  // (digitar não deve surtir efeito na lista).
+  function commitPendingDate(nextDate: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate) || nextDate === filters.date) {
+      setPendingDate(filters.date);
+      return;
+    }
+    if (!confirmDiscardDraft()) {
+      setPendingDate(filters.date);
+      return;
+    }
+    setFilters((current) => ({ ...current, date: nextDate }));
+  }
+
   // Carrega as batidas do Secullum automaticamente ao trocar o dia do filtro.
   useEffect(() => {
+    // Limpa os dados do dia anterior para evitar exibir horários obsoletos.
+    setSecullumByCpf(new Map());
     void fetchSecullumDay(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.date]);
@@ -5279,49 +5482,294 @@ export default function Timekeeping() {
     };
   }, [filters.date]);
 
-  function renderSecullumHint(
+  // Origem (código) da batida do Secullum para um campo específico do funcionário.
+  function secullumOriginFor(
     employee: Employee,
     field: "entrada1" | "saida1" | "entrada2" | "saida2",
-    primary: boolean,
+  ): { value: string; code: SecullumOriginCode } | null {
+    const row = secullumByCpf.get(secullumOnlyDigits(employee.cpf));
+    if (!row) return null;
+    const value = String(row[field] ?? "").trim();
+    if (!value) return null;
+    const code = (row.origem?.[field] as SecullumOriginCode) || "secullum";
+    return { value, code };
+  }
+
+  // Cor da fonte do campo editável: só colore quando o valor da Macro Ambiental
+  // é igual ao valor registrado no Secullum (mesma batida). Caso contrário, preto.
+  function secullumFieldColor(
+    employee: Employee,
+    field: "entrada1" | "saida1" | "entrada2" | "saida2",
+    currentValue: string,
+  ): string | undefined {
+    if (secullumStatus !== "ok") return undefined;
+    const origin = secullumOriginFor(employee, field);
+    if (!origin) return undefined;
+    const norm = (v: string) => (v || "").trim();
+    if (norm(currentValue) !== norm(origin.value)) return undefined;
+    return SECULLUM_ORIGIN_COLORS[origin.code];
+  }
+
+  function secullumColumnName(
+    field: "entrada1" | "saida1" | "entrada2" | "saida2",
+  ): string {
+    return field === "entrada1"
+      ? "Entrada1"
+      : field === "saida1"
+        ? "Saida1"
+        : field === "entrada2"
+          ? "Entrada2"
+          : "Saida2";
+  }
+
+  const isEmptyTime = (v?: string) => {
+    const t = (v || "").trim();
+    return !t || t === "00:00";
+  };
+
+  // Auditoria (gravada no Firestore, NUNCA exibida na tela).
+  async function writeTimekeepingAudit(entry: {
+    employee: Employee;
+    field: "entrada1" | "saida1" | "entrada2" | "saida2";
+    previousValue?: string;
+    newValue?: string;
+    previousOrigin?: string;
+    newOrigin?: string;
+    action: string;
+    result: "sucesso" | "erro";
+    integratedWithSecullum?: boolean;
+    secullumReturn?: string;
+    errorMessage?: string;
+  }) {
+    if (!firestore || !user) return;
+    try {
+      const now = new Date();
+      await addDoc(collection(firestore, "timekeepingAudit"), {
+        userId: user.id,
+        userName: user.name,
+        userUsername: user.username,
+        employeeId: entry.employee.id,
+        employeeName: entry.employee.name,
+        journeyDate: filters.date,
+        field: entry.field,
+        coluna: secullumColumnName(entry.field),
+        previousValue: entry.previousValue ?? "",
+        newValue: entry.newValue ?? "",
+        previousOrigin: entry.previousOrigin ?? "",
+        newOrigin: entry.newOrigin ?? "",
+        action: entry.action,
+        result: entry.result,
+        integratedWithSecullum: entry.integratedWithSecullum ?? false,
+        secullumReturn: entry.secullumReturn ?? "",
+        errorMessage: entry.errorMessage ?? "",
+        at: now.toISOString(),
+        atLocal: now.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+      });
+    } catch (auditError) {
+      console.error("Falha ao gravar auditoria:", auditError);
+    }
+  }
+
+  // Importa (Secullum → Firebase) apenas para o rascunho; persiste no "Salvar dia do mês".
+  async function importSecullumField(
+    employee: Employee,
+    field: "entrada1" | "saida1" | "entrada2" | "saida2",
+    secValue: string,
+    macroValue: string,
   ) {
-    if (secullumStatus === "loading") {
-      return primary ? (
-        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-          Secullum: carregando…
-        </div>
-      ) : null;
+    if (tableLocked) return;
+    const value = (secValue || "").trim() || "00:00";
+    if (field === "entrada1") {
+      await saveRecord(employee, { checkIn: value });
+    } else if (field === "saida1") {
+      await saveRecord(employee, { checkOut: value });
+    } else {
+      const rec = displayRecord(employee);
+      const key = field === "entrada2" ? "ent2" : "sai2";
+      const nextCustomFields = {
+        ...(rec.customFields || {}),
+        [key]: value,
+        ...(key === "sai2"
+          ? {
+            [manualZeroSai2Field]: hasFilledTimeValue(value) ? "false" : "true",
+          }
+          : {}),
+      };
+      await saveRecord(employee, { customFields: nextCustomFields });
     }
-    if (secullumStatus === "error") {
-      return primary ? (
-        <div
-          style={{ fontSize: 12, marginTop: 2, color: "#dc2626" }}
-          title={secullumError}
-        >
-          Secullum: falha na API
-        </div>
-      ) : null;
+    await writeTimekeepingAudit({
+      employee,
+      field,
+      previousValue: macroValue,
+      newValue: value,
+      previousOrigin: "firebase",
+      newOrigin: "secullum-importado",
+      action: "importar_secullum",
+      result: "sucesso",
+      integratedWithSecullum: false,
+    });
+  }
+
+  function requestSecullumSend(
+    employee: Employee,
+    field: "entrada1" | "saida1" | "entrada2" | "saida2",
+    macroValue: string,
+    secValue: string,
+  ) {
+    setSecullumSendError("");
+    setSecullumSendConfirm({
+      employee,
+      field,
+      coluna: secullumColumnName(field),
+      hora: (macroValue || "").trim(),
+      macroValue,
+      secValue,
+    });
+  }
+
+  async function confirmSecullumSend() {
+    if (!secullumSendConfirm || secullumSendBusy) return;
+    const { employee, field, coluna, hora, secValue } = secullumSendConfirm;
+    setSecullumSendBusy(true);
+    setSecullumSendError("");
+    try {
+      if (!firebaseApp) throw new Error("Firebase não configurado.");
+      const functions = getFunctions(firebaseApp);
+      const call = httpsCallable(functions, "enviarBatidaSecullum");
+      const resp = await call({
+        cpf: employee.cpf,
+        data: filters.date,
+        coluna,
+        hora,
+        motivo: "Via API MACRO",
+      });
+      await writeTimekeepingAudit({
+        employee,
+        field,
+        previousValue: secValue,
+        newValue: hora,
+        previousOrigin: secValue ? "secullum" : "",
+        newOrigin: "api",
+        action: "enviar_secullum",
+        result: "sucesso",
+        integratedWithSecullum: true,
+        secullumReturn: JSON.stringify(resp.data ?? {}),
+      });
+      setSecullumSendConfirm(null);
+      void fetchSecullumDay(false);
+    } catch (error) {
+      const msg =
+        error instanceof Error
+          ? error.message
+          : "Não foi possível registrar a jornada no Secullum.";
+      setSecullumSendError(msg);
+      await writeTimekeepingAudit({
+        employee,
+        field,
+        previousValue: secValue,
+        newValue: hora,
+        previousOrigin: secValue ? "secullum" : "",
+        newOrigin: "",
+        action: "enviar_secullum",
+        result: "erro",
+        integratedWithSecullum: true,
+        errorMessage: msg,
+      });
+    } finally {
+      setSecullumSendBusy(false);
     }
-    if (secullumStatus === "ok") {
-      const row = secullumByCpf.get(secullumOnlyDigits(employee.cpf));
-      if (!row) {
-        return primary ? (
-          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            Secullum: sem registro nesse dia
-          </div>
-        ) : null;
-      }
-      const value = String(row[field] ?? "").trim();
-      return (
-        <div
-          style={{ fontSize: 12, marginTop: 2, color: "#2563eb" }}
-          title="Batida registrada no Secullum (somente leitura)"
-          data-testid={`secullum-hint-${field}-${employee.id}`}
-        >
-          Sec: {value || "--"}
-        </div>
-      );
-    }
-    return null;
+  }
+
+  // Botões de sincronização por campo (dentro do próprio item).
+  function renderSecullumActions(
+    employee: Employee,
+    field: "entrada1" | "saida1" | "entrada2" | "saida2",
+    macroValue: string,
+  ) {
+    if (secullumStatus !== "ok" || tableLocked || !canEditTimekeeping) return null;
+    const origin = secullumOriginFor(employee, field);
+    const secValue = origin?.value || "";
+    const macroEmpty = isEmptyTime(macroValue);
+    const secEmpty = isEmptyTime(secValue);
+    const norm = (v: string) => (v || "").trim();
+    const divergent = !macroEmpty && !secEmpty && norm(macroValue) !== norm(secValue);
+    const showEnviar = (secEmpty && !macroEmpty) || divergent;
+    const showImportar = (macroEmpty && !secEmpty) || divergent;
+    if (!showEnviar && !showImportar) return null;
+    return (
+      <div style={{ display: "flex", gap: 4, marginTop: 3 }}>
+        {showEnviar ? (
+          <button
+            type="button"
+            disabled={busy}
+            data-testid={`secullum-send-${field}-${employee.id}`}
+            title="Registrar este horário da Macro Ambiental no Secullum (produção)"
+            onClick={() => requestSecullumSend(employee, field, macroValue, secValue)}
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "1px 6px",
+              borderRadius: 6,
+              border: "1px solid #1d4ed8",
+              color: "#1d4ed8",
+              background: "#eff6ff",
+              cursor: "pointer",
+            }}
+          >
+            → Secullum
+          </button>
+        ) : null}
+        {showImportar ? (
+          <button
+            type="button"
+            disabled={busy}
+            data-testid={`secullum-import-${field}-${employee.id}`}
+            title="Trazer o horário do Secullum para a Macro Ambiental (salva ao confirmar o dia)"
+            onClick={() =>
+              void importSecullumField(employee, field, secValue, macroValue)
+            }
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "1px 6px",
+              borderRadius: 6,
+              border: "1px solid #0f766e",
+              color: "#0f766e",
+              background: "#f0fdfa",
+              cursor: "pointer",
+            }}
+          >
+            ← {secValue || "Firebase"}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Indicador de raio (⚡) somente para horários de origem "automático" do Secullum
+  // que já estão refletidos no campo da Macro Ambiental.
+  function renderSecullumRaio(
+    employee: Employee,
+    field: "entrada1" | "saida1" | "entrada2" | "saida2",
+    macroValue: string,
+  ) {
+    if (secullumStatus !== "ok") return null;
+    const origin = secullumOriginFor(employee, field);
+    if (!origin || origin.code !== "automatico") return null;
+    if ((macroValue || "").trim() !== (origin.value || "").trim()) return null;
+    return (
+      <div
+        style={{ marginTop: 2, lineHeight: 0 }}
+        title={SECULLUM_ORIGIN_LABELS.automatico}
+        data-testid={`secullum-raio-${field}-${employee.id}`}
+      >
+        <Zap
+          size={12}
+          fill={SECULLUM_ORIGIN_COLORS.automatico}
+          color={SECULLUM_ORIGIN_COLORS.automatico}
+        />
+      </div>
+    );
   }
 
 
@@ -5376,6 +5824,7 @@ export default function Timekeeping() {
               className="table-input"
               type="time"
               disabled={busy}
+              style={{ color: secullumFieldColor(employee, "entrada1", record.checkIn || "00:00"), fontWeight: secullumFieldColor(employee, "entrada1", record.checkIn || "00:00") ? 700 : undefined }}
               value={record.checkIn || "00:00"}
               onChange={(event) =>
                 void saveRecord(employee, {
@@ -5394,7 +5843,8 @@ export default function Timekeeping() {
               <X size={13} />
             </button>
           </div>
-          {renderSecullumHint(employee, "entrada1", true)}
+          {renderSecullumRaio(employee, "entrada1", record.checkIn || "00:00")}
+          {renderSecullumActions(employee, "entrada1", record.checkIn || "00:00")}
         </td>
       );
     }
@@ -5405,6 +5855,7 @@ export default function Timekeeping() {
             className="table-input"
             type="time"
             disabled={busy}
+            style={{ color: secullumFieldColor(employee, "saida1", record.checkOut || "00:00"), fontWeight: secullumFieldColor(employee, "saida1", record.checkOut || "00:00") ? 700 : undefined }}
             value={record.checkOut || "00:00"}
             onChange={(event) =>
               void saveRecord(employee, {
@@ -5412,7 +5863,8 @@ export default function Timekeeping() {
               })
             }
           />
-          {renderSecullumHint(employee, "saida1", false)}
+          {renderSecullumRaio(employee, "saida1", record.checkOut || "00:00")}
+          {renderSecullumActions(employee, "saida1", record.checkOut || "00:00")}
         </td>
       );
     }
@@ -5444,6 +5896,15 @@ export default function Timekeeping() {
         metricFallback,
       );
       const isManualMetric = isCalculatedMetricKey(column.key);
+      const secField =
+        column.key === "ent2"
+          ? ("entrada2" as const)
+          : column.key === "sai2"
+            ? ("saida2" as const)
+            : null;
+      const secColor = secField
+        ? secullumFieldColor(employee, secField, value)
+        : undefined;
 
       return (
         <td key={column.key} style={{ minWidth: width, width }}>
@@ -5452,6 +5913,7 @@ export default function Timekeeping() {
               className="table-input"
               type="time"
               disabled={busy}
+              style={{ color: secColor, fontWeight: secColor ? 700 : undefined }}
               title={
                 isManualMetric
                   ? "Calculado automaticamente. Pode ser substituído manualmente após a confirmação do aviso."
@@ -5503,9 +5965,14 @@ export default function Timekeeping() {
             ) : null}
           </div>
           {column.key === "ent2"
-            ? renderSecullumHint(employee, "entrada2", false)
+            ? renderSecullumRaio(employee, "entrada2", value)
             : column.key === "sai2"
-              ? renderSecullumHint(employee, "saida2", false)
+              ? renderSecullumRaio(employee, "saida2", value)
+              : null}
+          {column.key === "ent2"
+            ? renderSecullumActions(employee, "entrada2", value)
+            : column.key === "sai2"
+              ? renderSecullumActions(employee, "saida2", value)
               : null}
         </td>
       );
@@ -5960,10 +6427,15 @@ export default function Timekeeping() {
         />
         <input
           type="date"
-          value={filters.date}
-          onChange={(event) =>
-            setFilters({ ...filters, date: event.target.value })
-          }
+          value={pendingDate}
+          onChange={(event) => setPendingDate(event.target.value)}
+          onBlur={(event) => commitPendingDate(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitPendingDate((event.target as HTMLInputElement).value);
+            }
+          }}
         />
         <input
           placeholder="Buscar funcionário"
@@ -6585,7 +7057,264 @@ export default function Timekeeping() {
           </div>
         ) : null}
 
-        <div className="table-panel timekeeping-table-panel">
+        <div
+          className="secullum-legend"
+          data-testid="secullum-legend"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 16,
+            alignItems: "center",
+            margin: "0 16px 12px",
+            padding: "8px 12px",
+            border: "1px solid #e2e8f0",
+            borderRadius: 10,
+            background: "#f8fafc",
+            fontSize: 12,
+          }}
+        >
+          <strong style={{ color: "#334155" }}>Origem do horário:</strong>
+          {(
+            [
+              ["celular", "Celular"],
+              ["computador", "Computador"],
+              ["manual", "Manual"],
+              ["automatico", "Automático"],
+              ["api", "Preto: Macro Ambiental / enviado ao Secullum via API"],
+            ] as Array<[SecullumOriginCode, string]>
+          ).map(([code, label]) => (
+            <span
+              key={code}
+              style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+            >
+              {code === "automatico" ? (
+                <Zap size={13} fill={SECULLUM_ORIGIN_COLORS[code]} color={SECULLUM_ORIGIN_COLORS[code]} />
+              ) : (
+                <span
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 3,
+                    background: SECULLUM_ORIGIN_COLORS[code],
+                    display: "inline-block",
+                    border: code === "api" ? "1px solid #cbd5e1" : undefined,
+                  }}
+                />
+              )}
+              <span style={{ color: SECULLUM_ORIGIN_COLORS[code], fontWeight: 700 }}>
+                {label}
+              </span>
+            </span>
+          ))}
+        </div>
+
+
+        {secullumSendConfirm
+          ? createPortal(
+            <div
+              className="modal-overlay"
+              data-testid="secullum-send-modal"
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(15,23,42,0.55)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 1000,
+                padding: 16,
+              }}
+              onClick={() => {
+                if (!secullumSendBusy) {
+                  setSecullumSendConfirm(null);
+                  setSecullumSendError("");
+                }
+              }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                  background: "#fff",
+                  borderRadius: 14,
+                  padding: 24,
+                  width: "100%",
+                  maxWidth: 460,
+                  boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+                }}
+              >
+                <h3 style={{ margin: "0 0 8px", fontSize: 18, color: "#0f172a" }}>
+                  Registrar batida no Secullum
+                </h3>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "flex-start",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    margin: "12px 0",
+                  }}
+                >
+                  <Zap size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ fontSize: 13, color: "#991b1b" }}>
+                    Esta ação irá registrar/alterar a batida <strong>diretamente
+                      no Secullum (ambiente de produção)</strong>. Confirme antes de
+                    prosseguir.
+                  </span>
+                </div>
+                <p style={{ fontSize: 14, color: "#334155", margin: "0 0 6px" }}>
+                  <strong>Funcionário:</strong> {secullumSendConfirm.employee.name}
+                </p>
+                <p style={{ fontSize: 14, color: "#334155", margin: "0 0 6px" }}>
+                  <strong>Data:</strong> {filters.date} &nbsp;•&nbsp;{" "}
+                  <strong>Coluna:</strong> {secullumSendConfirm.coluna}
+                </p>
+                <p style={{ fontSize: 14, color: "#334155", margin: "0 0 6px" }}>
+                  <strong>Horário a enviar:</strong> {secullumSendConfirm.hora || "--"}
+                  {secullumSendConfirm.secValue
+                    ? ` (substituirá ${secullumSendConfirm.secValue} no Secullum)`
+                    : ""}
+                </p>
+                {secullumSendConfirm.secValue &&
+                  secullumOriginFor(
+                    secullumSendConfirm.employee,
+                    secullumSendConfirm.field,
+                  )?.code === "celular" ? (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "#92400e",
+                      background: "#fffbeb",
+                      border: "1px solid #fde68a",
+                      borderRadius: 8,
+                      padding: "8px 10px",
+                      margin: "8px 0 0",
+                    }}
+                  >
+                    Atenção: esta batida foi feita por celular e pode possuir foto
+                    de reconhecimento facial. Ao alterá-la no Secullum, a foto
+                    original pode ser perdida. <strong>Não é possível recuperar
+                      essa foto pela API</strong> — somente mediante contato/contratação
+                    do serviço BioWeb do Secullum.
+                  </div>
+                ) : null}
+                {secullumSendError ? (
+                  <div
+                    data-testid="secullum-send-error"
+                    style={{
+                      fontSize: 13,
+                      color: "#b91c1c",
+                      background: "#fef2f2",
+                      border: "1px solid #fecaca",
+                      borderRadius: 8,
+                      padding: "8px 10px",
+                      margin: "10px 0 0",
+                    }}
+                  >
+                    {secullumSendError}
+                  </div>
+                ) : null}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: 8,
+                    marginTop: 18,
+                  }}
+                >
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    disabled={secullumSendBusy}
+                    data-testid="secullum-send-cancel"
+                    onClick={() => {
+                      setSecullumSendConfirm(null);
+                      setSecullumSendError("");
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    disabled={secullumSendBusy}
+                    data-testid="secullum-send-confirm"
+                    onClick={() => void confirmSecullumSend()}
+                  >
+                    {secullumSendBusy ? "Enviando…" : "Confirmar envio"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+          : null}
+
+        {secullumStatus === "error" ? (
+          <div
+            data-testid="secullum-error-banner"
+            style={{
+              margin: "0 16px 12px",
+              padding: "10px 14px",
+              borderRadius: 10,
+              border: "1px solid #fecaca",
+              background: "#fef2f2",
+              color: "#991b1b",
+              fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Zap size={16} color="#dc2626" />
+            <span>
+              Não foi possível carregar os dados do Secullum ({secullumError || "erro na API"}).
+              A lista está sendo exibida normalmente, sem as cores de origem do Secullum.
+            </span>
+          </div>
+        ) : null}
+
+        <div
+          className="table-panel timekeeping-table-panel"
+          style={{ position: "relative" }}
+        >
+          {secullumStatus === "loading" ? (
+            <div
+              data-testid="secullum-loading-splash"
+              style={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 5,
+                background: "rgba(248,250,252,0.9)",
+                backdropFilter: "blur(2px)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 14,
+                borderRadius: 12,
+              }}
+            >
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  border: "4px solid #cbd5e1",
+                  borderTopColor: "#2563eb",
+                  borderRadius: "50%",
+                  animation: "secullum-spin 0.8s linear infinite",
+                }}
+              />
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#334155" }}>
+                Carregando dados do Secullum…
+              </div>
+              <style>{`@keyframes secullum-spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : null}
           <div className="timekeeping-table-scroll">
             <table className="data-table timekeeping-table">
               <thead>
@@ -6646,7 +7375,7 @@ export default function Timekeeping() {
             pageEnd={pageEnd}
             currentPage={safeCurrentPage}
             totalPages={totalPages}
-            onPageChange={setCurrentPage}
+            onPageChange={(page) => setCurrentPage(page)}
           />
         </div>
 
