@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { sortByLabel } from "@/utils/sort";
 
 export type MultiSelectOption = {
@@ -62,22 +62,42 @@ export default function MultiSelect({
     onChange([...value, optionValue]);
   }
 
+  function handleControlKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
   return (
     <div className="multi-select-dropdown" ref={containerRef}>
-      <button type="button" className="multi-select-control" onClick={() => setOpen((current) => !current)} aria-expanded={open}>
+      <div
+        className="multi-select-control"
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={handleControlKeyDown}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
         <div className="multi-select-chips">
           {selectedOptions.length ? (
             <>
               {visibleSelectedOptions.map((option) => (
-              <span className="multi-select-chip" key={option.value}>
-                <span className="multi-select-chip-label" title={option.label}>{option.label}</span>
-                <button type="button" aria-label={`Remover ${option.label}`} onClick={(event) => {
-                  event.stopPropagation();
-                  toggleOption(option.value);
-                }}>
-                  <X size={11} />
-                </button>
-              </span>
+                <span className="multi-select-chip" key={option.value}>
+                  <span className="multi-select-chip-label" title={option.label}>{option.label}</span>
+                  <button type="button" aria-label={`Remover ${option.label}`} onClick={(event) => {
+                    event.stopPropagation();
+                    toggleOption(option.value);
+                  }}>
+                    <X size={11} />
+                  </button>
+                </span>
               ))}
               {hiddenSelectedCount ? <span className="multi-select-chip multi-select-chip-count">+{hiddenSelectedCount}</span> : null}
             </>
@@ -86,10 +106,10 @@ export default function MultiSelect({
           )}
         </div>
         <ChevronDown size={16} />
-      </button>
+      </div>
 
       {open ? (
-        <div className="multi-select-panel">
+        <div className="multi-select-panel" role="listbox">
           <div className="multi-select-search-wrap">
             <Search size={15} />
             <input

@@ -820,8 +820,8 @@ function MonthlyPercentChart({ rows }: { rows: MonthChartRow[] }) {
         const tooltip = tooltipText([
           row.label,
           `Absenteísmo: ${formatPercent(row.percent)}`,
-          `Faltas + atestados: ${formatInteger(row.missedDays)}`,
-          `Dias trabalhados calculados: ${formatInteger(row.workedDays)}`,
+          `Dias perdidos: ${formatInteger(row.missedDays)}`,
+          `Dias previstos: ${formatInteger(row.workedDays)}`,
           `Faltas confirmadas: ${formatInteger(row.absences)}`,
           `Atestados: ${formatInteger(row.certificates)}`,
         ]);
@@ -1263,10 +1263,7 @@ export default function HrControl() {
     let total = 0;
 
     baseEmployees.forEach((employee) => {
-      savedActiveDates.forEach((date) => {
-        const savedForCompany = (savedTablesByDate.get(date) || [])
-          .some((table) => savedDayMatchesCompanyId(table, employee.companyId));
-        if (!savedForCompany) return;
+      activeDates.forEach((date) => {
         if (employee.admissionDate && employee.admissionDate > date) return;
         if (!isUsefulSavedWorkday(employee, date, timekeepingSettingsByCompanyId)) return;
 
@@ -1287,10 +1284,9 @@ export default function HrControl() {
 
     return { total, savedUsefulDateCount: savedUsefulDates.size, byTeam, byMonth };
   }, [
+    activeDates,
     baseEmployees,
     recordByEmployeeDate,
-    savedActiveDates,
-    savedTablesByDate,
     selectedTeamIds,
     teamById,
     timekeepingSettingsByCompanyId,
@@ -1322,7 +1318,7 @@ export default function HrControl() {
     });
 
     const totalAbsencesAndCertificates = absences + certificates;
-    const workedDays = expectedWorkDays.total;
+    const plannedDays = expectedWorkDays.total;
     const savedUsefulDays = expectedWorkDays.savedUsefulDateCount;
 
     return {
@@ -1331,9 +1327,9 @@ export default function HrControl() {
       certificates,
       absencesAndCertificates: totalAbsencesAndCertificates,
       dayOffs,
-      workedDays,
+      workedDays: plannedDays,
       savedUsefulDays,
-      absenteeism: workedDays ? (totalAbsencesAndCertificates / workedDays) * 100 : 0,
+      absenteeism: plannedDays ? (totalAbsencesAndCertificates / plannedDays) * 100 : 0,
       loss,
     };
   }, [baseEmployees.length, baseFilteredRecords, employeeById, expectedWorkDays]);
@@ -1402,7 +1398,7 @@ export default function HrControl() {
         return {
         label,
         value: worked ? (missed / worked) * 100 : 0,
-        detail: `${formatInteger(missed)} falta(s) / ${formatInteger(worked)} dia(s) trabalhado(s) calculado(s)`,
+        detail: `${formatInteger(missed)} falta(s) + atestado(s) / ${formatInteger(worked)} dia(s) previsto(s)`,
         color: "#1f95ed",
         };
       })
@@ -1414,7 +1410,7 @@ export default function HrControl() {
   const monthlyRows = useMemo<MonthChartRow[]>(() => {
     const months = new Map<string, MonthChartRow>();
 
-    savedActiveDates.forEach((date) => {
+    activeDates.forEach((date) => {
       const key = monthKey(date);
       if (!months.has(key)) {
         months.set(key, { key, label: monthLabel(key), absences: 0, certificates: 0, missedDays: 0, workedDays: 0, percent: 0, overtime: 0 });
@@ -1453,7 +1449,7 @@ export default function HrControl() {
         };
       })
       .sort((left, right) => left.key.localeCompare(right.key));
-  }, [baseFilteredRecords, expectedWorkDays, savedActiveDates]);
+  }, [activeDates, baseFilteredRecords, expectedWorkDays]);
 
   const absencePieRows = useMemo<ChartRow[]>(
     () =>
@@ -1619,7 +1615,7 @@ export default function HrControl() {
     { label: "Total de Atestados", value: formatCompact(metrics.certificates), icon: Stethoscope, tone: "green" },
     { label: "Faltas + Atestados", value: formatCompact(metrics.absencesAndCertificates), icon: HeartPulse, tone: "yellow" },
     { label: "Folgas", value: formatCompact(metrics.dayOffs), icon: CalendarDays, tone: "gray" },
-    { label: "Dias Úteis Salvos", value: formatCompact(metrics.savedUsefulDays), icon: Clock, tone: "teal" },
+    { label: "Dias Previstos", value: formatCompact(metrics.workedDays), icon: Clock, tone: "teal" },
     { label: "% Absenteísmo", value: formatPercent(metrics.absenteeism), icon: ChartPie, tone: "purple" },
     { label: "Perda $", value: formatCurrencyCompact(metrics.loss), icon: DollarSign, tone: "blue" },
   ];
@@ -1861,7 +1857,7 @@ export default function HrControl() {
               <header className="hr-chart-header">
                 <div>
                   <h2><ChartColumn size={18} /> % por equipe do dia</h2>
-                  <span>Faltas + atestados / dias trabalhados calculados</span>
+                  <span>Faltas + atestados / dias previstos</span>
                 </div>
               </header>
               <HorizontalBarChart rows={teamAbsencePercentRows} formatter={formatPercent} />
@@ -1881,7 +1877,7 @@ export default function HrControl() {
               <header className="hr-chart-header">
                 <div>
                   <h2><ChartColumn size={18} /> Faltas e atestados por mês</h2>
-                  <span>Faltas + atestados / dias trabalhados calculados do mês</span>
+                  <span>Faltas + atestados / dias previstos do mês</span>
                 </div>
               </header>
               <MonthlyPercentChart rows={monthlyRows} />

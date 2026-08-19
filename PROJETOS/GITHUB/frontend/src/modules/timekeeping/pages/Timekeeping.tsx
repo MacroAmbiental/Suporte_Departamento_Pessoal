@@ -119,18 +119,10 @@ const baseColumns = [
     type: "system" as const,
     systemField: "realTeam",
     readOnly: true,
-    width: 180,
+    width: 190,
     wrap: false,
   },
-  {
-    key: "company",
-    label: "EMPRESA",
-    type: "system" as const,
-    systemField: "company",
-    readOnly: true,
-    width: 230,
-    wrap: false,
-  },
+
   {
     key: "employee",
     label: "FUNCIONÁRIO",
@@ -139,6 +131,15 @@ const baseColumns = [
     readOnly: true,
     width: 260,
     wrap: false,
+  },
+  {
+  key: "employeeKind",
+  label: "TIPO DE CONTRATO",
+  type: "system" as const,
+  systemField: "employeeKind",
+  readOnly: true,
+  width: 190,
+  wrap: false,
   },
   {
     key: "checkIn",
@@ -1264,6 +1265,23 @@ function isEmployeeInNoticePeriod(employee: Employee, date: string) {
     registrationData.noticeEndDate || registrationData.noticeDate || "",
   );
   return Boolean(start && end && date >= start && date < end);
+}
+
+const employeeKindLabels: Record<string, string> = {
+  contract: "Funcionario de contrato",
+  company: "Funcionario da empresa",
+  diarist: "Diarista",
+};
+
+function employeeKindLabel(employee: Employee) {
+  const registrationData = employee.registrationData || {};
+  const kind = String(
+    (employee as { employeeKind?: string }).employeeKind ||
+      registrationData.employeeKind ||
+      "",
+  ).toLowerCase();
+
+  return employeeKindLabels[kind] || "-";
 }
 
 function isDiaristEmployee(employee: Employee) {
@@ -3652,6 +3670,7 @@ export default function Timekeeping() {
       return record?.subsectorName || subsectorName(record?.subsectorId || employee.subsectorId);
     if (key === "employee") return record?.employeeName || employee.name;
     if (key === "teamLead") return employee.isTeamLead ? "Sim" : "Não";
+    if (key === "employeeKind") return employeeKindLabel(employee);
     return "-";
   }
 
