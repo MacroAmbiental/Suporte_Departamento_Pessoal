@@ -336,6 +336,32 @@ function normalizeFilterValue(value?: string) {
   return String(value || "").trim().toLocaleLowerCase("pt-BR");
 }
 
+const emptyImportedStructureValues = new Set([
+  "",
+  "null",
+  "undefined",
+  "none",
+  "nenhum",
+  "nenhuma",
+  "sem",
+  "na",
+  "naoinformado",
+  "naoinformada",
+  "indefinido",
+  "indefinida",
+  "adefinir",
+  "semdepartamento",
+  "semsetor",
+  "semsubsetor",
+]);
+
+function normalizeOptionalStructureName(value?: string) {
+  const text = String(value || "").trim();
+  const normalized = normalizeKey(text);
+  // Mudanca: valores importados como "null" agora viram vazio e nao criam setor/departamento falso.
+  return emptyImportedStructureValues.has(normalized) ? "" : text;
+}
+
 function getImportedValue(row: Record<string, string>, field: EmployeeImportField, mapping: EmployeeImportMapping) {
   const mappedColumn = mapping[field];
   if (mappedColumn && row[mappedColumn] != null) return row[mappedColumn];
@@ -722,6 +748,7 @@ export default function Employees() {
   const groupForCompany = (companyId: string) => groupByCompanyId.get(companyId);
   const selectedFormGroup = form.companyId ? groupForCompany(form.companyId) : undefined;
   const selectedFormUsesGroupStructure = Boolean(selectedFormGroup?.units.length);
+  const structureFieldsDisabled = form.employeeKind === "diarist" && !form.diaristUseStructure;
 
   function groupUnitNameForEmployee(employee: Employee, type: CompanyGroupUnitType) {
     const group = groupForCompany(employee.companyId);
@@ -1488,10 +1515,11 @@ export default function Employees() {
       }
 
       const registry = registrationDataFromRow(row.row, employeeImportMapping);
-      const companyName = getImportedValue(row.row, "company", employeeImportMapping).trim() || "Macro Ambiental";
-      const departmentName = getImportedValue(row.row, "department", employeeImportMapping).trim() || "A definir";
-      const sectorName = getImportedValue(row.row, "sector", employeeImportMapping).trim() || "A definir";
-      const subsectorName = getImportedValue(row.row, "subsector", employeeImportMapping).trim();
+      const companyName = normalizeOptionalStructureName(getImportedValue(row.row, "company", employeeImportMapping)) || "Macro Ambiental";
+      // Mudanca: estrutura importada e opcional; campos vazios nao criam mais "A definir".
+      const departmentName = normalizeOptionalStructureName(getImportedValue(row.row, "department", employeeImportMapping));
+      const sectorName = normalizeOptionalStructureName(getImportedValue(row.row, "sector", employeeImportMapping));
+      const subsectorName = normalizeOptionalStructureName(getImportedValue(row.row, "subsector", employeeImportMapping));
       const registration = getImportedValue(row.row, "registration", employeeImportMapping).trim() || getImportedValue(row.row, "employeeNumber", employeeImportMapping).trim();
       const name = getImportedValue(row.row, "name", employeeImportMapping).trim();
       const cpf = getImportedValue(row.row, "cpf", employeeImportMapping).trim();
@@ -1517,9 +1545,9 @@ export default function Employees() {
 
       try {
         const company = await findOrCreateCompany(companyName);
-        const department = await findOrCreateDepartment(company.id, departmentName);
-        const sector = await findOrCreateSector(company.id, department.id, sectorName);
-        const subsector = subsectorName
+        const department = departmentName ? await findOrCreateDepartment(company.id, departmentName) : undefined;
+        const sector = department && sectorName ? await findOrCreateSector(company.id, department.id, sectorName) : undefined;
+        const subsector = department && sector && subsectorName
           ? await findOrCreateSubsector(company.id, department.id, sector.id, subsectorName)
           : undefined;
 
@@ -1527,8 +1555,8 @@ export default function Employees() {
         const savedEmployee = await data.upsertEmployee({
           id: makeClientId("employee"),
           companyId: company.id,
-          departmentId: department.id,
-          sectorId: sector.id,
+          departmentId: department?.id || "",
+          sectorId: sector?.id || "",
           subsectorId: subsector?.id || "",
           registration: registration || `IMP-${Date.now().toString().slice(-5)}`,
           name,
@@ -1553,7 +1581,7 @@ export default function Employees() {
           updatedAt: now,
         });
 
-        const folderPath = [company.name, department.name, sector.name, subsector?.name, savedEmployee.name]
+        const folderPath = [company.name, department?.name, sector?.name, subsector?.name, savedEmployee.name]
           .filter(Boolean)
           .join(" / ");
 
@@ -1564,8 +1592,8 @@ export default function Employees() {
         await data.upsertEmployeeDocument({
           id: makeClientId("document"),
           companyId: company.id,
-          departmentId: department.id,
-          sectorId: sector.id,
+          departmentId: department?.id || "",
+          sectorId: sector?.id || "",
           subsectorId: subsector?.id || "",
           employeeId: savedEmployee.id,
           name: row.file?.name || "Ficha de registro",
@@ -1931,10 +1959,11 @@ export default function Employees() {
 
     return {
       companyId,
-      departmentId: sourceIdForGroupUnit(selectedFormGroup, "department", groupUnitSelection.departmentUnitId, companyId) || form.departmentId || "",
-      sectorId: sourceIdForGroupUnit(selectedFormGroup, "sector", groupUnitSelection.sectorUnitId, companyId) || form.sectorId || "",
-      subsectorId: sourceIdForGroupUnit(selectedFormGroup, "subsector", groupUnitSelection.subsectorUnitId, companyId) || form.subsectorId || "",
-      teamId: sourceIdForGroupUnit(selectedFormGroup, "team", groupUnitSelection.teamUnitId, companyId) || form.teamId || "",
+      // Mudanca: ao limpar a estrutura de grupo, salva vazio em vez de voltar para o vinculo antigo.
+      departmentId: sourceIdForGroupUnit(selectedFormGroup, "department", groupUnitSelection.departmentUnitId, companyId) || "",
+      sectorId: sourceIdForGroupUnit(selectedFormGroup, "sector", groupUnitSelection.sectorUnitId, companyId) || "",
+      subsectorId: sourceIdForGroupUnit(selectedFormGroup, "subsector", groupUnitSelection.subsectorUnitId, companyId) || "",
+      teamId: sourceIdForGroupUnit(selectedFormGroup, "team", groupUnitSelection.teamUnitId, companyId) || "",
     };
   }
 
@@ -1942,12 +1971,11 @@ export default function Employees() {
     const group = employee.companyId ? groupForCompany(employee.companyId) : undefined;
     if (!group?.units.length) return;
 
-    const inferred = employeeGroupUnitSelection(group, employee);
     const unitIdFor = (type: CompanyGroupUnitType) => {
       const key = groupUnitSelectionKey(type);
-      return groupUnitExists(group, groupUnitSelection[key], type)
-        ? groupUnitSelection[key]
-        : inferred[key];
+      const selectedUnitId = groupUnitSelection[key];
+      // Mudanca: selecao vazia no grupo tambem remove o vinculo salvo no grupo empresarial.
+      return groupUnitExists(group, selectedUnitId, type) ? selectedUnitId : "";
     };
     const existing = group.employeeAssignments.find((item) => item.employeeId === employee.id);
 
@@ -2640,7 +2668,7 @@ export default function Employees() {
               return (
                 <tr key={employee.id} style={displayStatus === "terminated" ? { background: "rgba(220, 38, 38, 0.09)" } : undefined}>
                   <td><strong>{employee.name}</strong><br /><span className="muted">{employee.registration} {login ? `· ${login.username}` : ""}</span></td>
-                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || "Grupo individual automático"}</span><br /><span className="muted">{groupSectorName || sector?.name || "-"}</span><br /><span className="muted">Equipe: {groupTeamName || team?.name || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
+                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo individual automático" : "-")}</span><br /><span className="muted">{groupSectorName || sector?.name || "-"}</span><br /><span className="muted">Equipe: {groupTeamName || team?.name || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
                   <td>{employee.role || "-"}<br /><span className="muted">{employee.position || "-"}</span></td>
                   <td>{renderSensitiveValue(<>{employee.workSchedule || "-"}<br /><span className="muted">{employee.weeklyHours || 0}h semanais</span></>, "Jornada")}</td>
                   <td>{renderSensitiveValue(formatCurrency(Number(employee.salary || 0)), "Salário")}</td>
@@ -2971,11 +2999,12 @@ export default function Employees() {
                 {form.employeeKind === "diarist" ? (
                   <label className="check-field is-wide-field"><input type="checkbox" checked={form.diaristUseStructure} onChange={(e) => setForm({ ...form, diaristUseStructure: e.target.checked, companyId: e.target.checked ? form.companyId : "", departmentId: e.target.checked ? form.departmentId : "", sectorId: e.target.checked ? form.sectorId : "", subsectorId: e.target.checked ? form.subsectorId : "", teamId: e.target.checked ? form.teamId : "" })} /> Vincular este diarista à estrutura da empresa</label>
                 ) : null}
-                <label className="field">Empresa<select required={form.employeeKind !== "diarist" || form.diaristUseStructure} disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={form.companyId} onChange={(e) => handleCompanyChange(e.target.value)}><option value="">Selecione</option>{data.companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field">Grupo empresarial<input readOnly value={selectedFormGroup?.name || (form.companyId ? "Grupo individual automático" : "Selecione a empresa")} /><small>{selectedFormUsesGroupStructure ? "Os campos abaixo usam a estrutura unificada deste grupo." : "Vínculo automático pelo CNPJ. O grupo não altera a estrutura da empresa."}</small></label>
-                <label className="field">Departamento<select required={form.employeeKind !== "diarist" || form.diaristUseStructure} disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={departmentSelectValue} onChange={(e) => handleDepartmentChange(e.target.value)}><option value="">Selecione</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="field">Setor<select required={form.employeeKind !== "diarist" || form.diaristUseStructure} disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={sectorSelectValue} onChange={(e) => handleSectorChange(e.target.value)}><option value="">Selecione</option>{sectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="field">Subsetor<select disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={subsectorSelectValue} onChange={(e) => handleSubsectorChange(e.target.value)}><option value="">Nenhum</option>{subsectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="field">Equipe<select disabled={form.employeeKind === "diarist" && !form.diaristUseStructure} value={teamSelectValue} onChange={(e) => handleTeamChange(e.target.value)}><option value="">Sem equipe</option>{teams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                {/* Mudanca: estes selects nao usam required; "Selecione" agora salva a estrutura em branco. */}
+                <label className="field">Empresa<select disabled={structureFieldsDisabled} value={form.companyId} onChange={(e) => handleCompanyChange(e.target.value)}><option value="">Selecione</option>{data.companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field">Grupo empresarial<input readOnly value={selectedFormGroup?.name || (form.companyId ? "Grupo individual automático" : "Selecione a empresa")} /><small>{selectedFormUsesGroupStructure ? "Os campos abaixo usam a estrutura unificada deste grupo." : "Vínculo automático pelo CNPJ. O grupo não altera a estrutura da empresa."}</small></label>
+                <label className="field">Departamento<select disabled={structureFieldsDisabled} value={departmentSelectValue} onChange={(e) => handleDepartmentChange(e.target.value)}><option value="">Selecione</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="field">Setor<select disabled={structureFieldsDisabled} value={sectorSelectValue} onChange={(e) => handleSectorChange(e.target.value)}><option value="">Selecione</option>{sectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="field">Subsetor<select disabled={structureFieldsDisabled} value={subsectorSelectValue} onChange={(e) => handleSubsectorChange(e.target.value)}><option value="">Nenhum</option>{subsectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="field">Equipe<select disabled={structureFieldsDisabled} value={teamSelectValue} onChange={(e) => handleTeamChange(e.target.value)}><option value="">Sem equipe</option>{teams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="check-field"><input type="checkbox" checked={Boolean(form.isTeamLead)} disabled={!teamSelectValue} onChange={(e) => setForm({ ...form, isTeamLead: e.target.checked })} /> Encarregado da equipe</label>
               </div>
             ) : null}
