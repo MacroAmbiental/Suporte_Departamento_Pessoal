@@ -103,6 +103,22 @@ function loadXlsxModule() {
   return xlsxModulePromise;
 }
 
+const employeeKindLabels: Record<string, string> = {
+  contract: "Funcionario de contrato",
+  company: "Funcionario da empresa",
+  diarist: "Diarista",
+};
+
+function employeeKindLabel(employee: Employee) {
+  const registrationData = employee.registrationData || {};
+  const kind = String(
+    (employee as { employeeKind?: string }).employeeKind ||
+    registrationData.employeeKind ||
+    "",
+  ).toLowerCase();
+  return employeeKindLabels[kind] || "-";
+}
+
 const baseColumns = [
   {
     key: "functionName",
@@ -119,10 +135,18 @@ const baseColumns = [
     type: "system" as const,
     systemField: "realTeam",
     readOnly: true,
-    width: 190,
+    width: 180,
     wrap: false,
   },
-
+  {
+    key: "company",
+    label: "EMPRESA",
+    type: "system" as const,
+    systemField: "company",
+    readOnly: true,
+    width: 230,
+    wrap: false,
+  },
   {
     key: "employee",
     label: "FUNCIONÁRIO",
@@ -133,13 +157,13 @@ const baseColumns = [
     wrap: false,
   },
   {
-  key: "employeeKind",
-  label: "TIPO DE CONTRATO",
-  type: "system" as const,
-  systemField: "employeeKind",
-  readOnly: true,
-  width: 190,
-  wrap: false,
+    key: "employeeKind",
+    label: "TIPO DE CONTRATO",
+    type: "system" as const,
+    systemField: "employeeKind",
+    readOnly: true,
+    width: 190,
+    wrap: false,
   },
   {
     key: "checkIn",
@@ -1033,21 +1057,16 @@ function automaticTimeValue(
 function automaticScheduleTimeValue(
   value: string | number | Date | null | undefined,
   configuredTime: string,
-  legacyConfiguredTime: string,
+  _legacyConfiguredTime: string,
   shouldApplyDefault: boolean,
 ) {
+  // Valor preenchido é sempre exibido LITERALMENTE. A antiga substituição do
+  // default legado (ex.: 13:01 → horário da escala) travava a digitação, pois
+  // ao digitar "13:10" o valor passava por "13:01" e era revertido para o
+  // padrão da escala — impedindo concluir a edição.
   if (hasFilledTimeValue(value)) {
-    const text = excelTimeToText(value) || String(value);
-    if (
-      shouldApplyDefault &&
-      text === legacyConfiguredTime &&
-      configuredTime !== legacyConfiguredTime
-    ) {
-      return configuredTime || "00:00";
-    }
-    return text;
+    return excelTimeToText(value) || String(value);
   }
-
   return shouldApplyDefault ? configuredTime : "00:00";
 }
 
@@ -1265,23 +1284,6 @@ function isEmployeeInNoticePeriod(employee: Employee, date: string) {
     registrationData.noticeEndDate || registrationData.noticeDate || "",
   );
   return Boolean(start && end && date >= start && date < end);
-}
-
-const employeeKindLabels: Record<string, string> = {
-  contract: "Funcionario de contrato",
-  company: "Funcionario da empresa",
-  diarist: "Diarista",
-};
-
-function employeeKindLabel(employee: Employee) {
-  const registrationData = employee.registrationData || {};
-  const kind = String(
-    (employee as { employeeKind?: string }).employeeKind ||
-      registrationData.employeeKind ||
-      "",
-  ).toLowerCase();
-
-  return employeeKindLabels[kind] || "-";
 }
 
 function isDiaristEmployee(employee: Employee) {
@@ -2014,6 +2016,8 @@ export default function Timekeeping() {
   const [secullumSendBusy, setSecullumSendBusy] = useState(false);
   const [secullumSendError, setSecullumSendError] = useState("");
   const secullumSeqRef = useRef(0);
+  const [secullumOriginFilter, setSecullumOriginFilter] =
+    useState<SecullumOriginCode | null>(null);
   // Data digitada no input (aplicada ao filtro com debounce para evitar
   // re-renderizar a tabela inteira a cada tecla).
   const [pendingDate, setPendingDate] = useState(filters.date);
@@ -2514,11 +2518,12 @@ export default function Timekeeping() {
   function substituteEmptyFromSecullum(
     employee: Employee,
     base?: TimeRecord,
-    opts?: { forSave?: boolean },
   ): TimeRecord | undefined {
-    // Para o SALVAR: só substitui com a tabela liberada (evita gravar ao só visualizar).
-    // Para a EXIBIÇÃO: sempre substitui, para mostrar os horários coloridos por origem.
-    if (opts?.forSave && tableLocked) return base;
+    // Substitui campos zerados pelo valor do Secullum SOMENTE em modo visualização
+    // (tabela bloqueada). Ao liberar para editar, o usuário tem prioridade total e
+    // a digitação é instantânea (sem a substituição rodando a cada tecla).
+    if (!tableLocked) return base;
+    if (secullumByCpf.size === 0) return base;
     const cpf = (employee.cpf || "").replace(/\D/g, "");
     const sec = cpf ? secullumByCpf.get(cpf) : undefined;
     if (!sec) return base;
@@ -2580,9 +2585,7 @@ export default function Timekeeping() {
       const current =
         draftRecordsByEmployeeId[employee.id] ||
         timeRecordByEmployeeDate.get(`${employee.id}:${filters.date}`);
-      const currentWithSec = substituteEmptyFromSecullum(employee, current, {
-        forSave: true,
-      });
+      const currentWithSec = substituteEmptyFromSecullum(employee, current);
       return sanitizeTimeRecord({
         ...createDisplayRecord(employee, filters.date, currentWithSec, calculationSettings),
         id: timeRecordDocumentId(filters.date, employee.id),
@@ -2669,16 +2672,107 @@ export default function Timekeeping() {
     Boolean(filter.search.trim() || filter.selected.length),
   );
 
-  const totalPages = Math.max(1, Math.ceil(sortedEmployees.length / pageSize));
+  // Origem(ns) da pessoa — MODELO MULTI-ORIGEM (uma pessoa pode cair em vários
+  // cards). Regras:
+  // 1) Todos os presentes contam em "Macro/API" (tudo que existe na base
+  //    Macro/Firebase). Só CLT também têm origem no Secullum.
+  // 2) Cada campo com batida no Secullum adiciona sua origem (celular/computador/
+  //    manual/automatico). Se o valor coincide com o do Firebase, conta como api.
+  // 3) A soma dos cards pode ultrapassar 100%; o TOTAL = nº de pessoas presentes.
+  function personSecullumOriginCodes(employee: Employee): Set<SecullumOriginCode> {
+    const base =
+      draftRecordsByEmployeeId[employee.id] ||
+      timeRecordByEmployeeDate.get(`${employee.id}:${filters.date}`);
+    const cf = (base?.customFields || {}) as Record<string, string>;
+    const fields = ["entrada1", "saida1", "entrada2", "saida2"] as const;
+    const macroByField: Record<(typeof fields)[number], string> = {
+      entrada1: String(base?.checkIn ?? ""),
+      saida1: String(base?.checkOut ?? ""),
+      entrada2: String(cf.ent2 ?? ""),
+      saida2: String(cf.sai2 ?? ""),
+    };
+    const hasMacroPunch = fields.some((field) =>
+      hasFilledTimeValue(macroByField[field]),
+    );
+    // Status efetivo: quem está em falta/pendência (ou registro zerado) NÃO
+    // deve contar como "automático" (pré-assinalado do Secullum de ausente).
+    const effectiveStatus =
+      displayRecordByEmployeeId.get(employee.id)?.status ||
+      base?.status ||
+      "";
+    const isAbsent = isAbsenceStatus(effectiveStatus);
+
+    const codes = new Set<SecullumOriginCode>();
+    const cpf = (employee.cpf || "").replace(/\D/g, "");
+    const row = cpf ? secullumByCpf.get(cpf) : undefined;
+
+    if (row) {
+      for (const field of fields) {
+        const value = String(row[field] ?? "").trim();
+        if (!value || value === "00:00") continue;
+        const code = (row.origem?.[field] as SecullumOriginCode) || "";
+        const macroValue = String(macroByField[field] ?? "").trim();
+        const inFirebase =
+          hasFilledTimeValue(macroValue) && macroValue === value;
+        if (code === "celular" || code === "computador") {
+          codes.add(code);
+        } else if (inFirebase || code === "api") {
+          codes.add("api");
+        } else if (code === "manual") {
+          codes.add("manual");
+        } else if (!isAbsent) {
+          // Pré-assinalado só conta como automático se a pessoa NÃO está ausente.
+          codes.add("automatico");
+        }
+      }
+    }
+
+    // Macro/API: qualquer batida real na base Macro/Firebase.
+    if (hasMacroPunch) codes.add("api");
+    return codes;
+  }
+
+  const secullumOriginStats = useMemo(() => {
+    const counts: Record<SecullumOriginCode, number> = {
+      celular: 0,
+      computador: 0,
+      manual: 0,
+      automatico: 0,
+      api: 0,
+      secullum: 0,
+    };
+    let total = 0;
+    sortedEmployees.forEach((employee) => {
+      const codes = personSecullumOriginCodes(employee);
+      if (codes.size === 0) return;
+      total += 1;
+      codes.forEach((code) => {
+        counts[code] += 1;
+      });
+    });
+    return { counts, total };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedEmployees, secullumByCpf, draftRecordsByEmployeeId]);
+
+  const originFilteredEmployees = useMemo(() => {
+    if (!secullumOriginFilter) return sortedEmployees;
+    return sortedEmployees.filter((employee) =>
+      personSecullumOriginCodes(employee).has(secullumOriginFilter),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedEmployees, secullumOriginFilter, secullumByCpf, draftRecordsByEmployeeId]);
+
+
+  const totalPages = Math.max(1, Math.ceil(originFilteredEmployees.length / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const paginatedEmployees = useMemo(() => {
     const startIndex = (safeCurrentPage - 1) * pageSize;
-    return sortedEmployees.slice(startIndex, startIndex + pageSize);
-  }, [sortedEmployees, pageSize, safeCurrentPage]);
-  const pageStart = sortedEmployees.length
+    return originFilteredEmployees.slice(startIndex, startIndex + pageSize);
+  }, [originFilteredEmployees, pageSize, safeCurrentPage]);
+  const pageStart = originFilteredEmployees.length
     ? (safeCurrentPage - 1) * pageSize + 1
     : 0;
-  const pageEnd = Math.min(safeCurrentPage * pageSize, sortedEmployees.length);
+  const pageEnd = Math.min(safeCurrentPage * pageSize, originFilteredEmployees.length);
 
   const savedTimeFolders = useMemo<SavedYearFolder[]>(() => {
     const dayMap = new Map<string, SavedDayFolder>();
@@ -3457,7 +3551,7 @@ export default function Timekeeping() {
       patch.customFields?.sai3,
     ];
     const normalizedPatch = !patch.status
-      && isAbsenceStatus(existing?.status)
+      && (isAbsenceStatus(existing?.status) || !existing?.status)
       && timePatchValues.some(hasFilledTimeValue)
       ? { ...patch, status: "present" as AttendanceStatus }
       : patch;
@@ -3669,8 +3763,8 @@ export default function Timekeeping() {
     if (key === "subsector")
       return record?.subsectorName || subsectorName(record?.subsectorId || employee.subsectorId);
     if (key === "employee") return record?.employeeName || employee.name;
-    if (key === "teamLead") return employee.isTeamLead ? "Sim" : "Não";
     if (key === "employeeKind") return employeeKindLabel(employee);
+    if (key === "teamLead") return employee.isTeamLead ? "Sim" : "Não";
     return "-";
   }
 
@@ -5369,7 +5463,7 @@ export default function Timekeeping() {
     setSecullumError("");
     try {
       if (!firebaseApp) throw new Error("Firebase não configurado.");
-      const functions = getFunctions(firebaseApp);
+      const functions = getFunctions(firebaseApp, "southamerica-east1");
       const call = httpsCallable(functions, "obterBatidasSecullum");
       const callResp = await call({ data: date });
       // Descarta respostas obsoletas (usuário já trocou a data).
@@ -5653,7 +5747,7 @@ export default function Timekeeping() {
     setSecullumSendError("");
     try {
       if (!firebaseApp) throw new Error("Firebase não configurado.");
-      const functions = getFunctions(firebaseApp);
+      const functions = getFunctions(firebaseApp, "southamerica-east1");
       const call = httpsCallable(functions, "enviarBatidaSecullum");
       const resp = await call({
         cpf: employee.cpf,
@@ -5706,13 +5800,16 @@ export default function Timekeeping() {
     macroValue: string,
   ) {
     if (secullumStatus !== "ok" || tableLocked || !canEditTimekeeping) return null;
+    // Funcionário só pode receber envio se existe no Secullum (CPF cruzou).
+    // Caso contrário, o POST daria erro (funcionário inexistente na API).
+    const inSecullum = secullumByCpf.has(secullumOnlyDigits(employee.cpf));
     const origin = secullumOriginFor(employee, field);
     const secValue = origin?.value || "";
     const macroEmpty = isEmptyTime(macroValue);
     const secEmpty = isEmptyTime(secValue);
     const norm = (v: string) => (v || "").trim();
     const divergent = !macroEmpty && !secEmpty && norm(macroValue) !== norm(secValue);
-    const showEnviar = (secEmpty && !macroEmpty) || divergent;
+    const showEnviar = inSecullum && ((secEmpty && !macroEmpty) || divergent);
     const showImportar = (macroEmpty && !secEmpty) || divergent;
     if (!showEnviar && !showImportar) return null;
     return (
@@ -5843,6 +5940,7 @@ export default function Timekeeping() {
               className="table-input"
               type="time"
               disabled={busy}
+              data-ent1="true"
               style={{ color: secullumFieldColor(employee, "entrada1", record.checkIn || "00:00"), fontWeight: secullumFieldColor(employee, "entrada1", record.checkIn || "00:00") ? 700 : undefined }}
               value={record.checkIn || "00:00"}
               onChange={(event) =>
@@ -5850,6 +5948,22 @@ export default function Timekeeping() {
                   checkIn: event.target.value || "00:00",
                 })
               }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  const inputs = Array.from(
+                    document.querySelectorAll<HTMLInputElement>(
+                      'input[data-ent1="true"]',
+                    ),
+                  );
+                  const idx = inputs.indexOf(event.currentTarget);
+                  const next = inputs[idx + 1];
+                  if (next) {
+                    next.focus();
+                    next.select();
+                  }
+                }
+              }}
             />
             <button
               className="icon-button"
@@ -6265,9 +6379,13 @@ export default function Timekeeping() {
   );
   const isCurrentDateHoliday = isHoliday(filters.date, calculationSettings);
   const isWholeDaySavedWithoutUpdates = wholeDaySavePlan.isSavedWithoutUpdates;
-  const saveWholeDayDisabled = busy || !employeesForDaySave.length || isWholeDaySavedWithoutUpdates;
-  const saveWholeDayTitle = isWholeDaySavedWithoutUpdates
-    ? "Não houve atualizações"
+  // Só habilita "Salvar dia do mês" quando houver ao menos uma edição na área
+  // de edição (rascunho). Dia novo/vazio sem edições mantém o botão inativo.
+  const hasDraftEdits = Object.keys(draftRecordsByEmployeeId).length > 0;
+  const saveWholeDayDisabled =
+    busy || !employeesForDaySave.length || !hasDraftEdits;
+  const saveWholeDayTitle = !hasDraftEdits
+    ? "Edite pelo menos um funcionário na área de edição para habilitar o salvamento."
     : "Salva e preserva todos os registros desta data, inclusive de funcionários que forem desativados depois.";
   const pendingSaveChangesCount = isWholeDaySavedWithoutUpdates
     ? 0
@@ -7092,39 +7210,102 @@ export default function Timekeeping() {
             fontSize: 12,
           }}
         >
-          <strong style={{ color: "#334155" }}>Origem do horário:</strong>
+          <strong style={{ color: "#334155", marginRight: 4 }}>
+            Origem do horário{secullumOriginStats.total ? ` (${secullumOriginStats.total} no total)` : ""}:
+          </strong>
           {(
             [
               ["celular", "Celular"],
               ["computador", "Computador"],
               ["manual", "Manual"],
               ["automatico", "Automático"],
-              ["api", "Preto: Macro Ambiental / enviado ao Secullum via API"],
+              ["api", "Macro/API"],
             ] as Array<[SecullumOriginCode, string]>
-          ).map(([code, label]) => (
-            <span
-              key={code}
-              style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-            >
-              {code === "automatico" ? (
-                <Zap size={13} fill={SECULLUM_ORIGIN_COLORS[code]} color={SECULLUM_ORIGIN_COLORS[code]} />
-              ) : (
+          ).map(([code, label]) => {
+            const count = secullumOriginStats.counts[code] || 0;
+            const pct = secullumOriginStats.total
+              ? Math.round((count / secullumOriginStats.total) * 100)
+              : 0;
+            const active = secullumOriginFilter === code;
+            const color = SECULLUM_ORIGIN_COLORS[code];
+            return (
+              <button
+                key={code}
+                type="button"
+                data-testid={`secullum-origin-card-${code}`}
+                title={active ? "Clique para remover o filtro" : `Filtrar por ${label}`}
+                onClick={() => {
+                  setSecullumOriginFilter(active ? null : code);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  background: "#fff",
+                  border: active ? `2px solid ${color}` : "1px solid #e2e8f0",
+                  boxShadow: active ? `0 0 0 3px ${color}22` : "none",
+                }}
+              >
+                {code === "automatico" ? (
+                  <Zap size={14} fill={color} color={color} />
+                ) : (
+                  <span
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 3,
+                      background: color,
+                      display: "inline-block",
+                      border: code === "api" ? "1px solid #cbd5e1" : undefined,
+                    }}
+                  />
+                )}
                 <span
                   style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: 3,
-                    background: SECULLUM_ORIGIN_COLORS[code],
-                    display: "inline-block",
-                    border: code === "api" ? "1px solid #cbd5e1" : undefined,
+                    display: "flex",
+                    flexDirection: "column",
+                    lineHeight: 1.15,
+                    textAlign: "left",
                   }}
-                />
-              )}
-              <span style={{ color: SECULLUM_ORIGIN_COLORS[code], fontWeight: 700 }}>
-                {label}
-              </span>
-            </span>
-          ))}
+                >
+                  <span style={{ color, fontWeight: 700, fontSize: 12 }}>
+                    {label}
+                  </span>
+                  <span style={{ color: "#475569", fontSize: 12, fontWeight: 600 }}>
+                    <span style={{ color, fontWeight: 700 }}>{pct}%</span>
+                    {" · "}
+                    {count} func.
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          {secullumOriginFilter ? (
+            <button
+              type="button"
+              data-testid="secullum-origin-clear"
+              onClick={() => {
+                setSecullumOriginFilter(null);
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 10,
+                border: "1px solid #e2e8f0",
+                background: "#f1f5f9",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#334155",
+              }}
+            >
+              Limpar filtro ✕
+            </button>
+          ) : null}
         </div>
 
 
