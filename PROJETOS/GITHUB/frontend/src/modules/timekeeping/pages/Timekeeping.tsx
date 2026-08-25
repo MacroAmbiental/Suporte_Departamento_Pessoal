@@ -481,9 +481,9 @@ const defaultCalculationSettings: CalculationSettings = {
   },
   intervalMinutes: 60,
   delayToleranceMinutes: 10,
-  secullumLunchOutTime: "12:00",
-  secullumLunchReturnTime: "13:01",
-  secullumEndTime: "17:00",
+    secullumLunchOutTime: "12:00",
+    secullumLunchReturnTime: "13:01",
+    secullumEndTime: "17:00",
   overtimeRates: {
     weekday: 50,
     saturday: 75,
