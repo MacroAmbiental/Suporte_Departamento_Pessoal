@@ -1324,7 +1324,10 @@ function calculateSecullumMetrics(
     fields.ent3,
     fields.sai3,
   ].some(hasFilledTimeValue);
-  const shouldUseDefaults = settings.autoRecalculate && hasAnyPunch;
+  // Preenchimento automático da jornada DESATIVADO: só calcula com valores
+  // realmente preenchidos (o preenchimento pela programação é feito via tecla "P").
+  const shouldUseDefaults = false;
+  void hasAnyPunch;
 
   const sai1 = hasFilledTimeValue(checkOut)
     ? String(checkOut)
@@ -1761,7 +1764,9 @@ function createDisplayRecord(
   const checkIn = hasFilledTimeValue(existing?.checkIn)
     ? excelTimeToText(existing?.checkIn) || String(existing?.checkIn)
     : "00:00";
-  const useDefaults = settings.autoRecalculate && hasFilledTimeValue(checkIn);
+  // Jornada NÃO é mais preenchida automaticamente ao informar a ENT. 1
+  // (usar a tecla "P" no campo ENT. 1 para preencher pela programação).
+  const useDefaults = false;
   const existingCustomFields = (existing?.customFields || {}) as Record<
     string,
     string
@@ -3198,8 +3203,8 @@ export default function Timekeeping() {
     const checkIn = hasFilledTimeValue(requestedCheckIn)
       ? excelTimeToText(requestedCheckIn) || String(requestedCheckIn)
       : "00:00";
-    const shouldApplyDefaults =
-      calculationSettings.autoRecalculate && hasFilledTimeValue(checkIn);
+    // Sem preenchimento automático da jornada ao salvar a ENT. 1.
+    const shouldApplyDefaults = false;
     const scheduleDefaults = scheduleDefaultsForDate(employee, filters.date, calculationSettings);
     const normalLimitMinutes = normalLimitMinutesForEmployeeDate(employee, filters.date, calculationSettings);
     const hasExplicitCheckOut = Object.prototype.hasOwnProperty.call(
@@ -5962,6 +5967,30 @@ export default function Timekeeping() {
                     next.focus();
                     next.select();
                   }
+                  return;
+                }
+                // Tecla "P": preenche os demais campos da jornada conforme a
+                // programação (escala) do funcionário no dia.
+                if (event.key === "p" || event.key === "P") {
+                  event.preventDefault();
+                  if (busy) return;
+                  const sd = scheduleDefaultsForDate(
+                    employee,
+                    filters.date,
+                    calculationSettings,
+                  );
+                  const rec = displayRecord(employee);
+                  void saveRecord(employee, {
+                    checkOut: sd.lunchOut,
+                    customFields: {
+                      ...(rec.customFields || {}),
+                      ent2: sd.lunchReturn,
+                      sai2: sd.end,
+                      [manualZeroSai2Field]: hasFilledTimeValue(sd.end)
+                        ? "false"
+                        : "true",
+                    },
+                  });
                 }
               }}
             />
