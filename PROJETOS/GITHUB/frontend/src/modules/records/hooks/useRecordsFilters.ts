@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  dedupeStructureItems,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+} from "@/common/utils/groupStructure";
 import type { Company, CompanyGroup, CompanyGroupCompany, Department, Employee, Sector, Subsector } from "@/types/domain";
 import type { RecordsFiltersState } from "@/modules/records/types";
 
@@ -78,6 +84,42 @@ export function useRecordsFilters({
     return [] as string[];
   }, [filters.companyIds, filters.groupIds.length, groupCompanyIds]);
   const hasCompanyScope = Boolean(filters.groupIds.length || filters.companyIds.length);
+  const structureGroups = useMemo(() => {
+    if (filters.groupIds.length) {
+      const selected = new Set(filters.groupIds);
+      return companyGroups.filter((group) => selected.has(group.id));
+    }
+
+    if (filters.companyIds.length) {
+      const byId = new Map<string, CompanyGroup>();
+      filters.companyIds.forEach((companyId) => {
+        const group = resolveCompanyGroupForCompany(companyId, companyGroups, companyGroupCompanies);
+        if (group) byId.set(group.id, group);
+      });
+      if (byId.size) return Array.from(byId.values());
+    }
+
+    const primary = primaryCompanyGroup(companyGroups, companyGroupCompanies);
+    return primary ? [primary] : [];
+  }, [companyGroupCompanies, companyGroups, filters.companyIds, filters.groupIds]);
+
+  const structureDepartments = useMemo(() => (
+    dedupeStructureItems(structureGroups.flatMap((group) => (
+      structureItemsForGroup(departments, group, companyGroupCompanies, companies)
+    )))
+  ), [companies, companyGroupCompanies, departments, structureGroups]);
+
+  const structureSectors = useMemo(() => (
+    dedupeStructureItems(structureGroups.flatMap((group) => (
+      structureItemsForGroup(sectors, group, companyGroupCompanies, companies)
+    )))
+  ), [companies, companyGroupCompanies, sectors, structureGroups]);
+
+  const structureSubsectors = useMemo(() => (
+    dedupeStructureItems(structureGroups.flatMap((group) => (
+      structureItemsForGroup(subsectors, group, companyGroupCompanies, companies)
+    )))
+  ), [companies, companyGroupCompanies, structureGroups, subsectors]);
 
   useEffect(() => {
     if (defaultGroupInitialized || !defaultGroupId) return;
@@ -117,25 +159,22 @@ export function useRecordsFilters({
   }), [effectiveCompanyIds, employees, filters, hasCompanyScope]);
 
   const departmentOptions = useMemo(() => (
-    departments
-      .filter((department) => !hasCompanyScope || effectiveCompanyIds.includes(department.companyId))
+    structureDepartments
       .map((department) => ({ value: department.id, label: department.name }))
-  ), [departments, effectiveCompanyIds, hasCompanyScope]);
+  ), [structureDepartments]);
 
   const sectorOptions = useMemo(() => (
-    sectors
-      .filter((sector) => !hasCompanyScope || effectiveCompanyIds.includes(sector.companyId))
+    structureSectors
       .filter((sector) => !filters.departmentIds.length || filters.departmentIds.includes(sector.departmentId))
       .map((sector) => ({ value: sector.id, label: sector.name }))
-  ), [effectiveCompanyIds, filters.departmentIds, hasCompanyScope, sectors]);
+  ), [filters.departmentIds, structureSectors]);
 
   const subsectorOptions = useMemo(() => (
-    subsectors
-      .filter((subsector) => !hasCompanyScope || effectiveCompanyIds.includes(subsector.companyId))
+    structureSubsectors
       .filter((subsector) => !filters.departmentIds.length || filters.departmentIds.includes(subsector.departmentId))
       .filter((subsector) => !filters.sectorIds.length || filters.sectorIds.includes(subsector.sectorId))
       .map((subsector) => ({ value: subsector.id, label: subsector.name }))
-  ), [effectiveCompanyIds, filters.departmentIds, filters.sectorIds, hasCompanyScope, subsectors]);
+  ), [filters.departmentIds, filters.sectorIds, structureSubsectors]);
 
   const employeeOptions = useMemo(() => (
     employees.map((employee) => ({ value: employee.id, label: employee.name }))

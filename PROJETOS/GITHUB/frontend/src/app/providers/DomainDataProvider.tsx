@@ -842,6 +842,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       ...record,
       employeeName,
       companyId,
+      groupId: record.groupId || employee?.groupId || "",
       companyName,
       functionName,
       departmentId,
@@ -1276,41 +1277,19 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
   const deleteCompany = useCallback(async (companyId: string) => {
     const snapshot = await loadCompanyDeletionSnapshot(companyId);
     mergeDeletionSnapshot(snapshot);
-    const departmentIds = snapshot.departments.filter((item) => item.companyId === companyId).map((item) => item.id);
-    const sectorIds = snapshot.sectors.filter((item) => item.companyId === companyId).map((item) => item.id);
-    const subsectorIds = snapshot.subsectors.filter((item) => item.companyId === companyId).map((item) => item.id);
     const employeeIds = snapshot.employees.filter((item) => item.companyId === companyId).map((item) => item.id);
-    const teamIds = snapshot.teams.filter((item) => item.companyId === companyId).map((item) => item.id);
-    const contractIds = snapshot.benefitContracts.filter((item) => item.companyId === companyId).map((item) => item.id);
-    const companyGroupRelations = snapshot.companyGroupCompanies.filter((item) => item.companyId === companyId);
-    const groupIdsToDelete = companyGroupRelations
-      .map((relation) => relation.groupId)
-      .filter((groupId) => snapshot.companyGroupCompanies.filter((item) => item.groupId === groupId).length <= 1);
-    const groupIdsToDeleteSet = new Set(groupIdsToDelete);
+    if (employeeIds.length) {
+      throw new Error("Esta empresa esta vinculada a funcionarios. Troque a empresa desses funcionarios antes de excluir o CNPJ.");
+    }
 
+    const contractIds = snapshot.benefitContracts.filter((item) => item.companyId === companyId).map((item) => item.id);
     return deleteMany({
-      ...collectEmployeeLinkedIds(employeeIds, snapshot),
       companies: [companyId],
-      departments: departmentIds,
-      sectors: sectorIds,
-      subsectors: subsectorIds,
-      employees: employeeIds,
-      teams: teamIds,
-      organizational_nodes: snapshot.organizational_nodes.filter((item) => item.companyId === companyId).map((item) => item.id),
-      employee_assignments: snapshot.employee_assignments.filter((item) => item.companyId === companyId).map((item) => item.id),
-      companyGroups: groupIdsToDelete,
       companyGroupCompanies: snapshot.companyGroupCompanies
-        .filter((item) => item.companyId === companyId || groupIdsToDeleteSet.has(item.groupId))
+        .filter((item) => item.companyId === companyId)
         .map((item) => item.id),
-      companyGroupUnits: snapshot.companyGroupUnits.filter((item) => groupIdsToDeleteSet.has(item.groupId)).map((item) => item.id),
       companyGroupUnitLinks: snapshot.companyGroupUnitLinks
-        .filter((item) => item.companyId === companyId || groupIdsToDeleteSet.has(item.groupId))
-        .map((item) => item.id),
-      companyGroupEmployeeAssignments: snapshot.companyGroupEmployeeAssignments
-        .filter((item) => groupIdsToDeleteSet.has(item.groupId) || employeeIds.includes(item.employeeId))
-        .map((item) => item.id),
-      companyGroupLeadershipAssignments: snapshot.companyGroupLeadershipAssignments
-        .filter((item) => groupIdsToDeleteSet.has(item.groupId) || employeeIds.includes(item.employeeId))
+        .filter((item) => item.companyId === companyId)
         .map((item) => item.id),
       benefitContracts: contractIds,
       benefitPlans: snapshot.benefitPlans.filter((item) => item.companyId === companyId || contractIds.includes(item.contractId)).map((item) => item.id),
@@ -1321,7 +1300,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       timekeepingColumns: snapshot.timekeepingColumns.filter((item) => item.companyId === companyId).map((item) => item.id),
       employeeBenefits: snapshot.employeeBenefits.filter((item) => item.companyId === companyId).map((item) => item.id),
     });
-  }, [collectEmployeeLinkedIds, deleteMany, mergeDeletionSnapshot]);
+  }, [deleteMany, mergeDeletionSnapshot]);
 
   const deleteDepartment = useCallback(async (departmentId: string) => {
     const snapshot = await ensureCollectionsLoaded(structureCascadeCollectionNames);

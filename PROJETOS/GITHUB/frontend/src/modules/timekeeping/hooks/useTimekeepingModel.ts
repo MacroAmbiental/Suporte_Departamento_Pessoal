@@ -48,6 +48,7 @@ function historicalEmployeeFromTimeRecord(record: TimeRecord): Employee {
   return {
     id: record.employeeId,
     companyId: record.companyId,
+    groupId: record.groupId || "",
     departmentId: record.departmentId || "",
     sectorId: record.sectorId || "",
     subsectorId: record.subsectorId || "",

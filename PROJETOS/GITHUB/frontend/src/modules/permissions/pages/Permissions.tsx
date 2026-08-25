@@ -6,6 +6,11 @@ import { useDomainData } from "@/hooks/useDomainData";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
 import { buildDomainDeletionImpact } from "@/common/utils/deletionImpact";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+} from "@/common/utils/groupStructure";
 import { createUsernameFromName, hashPassword, isSystemTiUser, normalizeUsername, permissionActions, systemScreens } from "@/services/accessControl";
 import type {
   AppScreen,
@@ -18,11 +23,12 @@ import type {
 
 type PermissionMatrix = Record<AppScreen, PermissionAction[]>;
 type PermissionProfilePayload = Omit<PermissionProfile, "id"> & { id?: string };
-type WizardTargetType = Exclude<PermissionProfileTargetType, "company">;
+type WizardTargetType = Exclude<PermissionProfileTargetType, "company" | "group">;
 type SelectOption = { value: string; label: string };
 
 const targetLabels: Record<PermissionProfileTargetType, string> = {
   employee: "Funcionário",
+  group: "Grupo",
   company: "Empresa",
   department: "Departamento",
   sector: "Setor",
@@ -81,6 +87,7 @@ function isLeadershipRole(role: string) {
 
 function targetMatches(employee: Employee, target: PermissionProfileTarget) {
   if (target.type === "employee") return employee.id === target.value;
+  if (target.type === "group") return employee.groupId === target.value;
   if (target.type === "company") return employee.companyId === target.value;
   if (target.type === "department") return employee.departmentId === target.value;
   if (target.type === "sector") return employee.sectorId === target.value;
@@ -316,6 +323,7 @@ export default function Permissions() {
 
     return {
       employee: employees.map((employee) => ({ value: employee.id, label: employee.name })),
+      group: data.companyGroups.filter((group) => group.active !== false).map((group) => ({ value: group.id, label: group.name })),
       company: data.companies.filter((company) => companyIds.has(company.id)).map((company) => ({ value: company.id, label: company.name })),
       department: data.departments.filter((department) => departmentIds.has(department.id)).map((department) => ({ value: department.id, label: department.name })),
       sector: data.sectors.filter((sector) => sectorIds.has(sector.id)).map((sector) => ({ value: sector.id, label: sector.name })),
@@ -323,11 +331,15 @@ export default function Permissions() {
       position: positions.map((position) => ({ value: position, label: position })),
       role: roles.map((role) => ({ value: role, label: role })),
     };
-  }, [canUseTiTools, data.companies, data.departments, data.employees, data.sectors, data.subsectors, scopedEmployees]);
+  }, [canUseTiTools, data.companies, data.companyGroups, data.departments, data.employees, data.sectors, data.subsectors, scopedEmployees]);
 
   const wizardTargetOptions = useMemo<Record<WizardTargetType, SelectOption[]>>(() => {
     const employees = canUseTiTools ? data.employees : scopedEmployees;
     const companyEmployees = employees.filter((employee) => !wizardCompanyId || employee.companyId === wizardCompanyId);
+    const structureGroup = wizardCompanyId
+      ? resolveCompanyGroupForCompany(wizardCompanyId, data.companyGroups, data.companyGroupCompanies)
+        || primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies)
+      : primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies);
     const departmentIds = new Set(companyEmployees.map((employee) => employee.departmentId));
     const sectorIds = new Set(companyEmployees.map((employee) => employee.sectorId));
     const subsectorIds = new Set(companyEmployees.map((employee) => employee.subsectorId).filter(Boolean));
@@ -335,20 +347,20 @@ export default function Permissions() {
     const positions = uniqueStrings(companyEmployees.map((employee) => employee.position));
 
     return {
-      department: data.departments
-        .filter((department) => departmentIds.has(department.id) && (!wizardCompanyId || department.companyId === wizardCompanyId))
+      department: structureItemsForGroup(data.departments, structureGroup, data.companyGroupCompanies, data.companies)
+        .filter((department) => departmentIds.has(department.id))
         .map((department) => ({ value: department.id, label: department.name })),
-      sector: data.sectors
-        .filter((sector) => sectorIds.has(sector.id) && (!wizardCompanyId || sector.companyId === wizardCompanyId))
+      sector: structureItemsForGroup(data.sectors, structureGroup, data.companyGroupCompanies, data.companies)
+        .filter((sector) => sectorIds.has(sector.id))
         .map((sector) => ({ value: sector.id, label: sector.name })),
-      subsector: data.subsectors
-        .filter((subsector) => subsectorIds.has(subsector.id) && (!wizardCompanyId || subsector.companyId === wizardCompanyId))
+      subsector: structureItemsForGroup(data.subsectors, structureGroup, data.companyGroupCompanies, data.companies)
+        .filter((subsector) => subsectorIds.has(subsector.id))
         .map((subsector) => ({ value: subsector.id, label: subsector.name })),
       position: positions.map((position) => ({ value: position, label: position })),
       role: roles.map((role) => ({ value: role, label: role })),
       employee: companyEmployees.map((employee) => ({ value: employee.id, label: employee.name })),
     };
-  }, [canUseTiTools, data.departments, data.employees, data.sectors, data.subsectors, scopedEmployees, wizardCompanyId]);
+  }, [canUseTiTools, data.companies, data.companyGroupCompanies, data.companyGroups, data.departments, data.employees, data.sectors, data.subsectors, scopedEmployees, wizardCompanyId]);
 
   function canGrantAction(screen: AppScreen, action: PermissionAction) {
     return canUseTiTools || can(screen, action);
@@ -390,6 +402,7 @@ export default function Permissions() {
     const employees = scopedEmployees.filter((employee) => !companyId || employee.companyId === companyId);
 
     if (target.type === "company") return delegatedScope.companyIds.has(target.value);
+    if (target.type === "group") return employees.some((employee) => employee.groupId === target.value);
     if (target.type === "employee") return employees.some((employee) => employee.id === target.value);
     if (target.type === "department") return employees.some((employee) => employee.departmentId === target.value);
     if (target.type === "sector") return employees.some((employee) => employee.sectorId === target.value);

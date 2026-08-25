@@ -24,11 +24,7 @@ export function buildDomainDeletionImpact(
   const entityLabel = labelOf(entity, fallbackLabel);
 
   if (collection === "companies") {
-    const departments = data.departments.filter((item) => item.companyId === id).length;
-    const sectors = data.sectors.filter((item) => item.companyId === id).length;
-    const subsectors = data.subsectors.filter((item) => item.companyId === id).length;
     const employees = data.employees.filter((item) => item.companyId === id).length;
-    const teams = data.teams.filter((item) => item.companyId === id).length;
     const benefits = data.benefitContracts.filter((item) => item.companyId === id).length;
     const documents = data.employeeDocuments.filter((item) => item.companyId === id).length;
     const points = data.timeRecords.filter((item) => item.companyId === id).length;
@@ -37,21 +33,23 @@ export function buildDomainDeletionImpact(
       entityType: "empresa",
       entityLabel,
       reasons: [
-        "A empresa é o nível principal da estrutura e possui dados dependentes.",
-        "A exclusão em cascata pode retirar funcionários, documentos e benefícios das consultas integradas.",
+        "A empresa representa o CNPJ/vinculo legal usado nos funcionarios.",
+        "A estrutura organizacional pertence ao grupo e nao deve ser removida junto com a empresa.",
       ],
       links: [
-        link("Departamentos", departments), link("Setores", sectors), link("Subsetores", subsectors),
-        link("Funcionários", employees), link("Equipes", teams), link("Benefícios", benefits),
-        link("Documentos", documents), link("Registros de ponto preservados", points), link("Vínculos com grupos", groupLinks),
+        link("Funcionarios", employees),
+        link("Beneficios", benefits),
+        link("Documentos", documents),
+        link("Registros de ponto preservados", points),
+        link("Vinculos com grupos", groupLinks),
       ],
       consequences: [
-        "A estrutura organizacional desta empresa será excluída em cascata.",
-        "Funcionários vinculados e os dados dependentes deles poderão ser removidos.",
-        "Registros de ponto já salvos não serão apagados por esta exclusão.",
-        "A empresa deixará de participar dos grupos empresariais atuais.",
+        "A exclusao sera bloqueada se ainda houver funcionarios vinculados a este CNPJ.",
+        "Departamentos, setores, subsetores e equipes do grupo serao preservados.",
+        "Registros de ponto ja salvos nao serao apagados por esta exclusao.",
+        "A empresa deixara de participar dos grupos empresariais atuais.",
       ],
-      note: "O histórico do Controle de Ponto só deve ser alterado dentro do próprio módulo de ponto.",
+      note: "O historico do Controle de Ponto so deve ser alterado dentro do proprio modulo de ponto.",
     };
   }
 
@@ -63,10 +61,10 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "departamento",
       entityLabel,
-      reasons: ["O departamento ainda organiza setores, subsetores e funcionários."],
-      links: [link("Setores", sectors), link("Subsetores", subsectors), link("Funcionários", employees), link("Documentos", documents)],
-      consequences: ["Os setores e subsetores dependentes serão removidos.", "Funcionários vinculados poderão ser excluídos com seus dados dependentes."],
-      note: "Realocar os funcionários antes da exclusão preserva os cadastros e o histórico.",
+      reasons: ["O departamento ainda organiza setores, subsetores e funcionarios."],
+      links: [link("Setores", sectors), link("Subsetores", subsectors), link("Funcionarios", employees), link("Documentos", documents)],
+      consequences: ["Os setores e subsetores dependentes serao removidos.", "Funcionarios vinculados poderao ser excluidos com seus dados dependentes."],
+      note: "Realocar os funcionarios antes da exclusao preserva os cadastros e o historico.",
     };
   }
 
@@ -78,9 +76,9 @@ export function buildDomainDeletionImpact(
       entityType: "setor",
       entityLabel,
       reasons: ["O setor ainda possui pessoas ou estruturas dependentes."],
-      links: [link("Subsetores", subsectors), link("Funcionários", employees), link("Documentos", documents)],
-      consequences: ["Os subsetores vinculados serão removidos.", "Funcionários do setor poderão ser excluídos com os dados dependentes."],
-      note: "Realocar os funcionários antes da exclusão é a opção mais segura.",
+      links: [link("Subsetores", subsectors), link("Funcionarios", employees), link("Documentos", documents)],
+      consequences: ["Os subsetores vinculados serao removidos.", "Funcionarios do setor poderao ser excluidos com os dados dependentes."],
+      note: "Realocar os funcionarios antes da exclusao e a opcao mais segura.",
     };
   }
 
@@ -90,10 +88,10 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "subsetor",
       entityLabel,
-      reasons: ["O subsetor ainda é usado para classificar funcionários e documentos."],
-      links: [link("Funcionários", employees), link("Documentos", documents)],
-      consequences: ["Funcionários do subsetor poderão ser excluídos com seus dados dependentes."],
-      note: "Realocar os funcionários evita perda de cadastro e histórico.",
+      reasons: ["O subsetor ainda e usado para classificar funcionarios e documentos."],
+      links: [link("Funcionarios", employees), link("Documentos", documents)],
+      consequences: ["Funcionarios do subsetor poderao ser excluidos com seus dados dependentes."],
+      note: "Realocar os funcionarios evita perda de cadastro e historico.",
     };
   }
 
@@ -104,12 +102,12 @@ export function buildDomainDeletionImpact(
       entityType: "equipe",
       entityLabel,
       reasons: [
-        employees > 0 ? "Há funcionários cadastrados nesta equipe." : "A equipe pode aparecer em registros históricos de ponto.",
+        employees > 0 ? "Ha funcionarios cadastrados nesta equipe." : "A equipe pode aparecer em registros historicos de ponto.",
       ],
-      links: [link("Funcionários vinculados", employees), link("Registros de ponto que citam a equipe", pointRecords)],
+      links: [link("Funcionarios vinculados", employees), link("Registros de ponto que citam a equipe", pointRecords)],
       consequences: [
-        "Os funcionários permanecerão cadastrados, mas ficarão sem equipe definida.",
-        "Os registros históricos já salvos continuarão com o nome da equipe registrado no dia.",
+        "Os funcionarios permanecerao cadastrados, mas ficarao sem equipe definida.",
+        "Os registros historicos ja salvos continuarao com o nome da equipe registrado no dia.",
       ],
     };
   }
@@ -127,23 +125,23 @@ export function buildDomainDeletionImpact(
     const leadership = data.companyGroupLeadershipAssignments.filter((item) => item.employeeId === id).length;
     const users = data.systemUsers.filter((item) => item.employeeId === id).length;
     return {
-      entityType: "funcionário",
+      entityType: "funcionario",
       entityLabel,
       reasons: [
-        "O funcionário possui histórico e vínculos usados por outros módulos.",
-        "Excluir o cadastro pode retirar documentos, benefícios e permissões das consultas integradas.",
+        "O funcionario possui historico e vinculos usados por outros modulos.",
+        "Excluir o cadastro pode retirar documentos, beneficios e permissoes das consultas integradas.",
       ],
       links: [
-        link("Promoções", promotions), link("Rascunhos", drafts), link("Documentos", documents), link("Alertas", alerts),
-        link("Registros de ponto preservados", points), link("Benefícios", benefits), link("Vínculos de estrutura", assignments),
-        link("Vínculos em grupos", groupAssignments), link("Responsabilidades em grupos", leadership), link("Usuários de acesso", users),
+        link("Promocoes", promotions), link("Rascunhos", drafts), link("Documentos", documents), link("Alertas", alerts),
+        link("Registros de ponto preservados", points), link("Beneficios", benefits), link("Vinculos de estrutura", assignments),
+        link("Vinculos em grupos", groupAssignments), link("Responsabilidades em grupos", leadership), link("Usuarios de acesso", users),
       ],
       consequences: [
-        "Os dados dependentes do funcionário serão removidos em cascata.",
-        "O login associado e as permissões correspondentes também poderão ser excluídos.",
-        "Registros de ponto já salvos continuarão aparecendo no Controle de Ponto pelo histórico gravado.",
+        "Os dados dependentes do funcionario serao removidos em cascata.",
+        "O login associado e as permissoes correspondentes tambem poderao ser excluidos.",
+        "Registros de ponto ja salvos continuarao aparecendo no Controle de Ponto pelo historico gravado.",
       ],
-      note: "O histórico do Controle de Ponto só deve ser alterado dentro do próprio módulo de ponto.",
+      note: "O historico do Controle de Ponto so deve ser alterado dentro do proprio modulo de ponto.",
     };
   }
 
@@ -152,22 +150,22 @@ export function buildDomainDeletionImpact(
     const employeeBenefits = data.employeeBenefits.filter((item) => item.contractId === id).length;
     const fields = data.benefitCustomFields.filter((item) => item.benefitContractId === id).length;
     return {
-      entityType: "benefício",
+      entityType: "beneficio",
       entityLabel,
-      reasons: ["O benefício possui estrutura própria e pode estar vinculado a funcionários."],
-      links: [link("Planos", plans), link("Funcionários vinculados", employeeBenefits), link("Campos personalizados", fields)],
-      consequences: ["Os planos, vínculos de funcionários e campos personalizados serão excluídos.", "A tabela e as configurações armazenadas no benefício deixarão de aparecer."],
+      reasons: ["O beneficio possui estrutura propria e pode estar vinculado a funcionarios."],
+      links: [link("Planos", plans), link("Funcionarios vinculados", employeeBenefits), link("Campos personalizados", fields)],
+      consequences: ["Os planos, vinculos de funcionarios e campos personalizados serao excluidos.", "A tabela e as configuracoes armazenadas no beneficio deixarao de aparecer."],
     };
   }
 
   if (collection === "benefitPlans") {
     const employeeBenefits = data.employeeBenefits.filter((item) => item.planId === id).length;
     return {
-      entityType: "plano de benefício",
+      entityType: "plano de beneficio",
       entityLabel,
-      reasons: ["O plano pode estar atribuído a funcionários."],
-      links: [link("Funcionários vinculados", employeeBenefits)],
-      consequences: ["Os vínculos dos funcionários com este plano serão removidos."],
+      reasons: ["O plano pode estar atribuido a funcionarios."],
+      links: [link("Funcionarios vinculados", employeeBenefits)],
+      consequences: ["Os vinculos dos funcionarios com este plano serao removidos."],
     };
   }
 
@@ -176,9 +174,9 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "documento",
       entityLabel,
-      reasons: [alerts > 0 ? "O documento possui alertas ativos." : "O arquivo faz parte do histórico documental do funcionário."],
+      reasons: [alerts > 0 ? "O documento possui alertas ativos." : "O arquivo faz parte do historico documental do funcionario."],
       links: [link("Alertas ativos", alerts)],
-      consequences: ["O documento deixará de aparecer na pasta do funcionário.", alerts > 0 ? "Os alertas ativos serão concluídos e preservados no histórico." : "Nenhum alerta ativo será alterado."],
+      consequences: ["O documento deixara de aparecer na pasta do funcionario.", alerts > 0 ? "Os alertas ativos serao concluidos e preservados no historico." : "Nenhum alerta ativo sera alterado."],
     };
   }
 
@@ -189,9 +187,9 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "perfil de acesso",
       entityLabel,
-      reasons: ["O perfil define permissões que podem ser reutilizadas no cadastro de usuários."],
-      links: [link("Alvos configurados", targets), link("Telas com permissões", screens)],
-      consequences: ["O perfil não poderá mais ser aplicado a novos usuários.", "As permissões já gravadas diretamente nos usuários permanecerão até serem alteradas."],
+      reasons: ["O perfil define permissoes que podem ser reutilizadas no cadastro de usuarios."],
+      links: [link("Alvos configurados", targets), link("Telas com permissoes", screens)],
+      consequences: ["O perfil nao podera mais ser aplicado a novos usuarios.", "As permissoes ja gravadas diretamente nos usuarios permanecerao ate serem alteradas."],
     };
   }
 
@@ -202,9 +200,9 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "coluna do ponto",
       entityLabel,
-      reasons: ["A coluna pode conter valores preenchidos em dias já salvos."],
+      reasons: ["A coluna pode conter valores preenchidos em dias ja salvos."],
       links: [link("Registros de ponto com valor nesta coluna", records)],
-      consequences: ["A coluna deixará de aparecer na tabela.", "Os valores históricos associados à chave da coluna poderão permanecer no banco, mas ficarão ocultos na interface."],
+      consequences: ["A coluna deixara de aparecer na tabela.", "Os valores historicos associados a chave da coluna poderao permanecer no banco, mas ficarao ocultos na interface."],
     };
   }
 
@@ -214,9 +212,9 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "item da estrutura",
       entityLabel,
-      reasons: ["O item pode possuir filhos e vínculos de funcionários."],
-      links: [link("Itens filhos diretos", children), link("Vínculos de funcionários", assignments)],
-      consequences: ["Todos os itens descendentes serão excluídos.", "Os vínculos de funcionários com os itens removidos serão apagados."],
+      reasons: ["O item pode possuir filhos e vinculos de funcionarios."],
+      links: [link("Itens filhos diretos", children), link("Vinculos de funcionarios", assignments)],
+      consequences: ["Todos os itens descendentes serao excluidos.", "Os vinculos de funcionarios com os itens removidos serao apagados."],
     };
   }
 
@@ -225,11 +223,11 @@ export function buildDomainDeletionImpact(
     const employee = assignment ? data.employees.find((item) => item.id === assignment.employeeId) : undefined;
     const node = assignment ? data.organizational_nodes.find((item) => item.id === assignment.nodeId) : undefined;
     return {
-      entityType: "vínculo",
-      entityLabel: `${employee?.name || entityLabel}${node ? ` → ${node.nome}` : ""}`,
-      reasons: ["Este vínculo define o papel do funcionário na estrutura organizacional."],
-      links: [link("Funcionário afetado", employee ? 1 : 0), link("Item da estrutura", node ? 1 : 0)],
-      consequences: ["O funcionário deixará de exercer este papel na estrutura."],
+      entityType: "vinculo",
+      entityLabel: `${employee?.name || entityLabel}${node ? ` -> ${node.nome}` : ""}`,
+      reasons: ["Este vinculo define o papel do funcionario na estrutura organizacional."],
+      links: [link("Funcionario afetado", employee ? 1 : 0), link("Item da estrutura", node ? 1 : 0)],
+      consequences: ["O funcionario deixara de exercer este papel na estrutura."],
     };
   }
 
@@ -242,9 +240,9 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "grupo empresarial",
       entityLabel,
-      reasons: ["O grupo unifica estruturas e responsabilidades de várias empresas."],
-      links: [link("Empresas", companies), link("Unidades unificadas", units), link("Mapeamentos de estrutura", links), link("Funcionários no grupo", assignments), link("Lideranças", leadership)],
-      consequences: ["A configuração unificada do grupo será removida.", "As empresas e funcionários originais continuarão cadastrados individualmente."],
+      reasons: ["O grupo unifica estruturas e responsabilidades de varias empresas."],
+      links: [link("Empresas", companies), link("Unidades unificadas", units), link("Mapeamentos de estrutura", links), link("Funcionarios no grupo", assignments), link("Liderancas", leadership)],
+      consequences: ["A configuracao unificada do grupo sera removida.", "As empresas e funcionarios originais continuarao cadastrados individualmente."],
     };
   }
 
@@ -256,9 +254,9 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "unidade do grupo",
       entityLabel,
-      reasons: ["A unidade está ligada à estrutura de empresas e pode receber funcionários e lideranças."],
-      links: [link("Unidades filhas", children), link("Mapeamentos de origem", links), link("Funcionários", employees), link("Lideranças", leadership)],
-      consequences: ["Os vínculos desta unidade serão removidos do grupo.", "Funcionários e lideranças deixarão de aparecer nesta unidade unificada."],
+      reasons: ["A unidade esta ligada a estrutura de empresas e pode receber funcionarios e liderancas."],
+      links: [link("Unidades filhas", children), link("Mapeamentos de origem", links), link("Funcionarios", employees), link("Liderancas", leadership)],
+      consequences: ["Os vinculos desta unidade serao removidos do grupo.", "Funcionarios e liderancas deixarao de aparecer nesta unidade unificada."],
     };
   }
 
@@ -268,10 +266,10 @@ export function buildDomainDeletionImpact(
     const unit = assignment ? data.companyGroupUnits.find((item) => item.id === assignment.unitId) : undefined;
     return {
       entityType: "responsabilidade do grupo",
-      entityLabel: `${employee?.name || entityLabel}${unit ? ` → ${unit.name}` : ""}`,
-      reasons: ["O vínculo define um responsável na estrutura unificada do grupo."],
-      links: [link("Funcionário", employee ? 1 : 0), link("Unidade do grupo", unit ? 1 : 0)],
-      consequences: ["O funcionário deixará de ser reconhecido como responsável por esta unidade."],
+      entityLabel: `${employee?.name || entityLabel}${unit ? ` -> ${unit.name}` : ""}`,
+      reasons: ["O vinculo define um responsavel na estrutura unificada do grupo."],
+      links: [link("Funcionario", employee ? 1 : 0), link("Unidade do grupo", unit ? 1 : 0)],
+      consequences: ["O funcionario deixara de ser reconhecido como responsavel por esta unidade."],
     };
   }
 
@@ -280,9 +278,9 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "candidato",
       entityLabel: candidate?.fullName || entityLabel,
-      reasons: ["O registro faz parte do histórico do banco de talentos."],
-      links: [link("Rascunho de funcionário associado", candidate?.employeeDraftId ? 1 : 0)],
-      consequences: ["A linha do candidato será removida do banco de talentos.", "O rascunho de funcionário associado não será apagado automaticamente."],
+      reasons: ["O registro faz parte do historico do banco de talentos."],
+      links: [link("Rascunho de funcionario associado", candidate?.employeeDraftId ? 1 : 0)],
+      consequences: ["A linha do candidato sera removida do banco de talentos.", "O rascunho de funcionario associado nao sera apagado automaticamente."],
     };
   }
 
@@ -291,17 +289,17 @@ export function buildDomainDeletionImpact(
     return {
       entityType: "rascunho",
       entityLabel: draft?.payload?.name || entityLabel,
-      reasons: ["O rascunho contém informações ainda não finalizadas do cadastro."],
-      links: [link("Funcionário já associado", draft?.employeeId ? 1 : 0)],
-      consequences: ["As informações não finalizadas deste rascunho serão perdidas."],
+      reasons: ["O rascunho contem informacoes ainda nao finalizadas do cadastro."],
+      links: [link("Funcionario ja associado", draft?.employeeId ? 1 : 0)],
+      consequences: ["As informacoes nao finalizadas deste rascunho serao perdidas."],
     };
   }
 
   return {
     entityType: "registro",
     entityLabel,
-    reasons: ["O registro será removido permanentemente do sistema."],
+    reasons: ["O registro sera removido permanentemente do sistema."],
     links: [],
-    consequences: ["O item deixará de aparecer nas telas e consultas relacionadas."],
+    consequences: ["O item deixara de aparecer nas telas e consultas relacionadas."],
   };
 }

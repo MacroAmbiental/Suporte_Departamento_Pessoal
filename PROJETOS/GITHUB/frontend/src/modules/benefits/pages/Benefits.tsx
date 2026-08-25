@@ -32,6 +32,11 @@ import { useAuth } from "@/hooks/useAuth";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
 import { buildDomainDeletionImpact } from "@/common/utils/deletionImpact";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+} from "@/common/utils/groupStructure";
 import useCreateShortcut from "@/hooks/useCreateShortcut";
 import { loadTimeRecordsRange } from "@/modules/timekeeping/data/timeRecordsRepository";
 import type { BenefitContract, BenefitType, Employee, EmployeeBenefit, TimekeepingColumn, TimeRecord } from "@/types/domain";
@@ -1052,13 +1057,19 @@ export default function Benefits() {
   const hasActiveListFilters = Boolean(companyFilterIds.length || search);
   const hasActiveTableFilters = Boolean(tableFilters.search || tableFilters.column);
   const selectedCompany = data.companies.find((company) => company.id === selectedBenefit?.companyId);
+  const selectedBenefitStructureGroup = useMemo(() => {
+    const primary = primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies);
+    if (!selectedBenefit?.companyId) return primary;
+    return resolveCompanyGroupForCompany(selectedBenefit.companyId, data.companyGroups, data.companyGroupCompanies)
+      || primary;
+  }, [data.companyGroupCompanies, data.companyGroups, selectedBenefit?.companyId]);
   const columns = readColumns(selectedBenefit);
   const formulas = readFormulas(selectedBenefit);
   const rows = readRows(selectedBenefit);
   const columnWidths = readColumnWidths(selectedBenefit);
   const columnWrap = readColumnWrap(selectedBenefit);
-  const systemColumnConfigs = useMemo(() => readSystemColumnConfigs(selectedBenefit), [selectedBenefit?.customFields?.systemColumnConfigs]);
-  const surveyCompletions = useMemo(() => readSurveyCompletions(selectedBenefit), [selectedBenefit?.customFields?.surveyCompletions]);
+  const systemColumnConfigs = useMemo(() => readSystemColumnConfigs(selectedBenefit), [selectedBenefit]);
+  const surveyCompletions = useMemo(() => readSurveyCompletions(selectedBenefit), [selectedBenefit]);
   const timekeepingSettingsByCompanyId = useMemo(
     () => buildBenefitTimekeepingSettingsByCompanyId(data.timekeepingColumns),
     [data.timekeepingColumns],
@@ -1099,18 +1110,30 @@ export default function Benefits() {
   const sectorById = useMemo(() => new Map(data.sectors.map((item) => [item.id, item])), [data.sectors]);
   const subsectorById = useMemo(() => new Map(data.subsectors.map((item) => [item.id, item])), [data.subsectors]);
   const teamById = useMemo(() => new Map(data.teams.map((item) => [item.id, item])), [data.teams]);
-  const departmentOptions = useMemo(() => data.departments
-    .filter((item) => item.companyId === selectedBenefit?.companyId)
-    .sort((a, b) => compareText(a.name, b.name)), [data.departments, selectedBenefit?.companyId]);
-  const sectorOptions = useMemo(() => data.sectors
-    .filter((item) => item.companyId === selectedBenefit?.companyId)
-    .sort((a, b) => compareText(a.name, b.name)), [data.sectors, selectedBenefit?.companyId]);
-  const subsectorOptions = useMemo(() => data.subsectors
-    .filter((item) => item.companyId === selectedBenefit?.companyId)
-    .sort((a, b) => compareText(a.name, b.name)), [data.subsectors, selectedBenefit?.companyId]);
-  const teamOptions = useMemo(() => data.teams
-    .filter((item) => item.companyId === selectedBenefit?.companyId)
-    .sort((a, b) => compareText(a.name, b.name)), [data.teams, selectedBenefit?.companyId]);
+  const departmentOptions = useMemo(() => structureItemsForGroup(
+    data.departments,
+    selectedBenefitStructureGroup,
+    data.companyGroupCompanies,
+    data.companies,
+  ), [data.companies, data.companyGroupCompanies, data.departments, selectedBenefitStructureGroup]);
+  const sectorOptions = useMemo(() => structureItemsForGroup(
+    data.sectors,
+    selectedBenefitStructureGroup,
+    data.companyGroupCompanies,
+    data.companies,
+  ), [data.companies, data.companyGroupCompanies, data.sectors, selectedBenefitStructureGroup]);
+  const subsectorOptions = useMemo(() => structureItemsForGroup(
+    data.subsectors,
+    selectedBenefitStructureGroup,
+    data.companyGroupCompanies,
+    data.companies,
+  ), [data.companies, data.companyGroupCompanies, data.subsectors, selectedBenefitStructureGroup]);
+  const teamOptions = useMemo(() => structureItemsForGroup(
+    data.teams,
+    selectedBenefitStructureGroup,
+    data.companyGroupCompanies,
+    data.companies,
+  ), [data.companies, data.companyGroupCompanies, data.teams, selectedBenefitStructureGroup]);
   const roleOptions = useMemo(() => unique(benefitCompanyEmployees.flatMap((employee) => [employee.role, employee.position || ""]))
     .sort(compareText), [benefitCompanyEmployees]);
   const statusOptions = useMemo(() => unique(benefitCompanyEmployees.map((employee) => employee.status))

@@ -5,6 +5,11 @@ import { useDomainData } from "@/hooks/useDomainData";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
 import { buildDomainDeletionImpact } from "@/common/utils/deletionImpact";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+} from "@/common/utils/groupStructure";
 import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import MultiSelect from "../../../common/components/MultiSelect";
 import type { TalentCandidate } from "@/types/domain";
@@ -120,16 +125,24 @@ export default function TalentBank() {
   async function createEmployeeDraft(candidate: TalentCandidate) {
     if (candidate.employeeDraftId) return candidate.employeeDraftId;
     const company = data.companies[0];
-    const department = data.departments.find((item) => item.companyId === company?.id) || data.departments[0];
-    const sector = data.sectors.find((item) => item.departmentId === department?.id) || data.sectors[0];
+    const structureGroup = company
+      ? resolveCompanyGroupForCompany(company.id, data.companyGroups, data.companyGroupCompanies)
+        || primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies)
+      : primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies);
+    const structureDepartments = structureItemsForGroup(data.departments, structureGroup, data.companyGroupCompanies, data.companies);
+    const structureSectors = structureItemsForGroup(data.sectors, structureGroup, data.companyGroupCompanies, data.companies);
+    const department = structureDepartments[0] || data.departments[0];
+    const sector = structureSectors.find((item) => item.departmentId === department?.id) || structureSectors[0] || data.sectors[0];
     const draft = await data.upsertEmployeeDraft({
       companyId: company?.id || "",
+      groupId: structureGroup?.id || "",
       departmentId: department?.id || "",
       sectorId: sector?.id || "",
       step: 2,
       status: "draft",
       payload: {
         companyId: company?.id || "",
+        groupId: structureGroup?.id || "",
         departmentId: department?.id || "",
         sectorId: sector?.id || "",
         name: candidate.fullName,

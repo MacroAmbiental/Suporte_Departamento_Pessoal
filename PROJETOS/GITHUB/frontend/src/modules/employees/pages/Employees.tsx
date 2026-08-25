@@ -25,6 +25,12 @@ import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
 import { buildDomainDeletionImpact } from "@/common/utils/deletionImpact";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+  structureScopePayload,
+} from "@/common/utils/groupStructure";
 import EmployeesPagination from "../components/EmployeesPagination";
 import MultiSelect from "../../../common/components/MultiSelect";
 import { employeeStandardDocumentNames } from "@/modules/records/utils/recordsDocuments";
@@ -294,6 +300,7 @@ interface EmployeeImportRow {
 const emptyEmployee: EmployeeWizardForm = {
   employeeKind: "contract",
   companyId: "",
+  groupId: "",
   departmentId: "",
   sectorId: "",
   subsectorId: "",
@@ -688,7 +695,7 @@ export default function Employees() {
   ]);
 
   useEffect(() => {
-    if (!SCREEN_WRITE_EFFECTS_ENABLED) return;
+    return;
     if (data.loading || !data.companies.length || automaticGroupSyncRef.current) return;
     if (window.localStorage.getItem("companies.company-groups.v1") && data.companyGroups.length === 0) return;
     const assignedCompanyIds = new Set(data.companyGroupCompanies.map((item) => item.companyId));
@@ -734,20 +741,38 @@ export default function Employees() {
       .finally(() => {
         automaticGroupSyncRef.current = false;
       });
-  }, [data.loading, data.companies, data.companyGroups.length, data.companyGroupCompanies, data.employees, data.saveCompanyGroupGraph]);
+  }, [data, data.loading, data.companies, data.companyGroups.length, data.companyGroupCompanies, data.employees, data.saveCompanyGroupGraph]);
 
   const companyById = useMemo(() => new Map(data.companies.map((company) => [company.id, company])), [data.companies]);
   const teamById = useMemo(() => new Map(data.teams.map((team) => [team.id, team])), [data.teams]);
-  const groupByCompanyId = useMemo(() => {
-    const map = new Map<string, EmployeeFormGroup>();
-    storedCompanyGroups.forEach((group) => {
-      group.companyIds.forEach((companyId) => map.set(companyId, group));
-    });
-    return map;
-  }, [storedCompanyGroups]);
-  const groupForCompany = (companyId: string) => groupByCompanyId.get(companyId);
-  const selectedFormGroup = form.companyId ? groupForCompany(form.companyId) : undefined;
-  const selectedFormUsesGroupStructure = Boolean(selectedFormGroup?.units.length);
+  const storedGroupById = useMemo(() => new Map(storedCompanyGroups.map((group) => [group.id, group])), [storedCompanyGroups]);
+  const primaryStructureGroup = useMemo(
+    () => primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies),
+    [data.companyGroups, data.companyGroupCompanies],
+  );
+  const domainGroupForCompany = useCallback((companyId: string) => (
+    resolveCompanyGroupForCompany(companyId, data.companyGroups, data.companyGroupCompanies)
+      || primaryStructureGroup
+  ), [data.companyGroupCompanies, data.companyGroups, primaryStructureGroup]);
+  const groupForCompany = useCallback((companyId: string) => {
+    const group = domainGroupForCompany(companyId);
+    if (!group) return undefined;
+    return storedGroupById.get(group.id) || {
+      id: group.id,
+      name: group.name,
+      active: group.active,
+      companyIds: data.companyGroupCompanies.filter((item) => item.groupId === group.id).map((item) => item.companyId),
+      units: [],
+      employeeAssignments: [],
+    };
+  }, [data.companyGroupCompanies, domainGroupForCompany, storedGroupById]);
+  const selectedDomainGroup = form.companyId ? domainGroupForCompany(form.companyId) : primaryStructureGroup;
+  const selectedFormGroup = selectedDomainGroup ? groupForCompany(form.companyId || "") || storedGroupById.get(selectedDomainGroup.id) : undefined;
+  const selectedStructureScope = useMemo(
+    () => structureScopePayload(selectedDomainGroup, data.companyGroupCompanies, data.companies),
+    [data.companies, data.companyGroupCompanies, selectedDomainGroup],
+  );
+  const selectedFormUsesGroupStructure = false;
   const structureFieldsDisabled = form.employeeKind === "diarist" && !form.diaristUseStructure;
 
   function groupUnitNameForEmployee(employee: Employee, type: CompanyGroupUnitType) {
@@ -759,7 +784,7 @@ export default function Employees() {
   }
 
   const employeeTeamFilterOption = useCallback((employee: Employee) => {
-    const group = groupByCompanyId.get(employee.companyId);
+    const group = groupForCompany(employee.companyId);
     if (group?.units.length) {
       const selection = employeeGroupUnitSelection(group, employee);
       const unitId = selection.teamUnitId;
@@ -779,7 +804,7 @@ export default function Employees() {
       value: `team:${team.id}`,
       label: company?.name ? `${team.name} · ${company.name}` : team.name,
     };
-  }, [companyById, groupByCompanyId, teamById]);
+  }, [companyById, groupForCompany, teamById]);
 
   const selectedDepartmentId = selectedFormUsesGroupStructure ? groupUnitSelection.departmentUnitId : form.departmentId || "";
   const selectedSectorId = selectedFormUsesGroupStructure ? groupUnitSelection.sectorUnitId : form.sectorId || "";
@@ -788,26 +813,17 @@ export default function Employees() {
   const subsectorSelectValue = selectedFormUsesGroupStructure ? groupUnitSelection.subsectorUnitId : form.subsectorId || "";
   const teamSelectValue = selectedFormUsesGroupStructure ? groupUnitSelection.teamUnitId : form.teamId || "";
 
-  const departments = selectedFormUsesGroupStructure
-    ? selectedFormGroup?.units.filter((item) => item.type === "department") || []
-    : data.departments.filter((item) => !form.companyId || item.companyId === form.companyId);
-  const sectors = selectedFormUsesGroupStructure
-    ? selectedFormGroup?.units.filter((item) => (
-      item.type === "sector" && (!selectedDepartmentId || !item.parentUnitId || item.parentUnitId === selectedDepartmentId)
-    )) || []
-    : data.sectors.filter((item) => !form.departmentId || item.departmentId === form.departmentId);
-  const subsectors = selectedFormUsesGroupStructure
-    ? selectedFormGroup?.units.filter((item) => (
-      item.type === "subsector" && (!selectedSectorId || !item.parentUnitId || item.parentUnitId === selectedSectorId)
-    )) || []
-    : data.subsectors.filter((item) => !form.sectorId || item.sectorId === form.sectorId);
-  const teams = selectedFormUsesGroupStructure
-    ? selectedFormGroup?.units.filter((item) => item.type === "team") || []
-    : data.teams.filter((item) => !form.companyId || item.companyId === form.companyId);
+  const departments = structureItemsForGroup(data.departments, selectedDomainGroup, data.companyGroupCompanies, data.companies);
+  const sectors = structureItemsForGroup(data.sectors, selectedDomainGroup, data.companyGroupCompanies, data.companies)
+    .filter((item) => !form.departmentId || item.departmentId === form.departmentId);
+  const subsectors = structureItemsForGroup(data.subsectors, selectedDomainGroup, data.companyGroupCompanies, data.companies)
+    .filter((item) => !form.sectorId || item.sectorId === form.sectorId);
+  const teams = structureItemsForGroup(data.teams, selectedDomainGroup, data.companyGroupCompanies, data.companies);
 
   function handleCompanyChange(companyId: string) {
+    const group = domainGroupForCompany(companyId);
     setGroupUnitSelection({ ...emptyGroupUnitSelection });
-    setForm({ ...form, companyId, departmentId: "", sectorId: "", subsectorId: "", teamId: "", isTeamLead: false });
+    setForm({ ...form, companyId, groupId: group?.id || "", departmentId: "", sectorId: "", subsectorId: "", teamId: "", isTeamLead: false });
   }
 
   function handleDepartmentChange(departmentId: string) {
@@ -1423,15 +1439,17 @@ export default function Employees() {
 
   async function findOrCreateDepartment(companyId: string, name: string) {
     const normalized = name.trim().toLowerCase();
-    let department = data.departments.find(
-      (item) => item.companyId === companyId && item.name.trim().toLowerCase() === normalized,
-    );
+    const group = domainGroupForCompany(companyId);
+    const scope = structureScopePayload(group, data.companyGroupCompanies, data.companies);
+    let department = structureItemsForGroup(data.departments, group, data.companyGroupCompanies, data.companies)
+      .find((item) => item.name.trim().toLowerCase() === normalized);
     if (department) return department;
 
     const now = new Date().toISOString();
     return data.upsertDepartment({
-      id: `department-${companyId}-${normalizeKey(name)}`,
-      companyId,
+      id: `department-${scope.groupId || scope.companyId || companyId}-${normalizeKey(name)}`,
+      companyId: scope.companyId || companyId,
+      groupId: scope.groupId,
       name,
       managerName: "",
       description: `Departamento ${name}.`,
@@ -1442,10 +1460,11 @@ export default function Employees() {
 
   async function findOrCreateSector(companyId: string, departmentId: string, name: string) {
     const normalized = name.trim().toLowerCase();
-    let sector = data.sectors.find(
+    const group = domainGroupForCompany(companyId);
+    const scope = structureScopePayload(group, data.companyGroupCompanies, data.companies);
+    let sector = structureItemsForGroup(data.sectors, group, data.companyGroupCompanies, data.companies).find(
       (item) =>
-        item.companyId === companyId
-        && item.departmentId === departmentId
+        item.departmentId === departmentId
         && item.name.trim().toLowerCase() === normalized,
     );
     if (sector) return sector;
@@ -1453,7 +1472,8 @@ export default function Employees() {
     const now = new Date().toISOString();
     return data.upsertSector({
       id: `sector-${departmentId}-${normalizeKey(name)}`,
-      companyId,
+      companyId: scope.companyId || companyId,
+      groupId: scope.groupId,
       departmentId,
       name,
       leaderName: "",
@@ -1470,10 +1490,11 @@ export default function Employees() {
     name: string,
   ) {
     const normalized = name.trim().toLowerCase();
-    let subsector = data.subsectors.find(
+    const group = domainGroupForCompany(companyId);
+    const scope = structureScopePayload(group, data.companyGroupCompanies, data.companies);
+    let subsector = structureItemsForGroup(data.subsectors, group, data.companyGroupCompanies, data.companies).find(
       (item) =>
-        item.companyId === companyId
-        && item.departmentId === departmentId
+        item.departmentId === departmentId
         && item.sectorId === sectorId
         && item.name.trim().toLowerCase() === normalized,
     );
@@ -1482,7 +1503,8 @@ export default function Employees() {
     const now = new Date().toISOString();
     return data.upsertSubsector({
       id: `subsector-${sectorId}-${normalizeKey(name)}`,
-      companyId,
+      companyId: scope.companyId || companyId,
+      groupId: scope.groupId,
       departmentId,
       sectorId,
       name,
@@ -1545,6 +1567,8 @@ export default function Employees() {
 
       try {
         const company = await findOrCreateCompany(companyName);
+        const group = domainGroupForCompany(company.id);
+        const scope = structureScopePayload(group, data.companyGroupCompanies, data.companies);
         const department = departmentName ? await findOrCreateDepartment(company.id, departmentName) : undefined;
         const sector = department && sectorName ? await findOrCreateSector(company.id, department.id, sectorName) : undefined;
         const subsector = department && sector && subsectorName
@@ -1555,6 +1579,7 @@ export default function Employees() {
         const savedEmployee = await data.upsertEmployee({
           id: makeClientId("employee"),
           companyId: company.id,
+          groupId: scope.groupId,
           departmentId: department?.id || "",
           sectorId: sector?.id || "",
           subsectorId: subsector?.id || "",
@@ -1592,6 +1617,7 @@ export default function Employees() {
         await data.upsertEmployeeDocument({
           id: makeClientId("document"),
           companyId: company.id,
+          groupId: scope.groupId,
           departmentId: department?.id || "",
           sectorId: sector?.id || "",
           subsectorId: subsector?.id || "",
@@ -1650,11 +1676,17 @@ export default function Employees() {
     setEmployeeImportFileName("");
     const login = data.systemUsers.find((user) => user.employeeId === draftPayload?.id);
     const registrationData = draftPayload?.registrationData || {};
-    const draftGroup = draftPayload?.companyId ? groupForCompany(draftPayload.companyId) : undefined;
+    const draftDomainGroup = draftPayload?.groupId
+      ? data.companyGroups.find((group) => group.id === draftPayload.groupId)
+      : draftPayload?.companyId
+        ? domainGroupForCompany(draftPayload.companyId)
+        : primaryStructureGroup;
+    const draftGroup = draftDomainGroup ? storedGroupById.get(draftDomainGroup.id) : undefined;
     setGroupUnitSelection(employeeGroupUnitSelection(draftGroup, draftPayload));
     setForm({
       ...emptyEmployee,
       ...draftPayload,
+      groupId: draftPayload?.groupId || draftDomainGroup?.id || "",
       employeeKind: asPromotion ? "company" : registrationData.employeeKind === "company" ? "company" : registrationData.employeeKind === "diarist" ? "diarist" : "contract",
       diaristUseStructure: registrationData.diaristUseStructure === "true",
       diaristDailyRate: Number(registrationData.diaristDailyRate || 0),
@@ -1713,12 +1745,16 @@ export default function Employees() {
         id: draftId,
         employeeId: editingEmployeeId,
         companyId: form.employeeKind === "diarist" && !form.diaristUseStructure ? "" : form.companyId || "",
+        groupId: form.employeeKind === "diarist" && !form.diaristUseStructure ? "" : selectedStructureScope.groupId,
         departmentId: form.employeeKind === "diarist" && !form.diaristUseStructure ? "" : form.departmentId || "",
         sectorId: form.employeeKind === "diarist" && !form.diaristUseStructure ? "" : form.sectorId || "",
         subsectorId: form.subsectorId || "",
         step: nextStep,
         status: "draft",
-        payload: form,
+        payload: {
+          ...form,
+          groupId: form.employeeKind === "diarist" && !form.diaristUseStructure ? "" : selectedStructureScope.groupId,
+        },
         updatedAt: new Date().toISOString(),
       });
       setDraftId(draft.id);
@@ -1776,6 +1812,7 @@ export default function Employees() {
     await data.upsertEmployeeDocument({
       id: makeClientId("document"),
       companyId: employee.companyId,
+      groupId: employee.groupId || "",
       departmentId: employee.departmentId,
       sectorId: employee.sectorId,
       subsectorId: employee.subsectorId || "",
@@ -1808,6 +1845,7 @@ export default function Employees() {
     await data.upsertEmployeeDocument({
       id: makeClientId("document"),
       companyId: employee.companyId,
+      groupId: employee.groupId || "",
       departmentId: employee.departmentId,
       sectorId: employee.sectorId,
       subsectorId: employee.subsectorId || "",
@@ -1843,6 +1881,7 @@ export default function Employees() {
         .map((name) => data.upsertEmployeeDocument({
           id: makeClientId("document"),
           companyId: employee.companyId,
+          groupId: employee.groupId || "",
           departmentId: employee.departmentId,
           sectorId: employee.sectorId,
           subsectorId: employee.subsectorId || "",
@@ -1943,13 +1982,14 @@ export default function Employees() {
   function employeeStructureForSave() {
     const detachedDiarist = form.employeeKind === "diarist" && !form.diaristUseStructure;
     if (detachedDiarist) {
-      return { companyId: "", departmentId: "", sectorId: "", subsectorId: "", teamId: "" };
+      return { companyId: "", groupId: "", departmentId: "", sectorId: "", subsectorId: "", teamId: "" };
     }
 
     const companyId = form.companyId || "";
     if (!selectedFormUsesGroupStructure || !selectedFormGroup) {
       return {
         companyId,
+        groupId: selectedStructureScope.groupId,
         departmentId: form.departmentId || "",
         sectorId: form.sectorId || "",
         subsectorId: form.subsectorId || "",
@@ -1959,6 +1999,7 @@ export default function Employees() {
 
     return {
       companyId,
+      groupId: selectedStructureScope.groupId,
       // Mudanca: ao limpar a estrutura de grupo, salva vazio em vez de voltar para o vinculo antigo.
       departmentId: sourceIdForGroupUnit(selectedFormGroup, "department", groupUnitSelection.departmentUnitId, companyId) || "",
       sectorId: sourceIdForGroupUnit(selectedFormGroup, "sector", groupUnitSelection.sectorUnitId, companyId) || "",
@@ -1968,6 +2009,7 @@ export default function Employees() {
   }
 
   async function syncEmployeeGroupStructureAssignment(employee: Employee, now: string) {
+    if (!selectedFormUsesGroupStructure) return;
     const group = employee.companyId ? groupForCompany(employee.companyId) : undefined;
     if (!group?.units.length) return;
 
@@ -2008,6 +2050,7 @@ export default function Employees() {
       const saved = await data.upsertEmployee({
         id: editingEmployeeId,
         companyId: structure.companyId,
+        groupId: structure.groupId,
         departmentId: structure.departmentId,
         sectorId: structure.sectorId,
         subsectorId: structure.subsectorId,
@@ -2501,8 +2544,7 @@ export default function Employees() {
           placeholder="Departamentos"
           value={filters.departmentIds}
           onChange={(departmentIds) => setFilters({ ...filters, departmentIds, sectorIds: [], subsectorIds: [] })}
-          options={data.departments
-            .filter((item) => !filters.companyIds.length || filters.companyIds.includes(item.companyId))
+          options={structureItemsForGroup(data.departments, primaryStructureGroup, data.companyGroupCompanies, data.companies)
             .map((item) => ({ value: item.id, label: item.name }))}
         />
         <MultiSelect
@@ -2510,7 +2552,7 @@ export default function Employees() {
           placeholder="Setores"
           value={filters.sectorIds}
           onChange={(sectorIds) => setFilters({ ...filters, sectorIds, subsectorIds: [] })}
-          options={data.sectors
+          options={structureItemsForGroup(data.sectors, primaryStructureGroup, data.companyGroupCompanies, data.companies)
             .filter((item) => !filters.departmentIds.length || filters.departmentIds.includes(item.departmentId))
             .map((item) => ({ value: item.id, label: item.name }))}
         />
@@ -2519,7 +2561,7 @@ export default function Employees() {
           placeholder="Subsetores"
           value={filters.subsectorIds}
           onChange={(subsectorIds) => setFilters({ ...filters, subsectorIds })}
-          options={data.subsectors
+          options={structureItemsForGroup(data.subsectors, primaryStructureGroup, data.companyGroupCompanies, data.companies)
             .filter((item) => !filters.sectorIds.length || filters.sectorIds.includes(item.sectorId))
             .map((item) => ({ value: item.id, label: item.name }))}
         />
@@ -2668,7 +2710,7 @@ export default function Employees() {
               return (
                 <tr key={employee.id} style={displayStatus === "terminated" ? { background: "rgba(220, 38, 38, 0.09)" } : undefined}>
                   <td><strong>{employee.name}</strong><br /><span className="muted">{employee.registration} {login ? `· ${login.username}` : ""}</span></td>
-                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo individual automático" : "-")}</span><br /><span className="muted">{groupSectorName || sector?.name || "-"}</span><br /><span className="muted">Equipe: {groupTeamName || team?.name || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
+                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{groupSectorName || sector?.name || "-"}</span><br /><span className="muted">Equipe: {groupTeamName || team?.name || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
                   <td>{employee.role || "-"}<br /><span className="muted">{employee.position || "-"}</span></td>
                   <td>{renderSensitiveValue(<>{employee.workSchedule || "-"}<br /><span className="muted">{employee.weeklyHours || 0}h semanais</span></>, "Jornada")}</td>
                   <td>{renderSensitiveValue(formatCurrency(Number(employee.salary || 0)), "Salário")}</td>
@@ -3000,7 +3042,7 @@ export default function Employees() {
                   <label className="check-field is-wide-field"><input type="checkbox" checked={form.diaristUseStructure} onChange={(e) => setForm({ ...form, diaristUseStructure: e.target.checked, companyId: e.target.checked ? form.companyId : "", departmentId: e.target.checked ? form.departmentId : "", sectorId: e.target.checked ? form.sectorId : "", subsectorId: e.target.checked ? form.subsectorId : "", teamId: e.target.checked ? form.teamId : "" })} /> Vincular este diarista à estrutura da empresa</label>
                 ) : null}
                 {/* Mudanca: estes selects nao usam required; "Selecione" agora salva a estrutura em branco. */}
-                <label className="field">Empresa<select disabled={structureFieldsDisabled} value={form.companyId} onChange={(e) => handleCompanyChange(e.target.value)}><option value="">Selecione</option>{data.companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field">Grupo empresarial<input readOnly value={selectedFormGroup?.name || (form.companyId ? "Grupo individual automático" : "Selecione a empresa")} /><small>{selectedFormUsesGroupStructure ? "Os campos abaixo usam a estrutura unificada deste grupo." : "Vínculo automático pelo CNPJ. O grupo não altera a estrutura da empresa."}</small></label>
+                <label className="field">Empresa<select disabled={structureFieldsDisabled} value={form.companyId} onChange={(e) => handleCompanyChange(e.target.value)}><option value="">Selecione</option>{data.companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field">Grupo empresarial<input readOnly value={selectedFormGroup?.name || (form.companyId ? "Grupo macro" : "Selecione a empresa")} /><small>Os campos abaixo usam a estrutura unificada do grupo.</small></label>
                 <label className="field">Departamento<select disabled={structureFieldsDisabled} value={departmentSelectValue} onChange={(e) => handleDepartmentChange(e.target.value)}><option value="">Selecione</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="field">Setor<select disabled={structureFieldsDisabled} value={sectorSelectValue} onChange={(e) => handleSectorChange(e.target.value)}><option value="">Selecione</option>{sectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="field">Subsetor<select disabled={structureFieldsDisabled} value={subsectorSelectValue} onChange={(e) => handleSubsectorChange(e.target.value)}><option value="">Nenhum</option>{subsectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>

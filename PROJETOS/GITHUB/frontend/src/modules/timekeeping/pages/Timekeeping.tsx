@@ -65,11 +65,18 @@ import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
 import { buildDomainDeletionImpact } from "@/common/utils/deletionImpact";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  dedupeStructureItems,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+} from "@/common/utils/groupStructure";
 import MultiSelect from "../../../common/components/MultiSelect";
 import TimekeepingPagination from "@/modules/timekeeping/components/TimekeepingPagination";
 import type {
   AttendanceStatus,
   BenefitContract,
+  CompanyGroup,
   Employee,
   TimeRecord,
   TimekeepingDayTable,
@@ -2166,6 +2173,35 @@ export default function Timekeeping() {
     () => new Map(data.companies.map((company) => [company.id, company])),
     [data.companies],
   );
+  const primaryStructureGroup = useMemo(
+    () => primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies),
+    [data.companyGroups, data.companyGroupCompanies],
+  );
+  const structureGroupsForFilters = useMemo(() => {
+    if (!filters.companyIds.length) return primaryStructureGroup ? [primaryStructureGroup] : [];
+    const byId = new Map<string, CompanyGroup>();
+    filters.companyIds.forEach((companyId) => {
+      const group = resolveCompanyGroupForCompany(companyId, data.companyGroups, data.companyGroupCompanies)
+        || primaryStructureGroup;
+      if (group) byId.set(group.id, group);
+    });
+    return Array.from(byId.values());
+  }, [data.companyGroupCompanies, data.companyGroups, filters.companyIds, primaryStructureGroup]);
+  const structureDepartments = useMemo(() => (
+    dedupeStructureItems(structureGroupsForFilters.flatMap((group) => (
+      structureItemsForGroup(data.departments, group, data.companyGroupCompanies, data.companies)
+    )))
+  ), [data.companies, data.companyGroupCompanies, data.departments, structureGroupsForFilters]);
+  const structureSectors = useMemo(() => (
+    dedupeStructureItems(structureGroupsForFilters.flatMap((group) => (
+      structureItemsForGroup(data.sectors, group, data.companyGroupCompanies, data.companies)
+    )))
+  ), [data.companies, data.companyGroupCompanies, data.sectors, structureGroupsForFilters]);
+  const structureTeams = useMemo(() => (
+    dedupeStructureItems(structureGroupsForFilters.flatMap((group) => (
+      structureItemsForGroup(data.teams, group, data.companyGroupCompanies, data.companies)
+    )))
+  ), [data.companies, data.companyGroupCompanies, data.teams, structureGroupsForFilters]);
   const departmentById = useMemo(
     () => new Map(data.departments.map((department) => [department.id, department])),
     [data.departments],
@@ -2452,11 +2488,7 @@ export default function Timekeeping() {
   );
 
   const teamFilterOptions = useMemo(() => {
-    const visibleTeams = data.teams.filter(
-      (team) =>
-        !filters.companyIds.length ||
-        filters.companyIds.includes(team.companyId),
-    );
+    const visibleTeams = structureTeams;
     const companyById = new Map(
       data.companies.map((company) => [company.id, company.name] as const),
     );
@@ -2492,7 +2524,7 @@ export default function Timekeeping() {
         : option,
     );
     return options;
-  }, [data.teams, data.companies, data.employees, filters.companyIds]);
+  }, [data.companies, data.employees, structureTeams]);
   const selectedReportColumnKeys = useMemo(
     () => sanitizeColumnSelection(
       reportColumnKeys,
@@ -3370,6 +3402,7 @@ export default function Timekeeping() {
     return {
       id: existing?.id || "",
       companyId: employee.companyId,
+      groupId: employee.groupId || "",
       employeeId: employee.id,
       date: filters.date,
       status,
@@ -3806,6 +3839,8 @@ export default function Timekeeping() {
 
   function linkedColumnOptions(column: TimekeepingColumn, employee: Employee) {
     const companyId = filters.companyIds[0] || employee.companyId;
+    const structureGroup = resolveCompanyGroupForCompany(companyId, data.companyGroups, data.companyGroupCompanies)
+      || primaryStructureGroup;
     const optionColor = (value: string, label: string) =>
       column.optionColors?.[value] || column.optionColors?.[label] || "";
 
@@ -3833,8 +3868,7 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "departments") {
       return sortOptions(
-        data.departments
-          .filter((item) => !companyId || item.companyId === companyId)
+        structureItemsForGroup(data.departments, structureGroup, data.companyGroupCompanies, data.companies)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -3845,8 +3879,7 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "sectors") {
       return sortOptions(
-        data.sectors
-          .filter((item) => !companyId || item.companyId === companyId)
+        structureItemsForGroup(data.sectors, structureGroup, data.companyGroupCompanies, data.companies)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -3857,8 +3890,7 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "subsectors") {
       return sortOptions(
-        data.subsectors
-          .filter((item) => !companyId || item.companyId === companyId)
+        structureItemsForGroup(data.subsectors, structureGroup, data.companyGroupCompanies, data.companies)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -3869,8 +3901,7 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "teams") {
       return sortOptions(
-        data.teams
-          .filter((item) => !companyId || item.companyId === companyId)
+        structureItemsForGroup(data.teams, structureGroup, data.companyGroupCompanies, data.companies)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -4318,6 +4349,7 @@ export default function Timekeeping() {
         const record: TimeRecord = {
           id: timeRecordDocumentId(row.date, employee.id),
           companyId: employee.companyId,
+          groupId: employee.groupId || "",
           employeeId: employee.id,
           date: row.date,
           status: importedStatus,
@@ -4407,7 +4439,7 @@ export default function Timekeeping() {
       return record.customFields?.[column.key] || "00:00";
     if (["ent2", "sai2", "ent3", "sai3"].includes(column.key))
       return record.customFields?.[column.key] || "00:00";
-
+    
     if ("id" in column) return customColumnValue(employee, record, column);
     return "";
   }
@@ -6299,9 +6331,13 @@ export default function Timekeeping() {
           >
             <option value="">Sem equipe</option>
             {sortOptions(
-              data.teams
-                .filter((team) => team.companyId === employee.companyId)
-                .map((team) => ({ value: team.id, label: team.name })),
+              structureItemsForGroup(
+                data.teams,
+                resolveCompanyGroupForCompany(employee.companyId, data.companyGroups, data.companyGroupCompanies)
+                  || primaryStructureGroup,
+                data.companyGroupCompanies,
+                data.companies,
+              ).map((team) => ({ value: team.id, label: team.name })),
             ).map((team) => (
               <option key={team.value} value={team.value}>
                 {team.label}
@@ -6525,16 +6561,10 @@ export default function Timekeeping() {
             setFilters({ ...filters, departmentIds, sectorIds: [] })
           }
           options={sortOptions(
-            data.departments
-              .filter(
-                (department) =>
-                  !filters.companyIds.length ||
-                  filters.companyIds.includes(department.companyId),
-              )
-              .map((department) => ({
-                value: department.id,
-                label: department.name,
-              })),
+            structureDepartments.map((department) => ({
+              value: department.id,
+              label: department.name,
+            })),
           )}
         />
         <MultiSelect
@@ -6543,12 +6573,8 @@ export default function Timekeeping() {
           value={filters.sectorIds}
           onChange={(sectorIds) => setFilters({ ...filters, sectorIds })}
           options={sortOptions(
-            data.sectors
-              .filter(
-                (sector) =>
-                  !filters.departmentIds.length ||
-                  filters.departmentIds.includes(sector.departmentId),
-              )
+            structureSectors
+              .filter((sector) => !filters.departmentIds.length || filters.departmentIds.includes(sector.departmentId))
               .map((sector) => ({ value: sector.id, label: sector.name })),
           )}
         />

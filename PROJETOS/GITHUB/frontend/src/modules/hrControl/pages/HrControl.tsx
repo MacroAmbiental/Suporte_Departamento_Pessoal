@@ -13,11 +13,17 @@ import {
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import ClearFiltersButton from "@/common/components/ClearFiltersButton";
 import MultiSelect from "@/common/components/MultiSelect";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  dedupeStructureItems,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+} from "@/common/utils/groupStructure";
 import { useDomainData } from "@/hooks/useDomainData";
 import { cidDetailsFromValue } from "@/modules/timekeeping/data/cidCatalog";
 import { loadTimekeepingDayTables } from "@/modules/timekeeping/data/timekeepingDayRepository";
 import { loadTimeRecordsRange } from "@/modules/timekeeping/data/timeRecordsRepository";
-import type { Employee, TimekeepingColumn, TimekeepingDayTable, TimeRecord, WorkScheduleDay } from "@/types/domain";
+import type { CompanyGroup, Employee, TimekeepingColumn, TimekeepingDayTable, TimeRecord, WorkScheduleDay } from "@/types/domain";
 import { formatDate, todayISO } from "@/utils/format";
 
 const absenceStatuses = new Set(["absence_confirmed"]);
@@ -900,6 +906,56 @@ export default function HrControl() {
   const selectedCompanyScopeIds = analysisScope === "group" ? selectedGroupCompanyIds : companyIds;
   const restrictCompanyScope = analysisScope === "group" ? Boolean(selectedGroupId) : true;
   const selectedCompanyIds = useMemo(() => new Set(selectedCompanyScopeIds), [selectedCompanyScopeIds]);
+  const structureGroupsForScope = useMemo(() => {
+    if (analysisScope === "group" && selectedGroupId) {
+      return data.companyGroups.filter((group) => group.id === selectedGroupId && group.active !== false);
+    }
+
+    if (analysisScope === "company" && companyIds.length) {
+      const byId = new Map<string, CompanyGroup>();
+      companyIds.forEach((companyId) => {
+        const group = resolveCompanyGroupForCompany(companyId, data.companyGroups, data.companyGroupCompanies)
+          || primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies);
+        if (group) byId.set(group.id, group);
+      });
+      return Array.from(byId.values());
+    }
+
+    const primary = primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies);
+    return primary ? [primary] : [];
+  }, [analysisScope, companyIds, data.companyGroupCompanies, data.companyGroups, selectedGroupId]);
+  const structureDepartments = useMemo(() => dedupeStructureItems(
+    structureGroupsForScope.flatMap((group) => structureItemsForGroup(
+      data.departments,
+      group,
+      data.companyGroupCompanies,
+      data.companies,
+    )),
+  ), [data.companies, data.companyGroupCompanies, data.departments, structureGroupsForScope]);
+  const structureSectors = useMemo(() => dedupeStructureItems(
+    structureGroupsForScope.flatMap((group) => structureItemsForGroup(
+      data.sectors,
+      group,
+      data.companyGroupCompanies,
+      data.companies,
+    )),
+  ), [data.companies, data.companyGroupCompanies, data.sectors, structureGroupsForScope]);
+  const structureSubsectors = useMemo(() => dedupeStructureItems(
+    structureGroupsForScope.flatMap((group) => structureItemsForGroup(
+      data.subsectors,
+      group,
+      data.companyGroupCompanies,
+      data.companies,
+    )),
+  ), [data.companies, data.companyGroupCompanies, data.subsectors, structureGroupsForScope]);
+  const structureTeams = useMemo(() => dedupeStructureItems(
+    structureGroupsForScope.flatMap((group) => structureItemsForGroup(
+      data.teams,
+      group,
+      data.companyGroupCompanies,
+      data.companies,
+    )),
+  ), [data.companies, data.companyGroupCompanies, data.teams, structureGroupsForScope]);
   const selectedTeamIds = useMemo(() => new Set(teamIds), [teamIds]);
   const selectedDepartmentIds = useMemo(() => new Set(departmentIds), [departmentIds]);
   const selectedSectorIds = useMemo(() => new Set(sectorIds), [sectorIds]);
@@ -961,35 +1017,32 @@ export default function HrControl() {
   const departmentOptions = useMemo(
     () =>
       sortOptions(
-        data.departments
+        structureDepartments
           .filter((department) => department.active !== false)
-          .filter((department) => !restrictCompanyScope || selectedCompanyIds.has(department.companyId))
           .map((department) => ({ value: department.id, label: department.name })),
       ),
-    [data.departments, restrictCompanyScope, selectedCompanyIds],
+    [structureDepartments],
   );
   const sectorOptions = useMemo(
     () =>
       sortOptions(
-        data.sectors
+        structureSectors
           .filter((sector) => sector.active !== false)
-          .filter((sector) => !restrictCompanyScope || selectedCompanyIds.has(sector.companyId))
           .filter((sector) => !selectedDepartmentIds.size || selectedDepartmentIds.has(sector.departmentId))
           .map((sector) => ({ value: sector.id, label: sector.name })),
       ),
-    [data.sectors, restrictCompanyScope, selectedCompanyIds, selectedDepartmentIds],
+    [selectedDepartmentIds, structureSectors],
   );
   const subsectorOptions = useMemo(
     () =>
       sortOptions(
-        data.subsectors
+        structureSubsectors
           .filter((subsector) => subsector.active !== false)
-          .filter((subsector) => !restrictCompanyScope || selectedCompanyIds.has(subsector.companyId))
           .filter((subsector) => !selectedDepartmentIds.size || selectedDepartmentIds.has(subsector.departmentId))
           .filter((subsector) => !selectedSectorIds.size || selectedSectorIds.has(subsector.sectorId))
           .map((subsector) => ({ value: subsector.id, label: subsector.name })),
       ),
-    [data.subsectors, restrictCompanyScope, selectedCompanyIds, selectedDepartmentIds, selectedSectorIds],
+    [selectedDepartmentIds, selectedSectorIds, structureSubsectors],
   );
   const functionOptions = useMemo(() => {
     const byKey = new Map<string, string>();
@@ -1025,11 +1078,10 @@ export default function HrControl() {
   const teamOptions = useMemo(
     () =>
       sortOptions(
-        data.teams
-          .filter((team) => !restrictCompanyScope || selectedCompanyIds.has(team.companyId))
+        structureTeams
           .map((team) => ({ value: team.id, label: team.name })),
       ),
-    [data.teams, restrictCompanyScope, selectedCompanyIds],
+    [structureTeams],
   );
   const absenceTypeOptions = useMemo(
     () =>

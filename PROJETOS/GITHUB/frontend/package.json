@@ -14,7 +14,8 @@
     "seed:admin-access": "node scripts/seedAdminAccess.mjs",
     "seed:collections": "node scripts/ensureCollections.mjs",
     "migrate:time-record-names": "node scripts/migrateTimeRecordEmployeeNames.mjs",
-    "migrate:time-record-tree": "node scripts/migrateTimeRecordsToDailyTree.mjs"
+    "migrate:time-record-tree": "node scripts/migrateTimeRecordsToDailyTree.mjs",
+    "migrate:structure-to-group": "node scripts/migrateStructureToGroup.mjs"
   },
   "dependencies": {
     "firebase": "^12.15.0",

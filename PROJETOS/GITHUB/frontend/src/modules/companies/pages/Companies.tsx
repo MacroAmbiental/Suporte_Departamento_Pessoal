@@ -4,6 +4,12 @@ import useCreateShortcut from "@/hooks/useCreateShortcut";
 import { useDomainData } from "@/hooks/useDomainData";
 import DeleteImpactModal, { type DeleteImpact } from "@/common/components/DeleteImpactModal";
 import { buildDomainDeletionImpact } from "@/common/utils/deletionImpact";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+  structureScopePayload,
+} from "@/common/utils/groupStructure";
 import { isSystemTiUser } from "@/services/accessControl";
 import type {
   BenefitType,
@@ -421,6 +427,18 @@ export default function Companies() {
   const selectedCompany = data.companies.find((company) => company.id === selectedCompanyId);
   const companyId = selectedCompany?.id ?? "";
   const isEditing = editingId !== "";
+  const primaryStructureGroup = useMemo(
+    () => primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies),
+    [data.companyGroups, data.companyGroupCompanies],
+  );
+  const activeStructureGroup = useMemo(() => (
+    resolveCompanyGroupForCompany(companyId, data.companyGroups, data.companyGroupCompanies)
+      || primaryStructureGroup
+  ), [companyId, data.companyGroupCompanies, data.companyGroups, primaryStructureGroup]);
+  const activeStructureScope = useMemo(
+    () => structureScopePayload(activeStructureGroup, data.companyGroupCompanies, data.companies),
+    [activeStructureGroup, data.companyGroupCompanies, data.companies],
+  );
 
   const [companyForm, setCompanyForm] = useState({
     name: "",
@@ -473,14 +491,22 @@ export default function Companies() {
 
   const [teamForm, setTeamForm] = useState({ name: "", description: "" });
 
-  const companyDepartments = data.departments.filter((item) => item.companyId === companyId);
-  const companySectors = data.sectors.filter((item) => item.companyId === companyId);
-  const companySubsectors = data.subsectors.filter((item) => item.companyId === companyId);
+  const companyDepartments = structureItemsForGroup(data.departments, activeStructureGroup, data.companyGroupCompanies, data.companies);
+  const companySectors = structureItemsForGroup(data.sectors, activeStructureGroup, data.companyGroupCompanies, data.companies);
+  const companySubsectors = structureItemsForGroup(data.subsectors, activeStructureGroup, data.companyGroupCompanies, data.companies);
   const companyContracts = data.benefitContracts.filter((item) => item.companyId === companyId);
   const companyModules = data.customModules.filter((item) => item.companyId === companyId);
-  const companyTeams = data.teams.filter((item) => item.companyId === companyId);
-  const wizardCompanyEmployees = data.employees.filter((employee) => employee.companyId === wizardCompanyId);
-  const selectedCompanyEmployees = data.employees.filter((employee) => employee.companyId === companyId);
+  const companyTeams = structureItemsForGroup(data.teams, activeStructureGroup, data.companyGroupCompanies, data.companies);
+  const wizardStructureGroup = resolveCompanyGroupForCompany(wizardCompanyId || selectedCompanyId, data.companyGroups, data.companyGroupCompanies)
+    || primaryStructureGroup;
+  const wizardGroupCompanyIds = new Set(data.companyGroupCompanies.filter((item) => item.groupId === wizardStructureGroup?.id).map((item) => item.companyId));
+  const wizardCompanyEmployees = data.employees.filter((employee) => (
+    wizardGroupCompanyIds.size ? wizardGroupCompanyIds.has(employee.companyId) : employee.companyId === wizardCompanyId
+  ));
+  const activeGroupCompanyIds = new Set(data.companyGroupCompanies.filter((item) => item.groupId === activeStructureGroup?.id).map((item) => item.companyId));
+  const selectedCompanyEmployees = data.employees.filter((employee) => (
+    activeGroupCompanyIds.size ? activeGroupCompanyIds.has(employee.companyId) : employee.companyId === companyId
+  ));
   const companyOrganizationNodes = data.organizational_nodes
     .filter((node) => node.companyId === companyId && node.active !== false)
     .sort((a, b) => a.nome.localeCompare(b.nome));
@@ -530,6 +556,40 @@ export default function Companies() {
     return data.employees.find((employee) => employee.id === employeeId)?.name || "";
   }
 
+  function structureGroupForCompany(companyIdValue: string) {
+    return resolveCompanyGroupForCompany(companyIdValue, data.companyGroups, data.companyGroupCompanies)
+      || primaryStructureGroup;
+  }
+
+  function departmentsForStructureCompany(companyIdValue: string) {
+    return structureItemsForGroup(data.departments, structureGroupForCompany(companyIdValue), data.companyGroupCompanies, data.companies);
+  }
+
+  function sectorsForStructureCompany(companyIdValue: string) {
+    return structureItemsForGroup(data.sectors, structureGroupForCompany(companyIdValue), data.companyGroupCompanies, data.companies);
+  }
+
+  function subsectorsForStructureCompany(companyIdValue: string) {
+    return structureItemsForGroup(data.subsectors, structureGroupForCompany(companyIdValue), data.companyGroupCompanies, data.companies);
+  }
+
+  function teamsForStructureCompany(companyIdValue: string) {
+    return structureItemsForGroup(data.teams, structureGroupForCompany(companyIdValue), data.companyGroupCompanies, data.companies);
+  }
+
+  function companyIdsForStructureCompany(companyIdValue: string) {
+    const group = structureGroupForCompany(companyIdValue);
+    const companyIds = group
+      ? data.companyGroupCompanies.filter((item) => item.groupId === group.id).map((item) => item.companyId)
+      : [];
+    return companyIds.length ? companyIds : companyIdValue ? [companyIdValue] : [];
+  }
+
+  function employeesForStructureCompany(companyIdValue: string) {
+    const companyIds = new Set(companyIdsForStructureCompany(companyIdValue));
+    return data.employees.filter((employee) => companyIds.has(employee.companyId));
+  }
+
   const EmployeeSelect = ({ value, onChange, disabled = false }: { value: string; onChange: (value: string) => void; disabled?: boolean }) => (
     <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
       <option value="">Definir depois</option>
@@ -564,48 +624,11 @@ export default function Companies() {
     return groups.find((group) => group.companyIds.includes(companyIdValue));
   }
 
-  function createDefaultCompanyGroup(company: any): CompanyGroup {
-    const now = new Date().toISOString();
-    return {
-      id: groupIdForCompany(company.id),
-      name: company.name ? `Grupo ${company.name}` : "Grupo da empresa",
-      companyIds: [company.id],
-      units: [],
-      active: true,
-      autoSyncStructure: true,
-      divergenceMode: "keep_existing",
-      divergenceSourceCompanyId: "",
-      divergenceTypes: [],
-      employeeAssignments: [],
-      leadershipAssignments: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-  }
-
-  function ensureCompanyHasDatabaseGroup(company: any) {
-    const existing = companyGroupForCompany(company.id);
-    if (existing) {
-      if (isDefaultCompanyGroup(existing)) {
-        const expectedName = company.name ? `Grupo ${company.name}` : existing.name;
-        if (existing.name !== expectedName) {
-          void persistCompanyGroup({ ...existing, name: expectedName, updatedAt: new Date().toISOString() });
-        }
-      }
-      return;
-    }
-
-    const group = createDefaultCompanyGroup(company);
-    group.units = groupUnitsFromCompany(company.id);
-    group.employeeAssignments = buildGroupEmployeeAssignments(group);
-    void persistCompanyGroup(group);
-  }
-
   function groupUnitsFromCompany(companyIdValue: string): CompanyGroupUnit[] {
-    const departments = data.departments.filter((item) => item.companyId === companyIdValue);
-    const sectors = data.sectors.filter((item) => item.companyId === companyIdValue);
-    const subsectors = data.subsectors.filter((item) => item.companyId === companyIdValue);
-    const teams = data.teams.filter((item) => item.companyId === companyIdValue);
+    const departments = departmentsForStructureCompany(companyIdValue);
+    const sectors = sectorsForStructureCompany(companyIdValue);
+    const subsectors = subsectorsForStructureCompany(companyIdValue);
+    const teams = teamsForStructureCompany(companyIdValue);
 
     return [
       ...departments.map((department) => ({
@@ -916,19 +939,6 @@ export default function Companies() {
       return acc;
     }, []);
 
-    data.companies.forEach((company) => {
-      if (groupedCompanyIds.has(company.id)) return;
-      const group = createDefaultCompanyGroup(company);
-      group.units = groupUnitsFromCompany(company.id);
-      const deduplicatedGroup = deduplicateGroupStructure(group);
-      normalizedGroups.push({
-        ...deduplicatedGroup,
-        employeeAssignments: buildGroupEmployeeAssignments(deduplicatedGroup),
-        leadershipAssignments: deduplicatedGroup.leadershipAssignments || [],
-      });
-      groupedCompanyIds.add(company.id);
-    });
-
     return normalizedGroups;
   }
 
@@ -1172,13 +1182,17 @@ export default function Companies() {
 
   const summary = useMemo(
     () =>
-      data.companies.map((company) => ({
-        company,
-        departments: data.departments.filter((item) => item.companyId === company.id).length,
-        sectors: data.sectors.filter((item) => item.companyId === company.id).length,
-        employees: data.employees.filter((item) => item.companyId === company.id).length,
-      })),
-    [data.companies, data.departments, data.employees, data.sectors],
+      data.companies.map((company) => {
+        const group = resolveCompanyGroupForCompany(company.id, data.companyGroups, data.companyGroupCompanies)
+          || primaryStructureGroup;
+        return {
+          company,
+          departments: structureItemsForGroup(data.departments, group, data.companyGroupCompanies, data.companies).length,
+          sectors: structureItemsForGroup(data.sectors, group, data.companyGroupCompanies, data.companies).length,
+          employees: data.employees.filter((item) => item.companyId === company.id).length,
+        };
+      }),
+    [data.companies, data.companyGroupCompanies, data.companyGroups, data.departments, data.employees, data.sectors, primaryStructureGroup],
   );
 
   function resetCompanyForm() {
@@ -1354,9 +1368,7 @@ export default function Companies() {
     if (methodName === "deleteCompany") {
       return [
         `${data.employees.filter((employee) => employee.companyId === id).length} funcionario(s)`,
-        `${data.departments.filter((item) => item.companyId === id).length} departamento(s)`,
-        `${data.sectors.filter((item) => item.companyId === id).length} setor(es)`,
-        `${data.subsectors.filter((item) => item.companyId === id).length} subsetor(es)`,
+        "estrutura do grupo preservada",
       ];
     }
 
@@ -1399,7 +1411,7 @@ export default function Companies() {
 
     if (methodName === "deleteCompany") {
       const targetCompanyId = chooseTargetId(
-        "Selecione a empresa para receber funcionarios e estrutura.",
+        "Selecione a empresa para receber funcionarios.",
         data.companies.filter((company) => company.id !== id).map((company) => ({ id: company.id, label: company.name })),
       );
       if (targetCompanyId === null) return false;
@@ -1410,12 +1422,12 @@ export default function Companies() {
 
       if (!(await confirmRelocatedDeleteAccess())) return false;
 
+      const targetGroup = structureGroupForCompany(targetCompanyId);
+      const targetScope = structureScopePayload(targetGroup, data.companyGroupCompanies, data.companies);
       await Promise.all([
-        ...data.departments.filter((item) => item.companyId === id).map((item) => data.upsertDepartment({ ...item, companyId: targetCompanyId })),
-        ...data.sectors.filter((item) => item.companyId === id).map((item) => data.upsertSector({ ...item, companyId: targetCompanyId } as any)),
-        ...data.subsectors.filter((item) => item.companyId === id).map((item) => data.upsertSubsector({ ...item, companyId: targetCompanyId } as any)),
-        ...data.teams.filter((item) => item.companyId === id).map((item) => data.upsertTeam({ ...item, companyId: targetCompanyId, updatedAt: now })),
-        ...data.employees.filter((item) => item.companyId === id).map((item) => data.upsertEmployee({ ...item, companyId: targetCompanyId, updatedAt: now })),
+        ...data.employees
+          .filter((item) => item.companyId === id)
+          .map((item) => data.upsertEmployee({ ...item, companyId: targetCompanyId, groupId: targetScope.groupId, updatedAt: now })),
       ]);
       return data.removeItem("companies", id, { skipAccessKey: true });
     }
@@ -1424,8 +1436,8 @@ export default function Companies() {
       const department = data.departments.find((item) => item.id === id);
       const targetDepartmentId = chooseTargetId(
         "Selecione o departamento para receber setores e funcionarios.",
-        data.departments
-          .filter((item) => item.id !== id && item.companyId === department?.companyId)
+        companyDepartments
+          .filter((item) => item.id !== id && (!department || item.id !== department.id))
           .map((item) => ({ id: item.id, label: item.name })),
       );
       if (!targetDepartmentId) return false;
@@ -1444,8 +1456,8 @@ export default function Companies() {
       const sector = data.sectors.find((item) => item.id === id);
       const targetSectorId = chooseTargetId(
         "Selecione o setor para receber funcionarios e subsetores.",
-        data.sectors
-          .filter((item) => item.id !== id && item.companyId === sector?.companyId)
+        companySectors
+          .filter((item) => item.id !== id && (!sector || item.id !== sector.id))
           .map((item) => ({ id: item.id, label: item.name })),
       );
       if (!targetSectorId) return false;
@@ -1486,8 +1498,8 @@ export default function Companies() {
       const team = data.teams.find((item) => item.id === id);
       const targetTeamId = chooseTargetId(
         "Selecione a equipe para receber funcionarios.",
-        data.teams
-          .filter((item) => item.id !== id && item.companyId === team?.companyId)
+        companyTeams
+          .filter((item) => item.id !== id && (!team || item.id !== team.id))
           .map((item) => ({ id: item.id, label: item.name })),
         "Deixar funcionarios sem equipe",
       );
@@ -1650,7 +1662,6 @@ export default function Companies() {
       active: existing?.active ?? true,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     });
-    ensureCompanyHasDatabaseGroup(saved);
     const existingRoot = data.organizational_nodes.find((node) => node.companyId === saved.id && node.tipo === "empresa" && !node.parentId);
     const now = new Date().toISOString();
 
@@ -1675,12 +1686,13 @@ export default function Companies() {
 
   async function submitDepartment(event: FormEvent) {
     event.preventDefault();
-    if (!companyId) return;
+    if (!activeStructureScope.companyId && !companyId) return;
 
     const existing = data.departments.find((item) => item.id === editingId) as any;
     await data.upsertDepartment({
       id: editingId || undefined,
-      companyId,
+      companyId: activeStructureScope.companyId || companyId,
+      groupId: activeStructureScope.groupId,
       ...departmentForm,
       managerName: departmentForm.managerEmployeeId ? employeeName(departmentForm.managerEmployeeId) : departmentForm.managerName,
       active: existing?.active ?? true,
@@ -1692,12 +1704,13 @@ export default function Companies() {
 
   async function submitSector(event: FormEvent) {
     event.preventDefault();
-    if (!companyId || !sectorForm.departmentId) return;
+    if ((!activeStructureScope.companyId && !companyId) || !sectorForm.departmentId) return;
 
     const existing = data.sectors.find((item) => item.id === editingId) as any;
     await data.upsertSector({
       id: editingId || undefined,
-      companyId,
+      companyId: activeStructureScope.companyId || companyId,
+      groupId: activeStructureScope.groupId,
       ...sectorForm,
       coordinatorName: sectorForm.coordinatorEmployeeId ? employeeName(sectorForm.coordinatorEmployeeId) : sectorForm.coordinatorName,
       leaderName: sectorForm.leaderEmployeeId ? employeeName(sectorForm.leaderEmployeeId) : sectorForm.leaderName,
@@ -1712,12 +1725,13 @@ export default function Companies() {
     event.preventDefault();
 
     const sector = data.sectors.find((item) => item.id === subsectorForm.sectorId);
-    if (!companyId || !sector) return;
+    if ((!activeStructureScope.companyId && !companyId) || !sector) return;
 
     const existing = data.subsectors.find((item) => item.id === editingId) as any;
     await data.upsertSubsector({
       id: editingId || undefined,
-      companyId,
+      companyId: activeStructureScope.companyId || companyId,
+      groupId: activeStructureScope.groupId,
       departmentId: sector.departmentId,
       ...subsectorForm,
       leaderName: subsectorForm.leaderEmployeeId ? employeeName(subsectorForm.leaderEmployeeId) : subsectorForm.leaderName,
@@ -1731,12 +1745,11 @@ export default function Companies() {
 
   async function submitTeam(event: FormEvent) {
     event.preventDefault();
-    if (!companyId || !teamForm.name.trim()) return;
+    if ((!activeStructureScope.companyId && !companyId) || !teamForm.name.trim()) return;
 
     const normalizedTeamName = normalizeStructureName(teamForm.name);
-    const duplicateTeam = data.teams.find((item) => (
+    const duplicateTeam = companyTeams.find((item) => (
       item.id !== editingId
-      && item.companyId === companyId
       && normalizeStructureName(item.name) === normalizedTeamName
     ));
     if (duplicateTeam) {
@@ -1750,7 +1763,8 @@ export default function Companies() {
     const existing = data.teams.find((item) => item.id === editingId);
     await data.upsertTeam({
       id: editingId || undefined,
-      companyId,
+      companyId: activeStructureScope.companyId || companyId,
+      groupId: activeStructureScope.groupId,
       name: teamForm.name.trim(),
       description: teamForm.description.trim(),
       active: existing?.active ?? true,
@@ -2039,9 +2053,9 @@ export default function Companies() {
       return;
     }
 
-    const departments = data.departments.filter((item) => item.companyId === company.id);
-    const sectors = data.sectors.filter((item) => item.companyId === company.id);
-    const subsectors = data.subsectors.filter((item) => item.companyId === company.id);
+    const departments = departmentsForStructureCompany(company.id);
+    const sectors = sectorsForStructureCompany(company.id);
+    const subsectors = subsectorsForStructureCompany(company.id);
     const rows: Array<Record<string, string>> = [];
 
     departments.forEach((department) => {
@@ -2111,7 +2125,7 @@ async function applyImportedRows(rows: Record<string, string>[]) {
     const map = previewMapping;
     const report: Array<{ index: number; row: Record<string, string>; status: string; message?: string }> = [];
     const companyCache = new Map(data.companies.map((company) => [company.name.trim().toLowerCase(), company]));
-    const departmentCache = new Map(data.departments.map((department) => [`${department.companyId}::${department.name.trim().toLowerCase()}`, department]));
+    const departmentCache = new Map(data.departments.map((department) => [`${department.groupId || department.companyId}::${department.name.trim().toLowerCase()}`, department]));
     const sectorCache = new Map(data.sectors.map((sector) => [`${sector.departmentId}::${sector.name.trim().toLowerCase()}`, sector]));
     const subsectorCache = new Map(data.subsectors.map((subsector) => [`${subsector.sectorId}::${subsector.name.trim().toLowerCase()}`, subsector]));
 
@@ -2144,7 +2158,6 @@ async function applyImportedRows(rows: Record<string, string>[]) {
               active: true,
               createdAt: new Date().toISOString(),
             });
-            ensureCompanyHasDatabaseGroup(targetCompany);
             companyCache.set(key, targetCompany);
             created += 1;
             actions.push(`Empresa criada: ${companyName}`);
@@ -2157,15 +2170,22 @@ async function applyImportedRows(rows: Record<string, string>[]) {
           continue;
         }
 
+        const targetStructureGroup = structureGroupForCompany(targetCompany.id);
+        const targetStructureScope = structureScopePayload(targetStructureGroup, data.companyGroupCompanies, data.companies);
+        const targetStructureCompanyId = targetStructureScope.companyId || targetCompany.id;
+
         let department: Department | undefined;
         if (departmentName) {
-          const depKey = `${targetCompany.id}::${departmentName.toLowerCase()}`;
-          department = departmentCache.get(depKey);
+          const depKey = `${targetStructureScope.groupId || targetStructureCompanyId}::${departmentName.toLowerCase()}`;
+          department = departmentCache.get(depKey)
+            || structureItemsForGroup(data.departments, targetStructureGroup, data.companyGroupCompanies, data.companies)
+              .find((item) => item.name.trim().toLowerCase() === departmentName.toLowerCase());
           if (department) {
             actions.push(`Departamento existente: ${departmentName}`);
           } else {
             department = await data.upsertDepartment({
-              companyId: targetCompany.id,
+              companyId: targetStructureCompanyId,
+              groupId: targetStructureScope.groupId,
               name: departmentName,
               managerName: "",
               description: "",
@@ -2192,7 +2212,8 @@ async function applyImportedRows(rows: Record<string, string>[]) {
             actions.push(`Setor existente: ${sectorName}`);
           } else {
             sector = await data.upsertSector({
-              companyId: targetCompany.id,
+              companyId: targetStructureCompanyId,
+              groupId: targetStructureScope.groupId,
               departmentId: department.id,
               name: sectorName,
               leaderName: "",
@@ -2219,7 +2240,8 @@ async function applyImportedRows(rows: Record<string, string>[]) {
             actions.push(`Subsetor existente: ${subsectorName}`);
           } else {
             const saved = await data.upsertSubsector({
-              companyId: targetCompany.id,
+              companyId: targetStructureCompanyId,
+              groupId: targetStructureScope.groupId,
               departmentId: department.id,
               sectorId: sector.id,
               name: subsectorName,
@@ -2441,8 +2463,7 @@ function resolveWizardSectorLabel(value: string) {
 }
 
 function getWizardDepartmentSelectOptions() {
-  const existing = data.departments
-    .filter((department) => department.companyId === wizardCompanyId)
+  const existing = departmentsForStructureCompany(wizardCompanyId || selectedCompanyId)
     .map((department) => ({ value: department.id, label: department.name }));
   const drafts = wizardDepartments
     .filter((department) => !department.existingDepartmentId && department.name.trim())
@@ -2451,8 +2472,7 @@ function getWizardDepartmentSelectOptions() {
 }
 
 function getWizardSectorSelectOptions() {
-  const existing = data.sectors
-    .filter((sector) => sector.companyId === wizardCompanyId)
+  const existing = sectorsForStructureCompany(wizardCompanyId || selectedCompanyId)
     .map((sector) => ({ value: sector.id, label: sector.name }));
   const drafts = wizardSectors
     .filter((sector) => !sector.existingSectorId && sector.name.trim())
@@ -2475,9 +2495,12 @@ async function finishStructureWizard() {
     });
     targetCompanyId = savedCompany.id;
     setWizardCompanyId(savedCompany.id);
-    ensureCompanyHasDatabaseGroup(savedCompany);
   }
   if (!targetCompanyId) return;
+  const wizardStructureGroup = resolveCompanyGroupForCompany(targetCompanyId, data.companyGroups, data.companyGroupCompanies)
+    || primaryStructureGroup;
+  const wizardStructureScope = structureScopePayload(wizardStructureGroup, data.companyGroupCompanies, data.companies);
+  const wizardStructureCompanyId = wizardStructureScope.companyId || targetCompanyId;
   const savedDepartmentMap = new Map<string, Department>();
   const savedSectorMap = new Map<string, Sector>();
   const savedSubsectorMap = new Map<string, Subsector>();
@@ -2490,11 +2513,11 @@ async function finishStructureWizard() {
       continue;
     }
 
-    const existing = data.departments.find(
-      (item) => item.companyId === targetCompanyId && item.name.trim().toLowerCase() === department.name.trim().toLowerCase(),
-    );
+    const existing = structureItemsForGroup(data.departments, wizardStructureGroup, data.companyGroupCompanies, data.companies)
+      .find((item) => item.name.trim().toLowerCase() === department.name.trim().toLowerCase());
     const saved = existing || await data.upsertDepartment({
-      companyId: targetCompanyId,
+      companyId: wizardStructureCompanyId,
+      groupId: wizardStructureScope.groupId,
       name: department.name.trim(),
       managerName: department.managerEmployeeId ? employeeName(department.managerEmployeeId) : department.managerName.trim(),
       managerEmployeeId: department.managerEmployeeId,
@@ -2515,13 +2538,13 @@ async function finishStructureWizard() {
       const existing = data.sectors.find((item) => item.id === sector.existingSectorId);
       if (existing) savedSectorMap.set(sector.id, existing);
     } else {
-      const existing = data.sectors.find(
-        (item) => item.companyId === targetCompanyId
-          && item.departmentId === departmentId
+      const existing = structureItemsForGroup(data.sectors, wizardStructureGroup, data.companyGroupCompanies, data.companies).find(
+        (item) => item.departmentId === departmentId
           && item.name.trim().toLowerCase() === sector.name.trim().toLowerCase(),
       );
       const saved = existing || await data.upsertSector({
-        companyId: targetCompanyId,
+        companyId: wizardStructureCompanyId,
+        groupId: wizardStructureScope.groupId,
         departmentId,
         name: sector.name.trim(),
         coordinatorName: sector.coordinatorEmployeeId ? employeeName(sector.coordinatorEmployeeId) : sector.coordinatorName.trim(),
@@ -2545,13 +2568,13 @@ async function finishStructureWizard() {
         continue;
       }
 
-      const existing = data.subsectors.find(
-        (item) => item.companyId === targetCompanyId
-          && item.sectorId === savedSector.id
+      const existing = structureItemsForGroup(data.subsectors, wizardStructureGroup, data.companyGroupCompanies, data.companies).find(
+        (item) => item.sectorId === savedSector.id
           && item.name.trim().toLowerCase() === subsector.name.trim().toLowerCase(),
       );
       const saved = existing || await data.upsertSubsector({
-        companyId: targetCompanyId,
+        companyId: wizardStructureCompanyId,
+        groupId: wizardStructureScope.groupId,
         departmentId: savedSector.departmentId,
         sectorId: savedSector.id,
         name: subsector.name.trim(),
@@ -2571,11 +2594,11 @@ async function finishStructureWizard() {
       continue;
     }
 
-    const existing = data.teams.find(
-      (item) => item.companyId === targetCompanyId && item.name.trim().toLowerCase() === team.name.trim().toLowerCase(),
-    );
+    const existing = structureItemsForGroup(data.teams, wizardStructureGroup, data.companyGroupCompanies, data.companies)
+      .find((item) => item.name.trim().toLowerCase() === team.name.trim().toLowerCase());
     const saved = existing || await data.upsertTeam({
-      companyId: targetCompanyId,
+      companyId: wizardStructureCompanyId,
+      groupId: wizardStructureScope.groupId,
       name: team.name.trim(),
       description: team.description.trim(),
       active: true,
@@ -2780,10 +2803,10 @@ function clearDatabaseFromScreen() {
   );
 
   function groupSourceOptions(type: GroupUnitType, companyId: string) {
-    if (type === "department") return data.departments.filter((item) => item.companyId === companyId);
-    if (type === "sector") return data.sectors.filter((item) => item.companyId === companyId);
-    if (type === "subsector") return data.subsectors.filter((item) => item.companyId === companyId);
-    return data.teams.filter((item) => item.companyId === companyId);
+    if (type === "department") return departmentsForStructureCompany(companyId);
+    if (type === "sector") return sectorsForStructureCompany(companyId);
+    if (type === "subsector") return subsectorsForStructureCompany(companyId);
+    return teamsForStructureCompany(companyId);
   }
 
   function groupSourceName(type: GroupUnitType, sourceId: string) {
@@ -3183,8 +3206,8 @@ function clearDatabaseFromScreen() {
 
   function renderGroupCompanyTree(companyIdValue: string) {
     const company = data.companies.find((item) => item.id === companyIdValue);
-    const departments = data.departments.filter((item) => item.companyId === companyIdValue);
-    const teams = data.teams.filter((item) => item.companyId === companyIdValue);
+    const departments = departmentsForStructureCompany(companyIdValue);
+    const teams = teamsForStructureCompany(companyIdValue);
     return (
       <article className="group-structure-company" key={companyIdValue}>
         <div className="group-structure-company-header">
@@ -3197,12 +3220,12 @@ function clearDatabaseFromScreen() {
         <div className="group-structure-tree">
           {departments.length === 0 && teams.length === 0 && <span className="group-tree-empty">Nenhuma estrutura cadastrada.</span>}
           {departments.map((department) => {
-            const sectors = data.sectors.filter((sector) => sector.companyId === companyIdValue && sector.departmentId === department.id);
+            const sectors = sectorsForStructureCompany(companyIdValue).filter((sector) => sector.departmentId === department.id);
             return (
               <div className="group-tree-department" key={department.id}>
                 <strong>{department.name}</strong>
                 {sectors.map((sector) => {
-                  const subsectors = data.subsectors.filter((subsector) => subsector.companyId === companyIdValue && subsector.sectorId === sector.id);
+                  const subsectors = subsectorsForStructureCompany(companyIdValue).filter((subsector) => subsector.sectorId === sector.id);
                   return (
                     <div className="group-tree-sector" key={sector.id}>
                       <span>{sector.name}</span>
@@ -5350,10 +5373,10 @@ function clearDatabaseFromScreen() {
                   <div className="group-wizard-company-grid">
                     {data.companies.map((company) => {
                       const selected = groupWizardDraft.companyIds.includes(company.id);
-                      const departments = data.departments.filter((item) => item.companyId === company.id).length;
-                      const sectors = data.sectors.filter((item) => item.companyId === company.id).length;
-                      const subsectors = data.subsectors.filter((item) => item.companyId === company.id).length;
-                      const teams = data.teams.filter((item) => item.companyId === company.id).length;
+                      const departments = departmentsForStructureCompany(company.id).length;
+                      const sectors = sectorsForStructureCompany(company.id).length;
+                      const subsectors = subsectorsForStructureCompany(company.id).length;
+                      const teams = teamsForStructureCompany(company.id).length;
                       return (
                         <label className={`group-wizard-company-card ${selected ? "is-selected" : ""}`} key={company.id}>
                           <input type="checkbox" checked={selected} onChange={() => toggleGroupCompany(company.id)} />
@@ -5981,8 +6004,7 @@ Departamento: Qualidade e Segurança
                     }}
                   >
                     <option value="">Criar novo departamento</option>
-                    {data.departments
-                      .filter((item) => item.companyId === wizardCompanyId)
+                    {departmentsForStructureCompany(wizardCompanyId || selectedCompanyId)
                       .map((item) => (
                         <option key={item.id} value={item.id}>{item.name}</option>
                       ))}
@@ -6074,8 +6096,8 @@ Departamento: Qualidade e Segurança
                     }}
                   >
                     <option value="">Criar novo setor</option>
-                    {data.sectors
-                      .filter((item) => item.companyId === wizardCompanyId && (!sector.departmentId || item.departmentId === sector.departmentId))
+                    {sectorsForStructureCompany(wizardCompanyId || selectedCompanyId)
+                      .filter((item) => !sector.departmentId || item.departmentId === sector.departmentId)
                       .map((item) => (
                         <option key={item.id} value={item.id}>{item.name}</option>
                       ))}
@@ -6159,8 +6181,8 @@ Departamento: Qualidade e Segurança
                         }}
                       >
                         <option value="">Criar novo subsetor</option>
-                        {data.subsectors
-                          .filter((item) => item.companyId === wizardCompanyId && (!sector.existingSectorId || item.sectorId === sector.existingSectorId))
+                        {subsectorsForStructureCompany(wizardCompanyId || selectedCompanyId)
+                          .filter((item) => !sector.existingSectorId || item.sectorId === sector.existingSectorId)
                           .map((item) => (
                             <option key={item.id} value={item.id}>{item.name}</option>
                           ))}
@@ -6239,8 +6261,7 @@ Departamento: Qualidade e Segurança
                     }}
                   >
                     <option value="">Criar nova equipe</option>
-                    {data.teams
-                      .filter((item) => item.companyId === wizardCompanyId)
+                    {teamsForStructureCompany(wizardCompanyId || selectedCompanyId)
                       .map((item) => (
                         <option key={item.id} value={item.id}>{item.name}</option>
                       ))}
@@ -6291,21 +6312,21 @@ Departamento: Qualidade e Segurança
 
           {wizardLeaderships.map((leadership) => {
             const departmentOptions = [
-              ...data.departments.filter((department) => department.companyId === wizardCompanyId),
+              ...departmentsForStructureCompany(wizardCompanyId || selectedCompanyId),
               ...wizardDepartments
                 .filter((department) => !department.existingDepartmentId && department.name.trim())
                 .map((department) => ({ ...department, name: `Novo: ${department.name}` })),
             ];
 
             const sectorOptions = [
-              ...data.sectors.filter((sector) => sector.companyId === wizardCompanyId),
+              ...sectorsForStructureCompany(wizardCompanyId || selectedCompanyId),
               ...wizardSectors
                 .filter((sector) => !sector.existingSectorId && sector.name.trim())
                 .map((sector) => ({ ...sector, name: `Novo: ${sector.name}` })),
             ];
 
             const subsectorOptions = [
-              ...data.subsectors.filter((subsector) => subsector.companyId === wizardCompanyId),
+              ...subsectorsForStructureCompany(wizardCompanyId || selectedCompanyId),
               ...wizardSectors.flatMap((sector) =>
                 sector.subsectors
                   .filter((subsector) => !subsector.existingSubsectorId && subsector.name.trim())
@@ -6329,8 +6350,7 @@ Departamento: Qualidade e Segurança
                       onChange={(event) => updateWizardLeadership(leadership.id, "employeeId", event.target.value)}
                     >
                       <option value="">Selecione</option>
-                      {data.employees
-                        .filter((employee) => employee.companyId === wizardCompanyId)
+                      {wizardCompanyEmployees
                         .map((employee) => (
                           <option key={employee.id} value={employee.id}>
                             {employee.name}
@@ -6440,12 +6460,10 @@ Departamento: Qualidade e Segurança
       </div>
 
       <div className="structure-tree">
-        {data.departments
-          .filter((department) => department.companyId === structureCompanyId)
+        {departmentsForStructureCompany(structureCompanyId)
           .map((department) => {
-            const departmentEmployees = data.employees.filter(
-              (employee) => employee.companyId === structureCompanyId && employee.departmentId === department.id,
-            );
+            const departmentEmployees = employeesForStructureCompany(structureCompanyId)
+              .filter((employee) => employee.departmentId === department.id);
 
             return (
               <div className="structure-block" key={department.id}>
@@ -6470,12 +6488,11 @@ Departamento: Qualidade e Segurança
                   </div>
                 )}
 
-                {data.sectors
+                {sectorsForStructureCompany(structureCompanyId)
                   .filter((sector) => sector.departmentId === department.id)
                   .map((sector: any) => {
-                    const sectorEmployees = data.employees.filter(
-                      (employee) => employee.companyId === structureCompanyId && employee.sectorId === sector.id,
-                    );
+                    const sectorEmployees = employeesForStructureCompany(structureCompanyId)
+                      .filter((employee) => employee.sectorId === sector.id);
 
                     return (
                       <div className="tree-node" key={sector.id}>
@@ -6496,12 +6513,11 @@ Departamento: Qualidade e Segurança
                           </div>
                         ))}
 
-                        {data.subsectors
+                        {subsectorsForStructureCompany(structureCompanyId)
                           .filter((subsector) => subsector.sectorId === sector.id)
                           .map((subsector: any) => {
-                            const subsectorEmployees = data.employees.filter(
-                              (employee: any) => employee.subsectorId === subsector.id,
-                            );
+                            const subsectorEmployees = employeesForStructureCompany(structureCompanyId)
+                              .filter((employee: any) => employee.subsectorId === subsector.id);
 
                             return (
                               <div className="tree-node" key={subsector.id}>
@@ -6532,7 +6548,7 @@ Departamento: Qualidade e Segurança
             );
           })}
 
-        {data.employees.filter((employee) => employee.companyId === structureCompanyId).length === 0 && (
+        {employeesForStructureCompany(structureCompanyId).length === 0 && (
           <p className="page-subtitle">Nenhum funcionário vinculado a esta empresa.</p>
         )}
       </div>

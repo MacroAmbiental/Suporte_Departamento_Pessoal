@@ -145,6 +145,7 @@ export interface SystemPermission {
 
 export type PermissionProfileTargetType =
   | "employee"
+  | "group"
   | "company"
   | "department"
   | "sector"
@@ -186,6 +187,7 @@ export interface Company {
 export interface Department {
   id: string;
   companyId: string;
+  groupId?: string;
   companyName?: string;
   name: string;
   managerName: string;
@@ -204,6 +206,7 @@ export interface LeadershipAssignment {
 export interface Sector {
   id: string;
   companyId: string;
+  groupId?: string;
   departmentId: string;
   name: string;
   coordinatorName?: string;
@@ -219,6 +222,7 @@ export interface Sector {
 export interface Subsector {
   id: string;
   companyId: string;
+  groupId?: string;
   departmentId: string;
   sectorId: string;
   name: string;
@@ -233,6 +237,7 @@ export interface Subsector {
 export interface Team {
   id: string;
   companyId: string;
+  groupId?: string;
   name: string;
   description?: string;
   active: boolean;
@@ -471,6 +476,7 @@ export type EmployeeRegistrationData = Record<string, string>;
 export interface Employee {
   id: string;
   companyId: string;
+  groupId?: string;
   departmentId: string;
   sectorId: string;
   subsectorId?: string;
@@ -514,6 +520,7 @@ export interface EmployeeDraft {
   id: string;
   employeeId?: string;
   companyId: string;
+  groupId?: string;
   departmentId: string;
   sectorId: string;
   subsectorId?: string;
@@ -526,6 +533,7 @@ export interface EmployeeDraft {
 export interface EmployeeDocument {
   id: string;
   companyId: string;
+  groupId?: string;
   departmentId: string;
   sectorId: string;
   subsectorId?: string;
@@ -594,6 +602,7 @@ export interface DocumentAlert {
 export interface TimeRecord {
   id: string;
   companyId: string;
+  groupId?: string;
   companyName?: string;
   employeeId: string;
   employeeName?: string;

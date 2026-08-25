@@ -333,6 +333,7 @@ export function useRecordsModel() {
         const { realizedDate, expirationDate } = resolveDocumentDraftDates(documentDraft);
         const savedDocument = await data.upsertEmployeeDocument({
           companyId: employee.companyId,
+          groupId: employee.groupId || "",
           departmentId: employee.departmentId,
           sectorId: employee.sectorId,
           subsectorId: employee.subsectorId,
