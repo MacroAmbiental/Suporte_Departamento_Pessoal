@@ -4,6 +4,10 @@ import type { CompanyFolderGroup } from "@/modules/records/types";
 
 const fallbackCompanyId = "__without-company";
 
+function isDismissalStateEmployee(employee?: Employee | null) {
+  return Boolean(employee && employee.status === "terminated");
+}
+
 type UseCompanyFolderGroupsParams = {
   employees: Employee[];
   companies: Company[];
@@ -22,23 +26,28 @@ export function useCompanyFolderGroups({
   return useMemo(() => {
     const companyById = new Map(companies.map((company) => [company.id, company]));
     const departmentById = new Map(departments.map((department) => [department.id, department]));
+    const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
     const activeAlertDocumentIds = new Set(
       documentAlerts
         .filter((alert) => alert.status !== "completed")
         .map((alert) => alert.documentId),
     );
+
     const documentStatsByEmployeeId = employeeDocuments.reduce<Map<string, {
       documentCount: number;
       documentsWithoutAlert: Array<{ id: string; name: string }>;
     }>>((acc, document) => {
+      const employee = employeeById.get(document.employeeId);
       const current = acc.get(document.employeeId) || { documentCount: 0, documentsWithoutAlert: [] };
       current.documentCount += 1;
-      if (!activeAlertDocumentIds.has(document.id)) {
+
+      if (!isDismissalStateEmployee(employee) && !activeAlertDocumentIds.has(document.id)) {
         current.documentsWithoutAlert.push({
           id: document.id,
           name: document.name || "Documento sem nome",
         });
       }
+
       acc.set(document.employeeId, current);
       return acc;
     }, new Map());
@@ -52,7 +61,7 @@ export function useCompanyFolderGroups({
       const documentsWithoutAlert = [...documentStats.documentsWithoutAlert]
         .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
       const documentCount = documentStats.documentCount;
-      const missingAlertCount = documentsWithoutAlert.length;
+      const missingAlertCount = isDismissalStateEmployee(employee) ? 0 : documentsWithoutAlert.length;
       const group = acc.get(companyId) || {
         id: companyId,
         companyName,

@@ -9,6 +9,10 @@ type UseSelectedEmployeeDocumentsParams = {
   selectedEmployeeId: string;
 };
 
+function isDismissalModeEmployee(employee?: Employee) {
+  return Boolean(employee && employee.status === "terminated");
+}
+
 export function useSelectedEmployeeDocuments({
   employees,
   employeeDocuments,
@@ -36,9 +40,13 @@ export function useSelectedEmployeeDocuments({
 
   const selectedDocumentIds = useMemo(() => new Set(selectedDocuments.map((document) => document.id)), [selectedDocuments]);
 
-  const activeAlertCount = useMemo(() => (
-    documentAlerts.filter((alert) => selectedDocumentIds.has(alert.documentId) && alert.status !== "completed").length
-  ), [documentAlerts, selectedDocumentIds]);
+  const activeAlertCount = useMemo(() => {
+    if (isDismissalModeEmployee(selectedEmployee)) {
+      return 0;
+    }
+
+    return documentAlerts.filter((alert) => selectedDocumentIds.has(alert.documentId) && alert.status !== "completed").length;
+  }, [documentAlerts, selectedDocumentIds, selectedEmployee]);
 
   return {
     effectiveEmployeeId,

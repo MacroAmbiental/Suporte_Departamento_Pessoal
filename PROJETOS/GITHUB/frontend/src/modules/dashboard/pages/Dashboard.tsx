@@ -8,7 +8,10 @@ import { badgeClass, formatDate, labelStatus, todayISO } from "@/utils/format";
 export default function Dashboard() {
   const data = useDomainData();
   const today = todayISO();
-  const activeAlerts = data.documentAlerts.filter((alert) => alert.status !== "completed" && (alert.notifyDate || alert.dueDate) <= today);
+  const activeAlerts = data.documentAlerts.filter((alert) => {
+    const employee = data.employees.find((item) => item.id === alert.employeeId);
+    return alert.status !== "completed" && employee?.status !== "terminated" && (alert.notifyDate || alert.dueDate) <= today;
+  });
   const { metrics: dashboardMetrics, employeeNames, loading: metricsLoading } = useDashboardMetrics(activeAlerts);
 
   const metrics = [

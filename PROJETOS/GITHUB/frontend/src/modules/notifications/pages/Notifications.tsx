@@ -194,9 +194,10 @@ export default function Notifications() {
   const openAlerts = useMemo(
     () => data.documentAlerts.filter((alert) => {
       const document = data.employeeDocuments.find((item) => item.id === alert.documentId);
-      return alert.status !== "completed" && Boolean(document) && document?.active !== false;
+      const employee = data.employees.find((item) => item.id === alert.employeeId);
+      return alert.status !== "completed" && employee?.status !== "terminated" && Boolean(document) && document?.active !== false;
     }),
-    [data.documentAlerts, data.employeeDocuments],
+    [data.documentAlerts, data.employeeDocuments, data.employees],
   );
 
   const filteredOpenAlerts = useMemo(

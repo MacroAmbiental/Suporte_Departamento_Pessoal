@@ -67,6 +67,7 @@ export function useRecordsModel() {
   const departmentById = useMemo(() => new Map(data.departments.map((department) => [department.id, department])), [data.departments]);
   const sectorById = useMemo(() => new Map(data.sectors.map((sector) => [sector.id, sector])), [data.sectors]);
   const subsectorById = useMemo(() => new Map(data.subsectors.map((subsector) => [subsector.id, subsector])), [data.subsectors]);
+  const teamById = useMemo(() => new Map(data.teams.map((team) => [team.id, team])), [data.teams]);
   const standardDocsGroupOptions = useMemo(() => recordsFilters.groupOptions, [recordsFilters.groupOptions]);
   const standardDocsCompanyOptions = useMemo(() => (
     data.companies
@@ -173,6 +174,30 @@ export function useRecordsModel() {
     selectedEmployeeId,
   });
 
+  function parseDismissalSelection(employee?: Employee) {
+    if (!employee?.registrationData?.dismissalSelectedDocumentIds) return [] as string[];
+
+    try {
+      const parsed = JSON.parse(employee.registrationData.dismissalSelectedDocumentIds) as string[];
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch {
+      return [] as string[];
+    }
+  }
+
+  function parseDismissalAlertSnapshot(employee?: Employee) {
+    if (!employee?.registrationData?.dismissalAlertSnapshot) return [] as DocumentAlert[];
+
+    try {
+      const parsed = JSON.parse(employee.registrationData.dismissalAlertSnapshot) as DocumentAlert[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [] as DocumentAlert[];
+    }
+  }
+
+  const dismissalSelectedDocumentIds = useMemo(() => parseDismissalSelection(selectedEmployee), [selectedEmployee]);
+
   function employeeCompany(employee?: Employee) {
     return employee ? companyById.get(employee.companyId) : undefined;
   }
@@ -187,6 +212,10 @@ export function useRecordsModel() {
 
   function employeeSubsector(employee?: Employee) {
     return employee?.subsectorId ? subsectorById.get(employee.subsectorId) : undefined;
+  }
+
+  function employeeTeam(employee?: Employee) {
+    return employee?.teamId ? teamById.get(employee.teamId) : undefined;
   }
 
   function resolveDocumentDraftDates(documentDraft: DocumentDraft) {
@@ -394,6 +423,95 @@ export function useRecordsModel() {
       confirmLabel: document.active === false ? "Ativar" : "Desativar",
       onConfirm: async () => {
         await data.upsertEmployeeDocument({ ...document, active: document.active === false, updatedAt: new Date().toISOString() });
+      },
+    });
+  }
+
+  function toggleDismissalDocumentSelection(documentId: string) {
+    if (!selectedEmployee) return;
+
+    const nextIds = dismissalSelectedDocumentIds.includes(documentId)
+      ? dismissalSelectedDocumentIds.filter((id) => id !== documentId)
+      : [...dismissalSelectedDocumentIds, documentId];
+
+    void data.upsertEmployee({
+      ...selectedEmployee,
+      registrationData: {
+        ...(selectedEmployee.registrationData || {}),
+        dismissalSelectedDocumentIds: JSON.stringify(nextIds),
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  function confirmDismissalHomologation() {
+    if (!selectedEmployee) return;
+
+    const employee = selectedEmployee;
+    const selectedDocumentIds = parseDismissalSelection(employee);
+    const snapshot = data.documentAlerts.filter((alert) => alert.employeeId === employee.id && alert.status !== "completed");
+    const now = new Date().toISOString();
+
+    setConfirmState({
+      title: "Homologar demissão",
+      description: selectedDocumentIds.length
+        ? `Deseja homologar a demissão de ${employee.name} e salvar ${selectedDocumentIds.length} documento(s) selecionado(s) neste processo?`
+        : `Deseja homologar a demissão de ${employee.name} sem documentos marcados?`,
+      confirmLabel: "Homologar",
+      onConfirm: async () => {
+        await data.upsertEmployee({
+          ...employee,
+          status: "terminated",
+          registrationData: {
+            ...(employee.registrationData || {}),
+            dismissalSelectedDocumentIds: JSON.stringify(selectedDocumentIds),
+            dismissalAlertSnapshot: JSON.stringify(snapshot),
+            dismissalApprovedAt: now,
+          },
+          updatedAt: now,
+        });
+
+        await Promise.all(snapshot.map((alert) => data.upsertDocumentAlert({
+          ...alert,
+          status: "completed",
+          completedAt: now,
+          description: alert.description || "Demissão homologada; alerta removido do fluxo ativo.",
+          updatedAt: now,
+        })));
+      },
+    });
+  }
+
+  function confirmDismissalCancellation() {
+    if (!selectedEmployee) return;
+
+    const employee = selectedEmployee;
+    const now = new Date().toISOString();
+    const snapshot = parseDismissalAlertSnapshot(employee);
+
+    setConfirmState({
+      title: "Cancelar demissão",
+      description: `Deseja cancelar a demissão de ${employee.name} e restaurar os alertas desta pasta?`,
+      confirmLabel: "Cancelar",
+      onConfirm: async () => {
+        await data.upsertEmployee({
+          ...employee,
+          status: "active",
+          registrationData: {
+            ...(employee.registrationData || {}),
+            dismissalSelectedDocumentIds: "[]",
+            dismissalAlertSnapshot: "",
+            dismissalApprovedAt: "",
+          },
+          updatedAt: now,
+        });
+
+        await Promise.all(snapshot.map((alert) => data.upsertDocumentAlert({
+          ...alert,
+          status: alert.status === "completed" ? "active" : alert.status,
+          completedAt: "",
+          updatedAt: now,
+        })));
       },
     });
   }
@@ -651,6 +769,7 @@ export function useRecordsModel() {
     selectedEmployee,
     selectedDocuments,
     activeAlertCount,
+    dismissalSelectedDocumentIds,
     wizardOpen,
     wizardStep,
     draftEmployeeId,
@@ -669,6 +788,7 @@ export function useRecordsModel() {
     savingStandardDocs,
     employeeCompany,
     employeeSector,
+    employeeTeam,
     openWizard,
     openStandardDocsModal,
     updateStandardDocsScope,
@@ -688,6 +808,9 @@ export function useRecordsModel() {
     setStandardDocsModalOpen,
     setStandardDocsText,
     toggleDocument,
+    toggleDismissalDocumentSelection,
+    confirmDismissalHomologation,
+    confirmDismissalCancellation,
     deleteDocument,
     updateDocumentAttachment,
     openAlertEditor,

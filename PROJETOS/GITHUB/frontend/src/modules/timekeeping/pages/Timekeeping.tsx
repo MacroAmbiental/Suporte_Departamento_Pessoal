@@ -65,12 +65,6 @@ import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
 import { buildDomainDeletionImpact } from "@/common/utils/deletionImpact";
-import {
-  companyGroupForCompany as resolveCompanyGroupForCompany,
-  dedupeStructureItems,
-  primaryCompanyGroup,
-  structureItemsForGroup,
-} from "@/common/utils/groupStructure";
 import MultiSelect from "../../../common/components/MultiSelect";
 import TimekeepingPagination from "@/modules/timekeeping/components/TimekeepingPagination";
 import type {
@@ -85,6 +79,12 @@ import type {
   TimekeepingColumnType,
   WorkScheduleDay,
 } from "@/types/domain";
+import {
+  companyGroupForCompany as resolveCompanyGroupForCompany,
+  dedupeStructureItems,
+  primaryCompanyGroup,
+  structureItemsForGroup,
+} from "@/common/utils/groupStructure";
 import { badgeClass, labelStatus, todayISO } from "@/utils/format";
 
 const fallbackStatuses: AttendanceStatus[] = [
@@ -488,9 +488,9 @@ const defaultCalculationSettings: CalculationSettings = {
   },
   intervalMinutes: 60,
   delayToleranceMinutes: 10,
-    secullumLunchOutTime: "12:00",
-    secullumLunchReturnTime: "13:01",
-    secullumEndTime: "17:00",
+  secullumLunchOutTime: "12:00",
+  secullumLunchReturnTime: "13:01",
+  secullumEndTime: "17:00",
   overtimeRates: {
     weekday: 50,
     saturday: 75,
@@ -1931,6 +1931,19 @@ function createDisplayRecord(
   };
 }
 
+type SecullumBatchDiff = {
+  field: "entrada1" | "saida1" | "entrada2" | "saida2";
+  label: string;
+  from: string;
+  to: string;
+};
+type SecullumBatchItem = {
+  employee: Employee;
+  patch: Partial<TimeRecord>;
+  diffs: SecullumBatchDiff[];
+  selected: boolean;
+};
+
 export default function Timekeeping() {
   const {
     data,
@@ -2030,6 +2043,10 @@ export default function Timekeeping() {
   const secullumSeqRef = useRef(0);
   const [secullumOriginFilter, setSecullumOriginFilter] =
     useState<SecullumOriginCode | null>(null);
+  // Lote da tecla "T": funcionários com diferença real entre Secullum e Firebase.
+  const [secullumBatch, setSecullumBatch] = useState<SecullumBatchItem[] | null>(
+    null,
+  );
   // Data digitada no input (aplicada ao filtro com debounce para evitar
   // re-renderizar a tabela inteira a cada tecla).
   const [pendingDate, setPendingDate] = useState(filters.date);
@@ -2173,35 +2190,89 @@ export default function Timekeeping() {
     () => new Map(data.companies.map((company) => [company.id, company])),
     [data.companies],
   );
+  // Estrutura (departamentos/setores/equipes) deduplicada por grupo de empresas,
+  // para os filtros não repetirem o mesmo nome uma vez por empresa do grupo.
   const primaryStructureGroup = useMemo(
     () => primaryCompanyGroup(data.companyGroups, data.companyGroupCompanies),
     [data.companyGroups, data.companyGroupCompanies],
   );
   const structureGroupsForFilters = useMemo(() => {
-    if (!filters.companyIds.length) return primaryStructureGroup ? [primaryStructureGroup] : [];
+    if (!filters.companyIds.length)
+      return primaryStructureGroup ? [primaryStructureGroup] : [];
     const byId = new Map<string, CompanyGroup>();
     filters.companyIds.forEach((companyId) => {
-      const group = resolveCompanyGroupForCompany(companyId, data.companyGroups, data.companyGroupCompanies)
-        || primaryStructureGroup;
+      const group =
+        resolveCompanyGroupForCompany(
+          companyId,
+          data.companyGroups,
+          data.companyGroupCompanies,
+        ) || primaryStructureGroup;
       if (group) byId.set(group.id, group);
     });
     return Array.from(byId.values());
-  }, [data.companyGroupCompanies, data.companyGroups, filters.companyIds, primaryStructureGroup]);
-  const structureDepartments = useMemo(() => (
-    dedupeStructureItems(structureGroupsForFilters.flatMap((group) => (
-      structureItemsForGroup(data.departments, group, data.companyGroupCompanies, data.companies)
-    )))
-  ), [data.companies, data.companyGroupCompanies, data.departments, structureGroupsForFilters]);
-  const structureSectors = useMemo(() => (
-    dedupeStructureItems(structureGroupsForFilters.flatMap((group) => (
-      structureItemsForGroup(data.sectors, group, data.companyGroupCompanies, data.companies)
-    )))
-  ), [data.companies, data.companyGroupCompanies, data.sectors, structureGroupsForFilters]);
-  const structureTeams = useMemo(() => (
-    dedupeStructureItems(structureGroupsForFilters.flatMap((group) => (
-      structureItemsForGroup(data.teams, group, data.companyGroupCompanies, data.companies)
-    )))
-  ), [data.companies, data.companyGroupCompanies, data.teams, structureGroupsForFilters]);
+  }, [
+    data.companyGroupCompanies,
+    data.companyGroups,
+    filters.companyIds,
+    primaryStructureGroup,
+  ]);
+  const structureDepartments = useMemo(
+    () =>
+      dedupeStructureItems(
+        structureGroupsForFilters.flatMap((group) =>
+          structureItemsForGroup(
+            data.departments,
+            group,
+            data.companyGroupCompanies,
+            data.companies,
+          ),
+        ),
+      ),
+    [
+      data.companies,
+      data.companyGroupCompanies,
+      data.departments,
+      structureGroupsForFilters,
+    ],
+  );
+  const structureSectors = useMemo(
+    () =>
+      dedupeStructureItems(
+        structureGroupsForFilters.flatMap((group) =>
+          structureItemsForGroup(
+            data.sectors,
+            group,
+            data.companyGroupCompanies,
+            data.companies,
+          ),
+        ),
+      ),
+    [
+      data.companies,
+      data.companyGroupCompanies,
+      data.sectors,
+      structureGroupsForFilters,
+    ],
+  );
+  const structureTeams = useMemo(
+    () =>
+      dedupeStructureItems(
+        structureGroupsForFilters.flatMap((group) =>
+          structureItemsForGroup(
+            data.teams,
+            group,
+            data.companyGroupCompanies,
+            data.companies,
+          ),
+        ),
+      ),
+    [
+      data.companies,
+      data.companyGroupCompanies,
+      data.teams,
+      structureGroupsForFilters,
+    ],
+  );
   const departmentById = useMemo(
     () => new Map(data.departments.map((department) => [department.id, department])),
     [data.departments],
@@ -3402,7 +3473,6 @@ export default function Timekeeping() {
     return {
       id: existing?.id || "",
       companyId: employee.companyId,
-      groupId: employee.groupId || "",
       employeeId: employee.id,
       date: filters.date,
       status,
@@ -3600,6 +3670,104 @@ export default function Timekeeping() {
     });
     setDraftRecordsByEmployeeId((current) => ({ ...current, [employee.id]: nextRecord }));
     return nextRecord;
+  }
+
+  // ===== Tecla "T": atualização em LOTE pelo Secullum =====
+  // Reutiliza a MESMA lógica da tecla S para montar o patch de cada funcionário.
+  // Ignora os filtros da tela (itera data.employees), ignora quem não está no
+  // Secullum (PJ), ignora jornada zerada e ignora quando não há diferença real.
+  function buildSecullumBatch(): SecullumBatchItem[] {
+    const norm = (v?: string) => {
+      const s = String(v ?? "").trim();
+      return s === "00:00" ? "" : s;
+    };
+    const labels: Record<SecullumBatchDiff["field"], string> = {
+      entrada1: "Entrada 1",
+      saida1: "Saída 1",
+      entrada2: "Entrada 2",
+      saida2: "Saída 2",
+    };
+    const items: SecullumBatchItem[] = [];
+    data.employees.forEach((employee) => {
+      const cpf = (employee.cpf || "").replace(/\D/g, "");
+      const row = cpf ? secullumByCpf.get(cpf) : undefined;
+      if (!row) return; // não existe no Secullum (ex.: PJ) → ignora silenciosamente
+      const secFilled =
+        hasFilledTimeValue(row.entrada1) ||
+        hasFilledTimeValue(row.saida1) ||
+        hasFilledTimeValue(row.entrada2) ||
+        hasFilledTimeValue(row.saida2);
+      if (!secFilled) return; // jornada zerada no Secullum → ignora
+
+      const base = employeeRecord(employee.id);
+      const cfBase = (base?.customFields || {}) as Record<string, string>;
+      const current: Record<SecullumBatchDiff["field"], string | undefined> = {
+        entrada1: base?.checkIn,
+        saida1: base?.checkOut,
+        entrada2: cfBase.ent2,
+        saida2: cfBase.sai2,
+      };
+
+      const diffs: SecullumBatchDiff[] = [];
+      (["entrada1", "saida1", "entrada2", "saida2"] as const).forEach((field) => {
+        const secVal = String(row[field] ?? "").trim();
+        if (!hasFilledTimeValue(secVal)) return; // igual à tecla S: só campos preenchidos
+        if (norm(secVal) === norm(current[field])) return; // sem diferença real
+        diffs.push({
+          field,
+          label: labels[field],
+          from: norm(current[field]) || "--",
+          to: secVal,
+        });
+      });
+      if (!diffs.length) return; // dados iguais ao Firebase → ignora
+
+      const patch: Partial<TimeRecord> = {};
+      const cf: Record<string, string> = { ...cfBase };
+      if (hasFilledTimeValue(row.entrada1)) patch.checkIn = row.entrada1;
+      if (hasFilledTimeValue(row.saida1)) patch.checkOut = row.saida1;
+      if (hasFilledTimeValue(row.entrada2)) cf.ent2 = row.entrada2;
+      if (hasFilledTimeValue(row.saida2)) {
+        cf.sai2 = row.saida2;
+        cf[manualZeroSai2Field] = "false";
+      }
+      patch.customFields = cf;
+      items.push({ employee, patch, diffs, selected: true });
+    });
+    return items;
+  }
+
+  function runSecullumBatch() {
+    if (tableLocked) {
+      window.alert(
+        "Libere a tabela (modo edição) para aplicar os dados do Secullum em lote.",
+      );
+      return;
+    }
+    if (secullumStatus !== "ok") {
+      window.alert(
+        "Os dados do Secullum ainda não foram carregados para este dia. Clique em \"Atualizar Secullum\" e tente novamente.",
+      );
+      return;
+    }
+    const items = buildSecullumBatch();
+    if (!items.length) {
+      window.alert(
+        "Nenhuma alteração encontrada entre o Secullum e o banco de dados para este dia.",
+      );
+      return;
+    }
+    setSecullumBatch(items);
+  }
+
+  // Confirmar o modal NÃO salva no Firebase: apenas envia os selecionados para a
+  // área de pré-envio (draft). A persistência continua no botão "Salvar dia do mês".
+  function confirmSecullumBatch() {
+    if (!secullumBatch) return;
+    secullumBatch
+      .filter((item) => item.selected)
+      .forEach((item) => void saveRecord(item.employee, item.patch));
+    setSecullumBatch(null);
   }
 
   async function persistManualMetricEdit(edit: PendingManualMetricEdit) {
@@ -3839,8 +4007,6 @@ export default function Timekeeping() {
 
   function linkedColumnOptions(column: TimekeepingColumn, employee: Employee) {
     const companyId = filters.companyIds[0] || employee.companyId;
-    const structureGroup = resolveCompanyGroupForCompany(companyId, data.companyGroups, data.companyGroupCompanies)
-      || primaryStructureGroup;
     const optionColor = (value: string, label: string) =>
       column.optionColors?.[value] || column.optionColors?.[label] || "";
 
@@ -3868,7 +4034,8 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "departments") {
       return sortOptions(
-        structureItemsForGroup(data.departments, structureGroup, data.companyGroupCompanies, data.companies)
+        data.departments
+          .filter((item) => !companyId || item.companyId === companyId)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -3879,7 +4046,8 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "sectors") {
       return sortOptions(
-        structureItemsForGroup(data.sectors, structureGroup, data.companyGroupCompanies, data.companies)
+        data.sectors
+          .filter((item) => !companyId || item.companyId === companyId)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -3890,7 +4058,8 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "subsectors") {
       return sortOptions(
-        structureItemsForGroup(data.subsectors, structureGroup, data.companyGroupCompanies, data.companies)
+        data.subsectors
+          .filter((item) => !companyId || item.companyId === companyId)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -3901,7 +4070,8 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "teams") {
       return sortOptions(
-        structureItemsForGroup(data.teams, structureGroup, data.companyGroupCompanies, data.companies)
+        data.teams
+          .filter((item) => !companyId || item.companyId === companyId)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -4349,7 +4519,6 @@ export default function Timekeeping() {
         const record: TimeRecord = {
           id: timeRecordDocumentId(row.date, employee.id),
           companyId: employee.companyId,
-          groupId: employee.groupId || "",
           employeeId: employee.id,
           date: row.date,
           status: importedStatus,
@@ -4439,7 +4608,7 @@ export default function Timekeeping() {
       return record.customFields?.[column.key] || "00:00";
     if (["ent2", "sai2", "ent3", "sai3"].includes(column.key))
       return record.customFields?.[column.key] || "00:00";
-    
+
     if ("id" in column) return customColumnValue(employee, record, column);
     return "";
   }
@@ -5837,16 +6006,16 @@ export default function Timekeeping() {
     macroValue: string,
   ) {
     if (secullumStatus !== "ok" || tableLocked || !canEditTimekeeping) return null;
-    // Funcionário só pode receber envio se existe no Secullum (CPF cruzou).
-    // Caso contrário, o POST daria erro (funcionário inexistente na API).
-    const inSecullum = secullumByCpf.has(secullumOnlyDigits(employee.cpf));
     const origin = secullumOriginFor(employee, field);
     const secValue = origin?.value || "";
     const macroEmpty = isEmptyTime(macroValue);
     const secEmpty = isEmptyTime(secValue);
     const norm = (v: string) => (v || "").trim();
     const divergent = !macroEmpty && !secEmpty && norm(macroValue) !== norm(secValue);
-    const showEnviar = inSecullum && ((secEmpty && !macroEmpty) || divergent);
+    // "→ Secullum" só quando há valor no Macro E ele está diferente do Secullum
+    // (Secullum vazio/"Sem ponto" ou divergente). Se já for igual, não aparece —
+    // evita reenviar ao Secullum um horário idêntico ao que já está lá.
+    const showEnviar = !macroEmpty && (secEmpty || divergent);
     const showImportar = (macroEmpty && !secEmpty) || divergent;
     if (!showEnviar && !showImportar) return null;
     return (
@@ -6023,6 +6192,36 @@ export default function Timekeeping() {
                         : "true",
                     },
                   });
+                }
+                // Tecla "S": preenche a jornada com os dados do Secullum, se
+                // existirem batidas para o funcionário no dia.
+                if (event.key === "s" || event.key === "S") {
+                  event.preventDefault();
+                  if (busy) return;
+                  const cpf = (employee.cpf || "").replace(/\D/g, "");
+                  const row = cpf ? secullumByCpf.get(cpf) : undefined;
+                  if (!row) return;
+                  const rec = displayRecord(employee);
+                  const cf: Record<string, string> = {
+                    ...(rec.customFields || {}),
+                  };
+                  const patch: Partial<TimeRecord> = {};
+                  if (hasFilledTimeValue(row.entrada1)) patch.checkIn = row.entrada1;
+                  if (hasFilledTimeValue(row.saida1)) patch.checkOut = row.saida1;
+                  if (hasFilledTimeValue(row.entrada2)) cf.ent2 = row.entrada2;
+                  if (hasFilledTimeValue(row.saida2)) {
+                    cf.sai2 = row.saida2;
+                    cf[manualZeroSai2Field] = "false";
+                  }
+                  patch.customFields = cf;
+                  void saveRecord(employee, patch);
+                }
+                // Tecla "T": atualização em LOTE pelo Secullum (ignora filtros
+                // da tela). Abre modal com as diferenças reais para revisão.
+                if (event.key === "t" || event.key === "T") {
+                  event.preventDefault();
+                  if (busy) return;
+                  runSecullumBatch();
                 }
               }}
             />
@@ -6331,13 +6530,9 @@ export default function Timekeeping() {
           >
             <option value="">Sem equipe</option>
             {sortOptions(
-              structureItemsForGroup(
-                data.teams,
-                resolveCompanyGroupForCompany(employee.companyId, data.companyGroups, data.companyGroupCompanies)
-                  || primaryStructureGroup,
-                data.companyGroupCompanies,
-                data.companies,
-              ).map((team) => ({ value: team.id, label: team.name })),
+              data.teams
+                .filter((team) => team.companyId === employee.companyId)
+                .map((team) => ({ value: team.id, label: team.name })),
             ).map((team) => (
               <option key={team.value} value={team.value}>
                 {team.label}
@@ -6574,7 +6769,11 @@ export default function Timekeeping() {
           onChange={(sectorIds) => setFilters({ ...filters, sectorIds })}
           options={sortOptions(
             structureSectors
-              .filter((sector) => !filters.departmentIds.length || filters.departmentIds.includes(sector.departmentId))
+              .filter(
+                (sector) =>
+                  !filters.departmentIds.length ||
+                  filters.departmentIds.includes(sector.departmentId),
+              )
               .map((sector) => ({ value: sector.id, label: sector.name })),
           )}
         />
@@ -6638,7 +6837,15 @@ export default function Timekeeping() {
         />
         <ClearFiltersButton
           active={hasActiveFilters}
-          onClear={() => setFilters(initialTimekeepingFilters)}
+          onClear={() => {
+            // Só pergunta sobre descartar se o "Limpar" for MUDAR o dia
+            // (voltar para hoje). No mesmo dia, nada é perdido.
+            const willChangeDate =
+              filters.date !== initialTimekeepingFilters.date;
+            if (!willChangeDate || confirmDiscardDraft()) {
+              setFilters(initialTimekeepingFilters);
+            }
+          }}
         />
         {hasActiveColumnFilters ? (
           <button
@@ -7501,6 +7708,163 @@ export default function Timekeeping() {
                     onClick={() => void confirmSecullumSend()}
                   >
                     {secullumSendBusy ? "Enviando…" : "Confirmar envio"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+          : null}
+
+        {secullumBatch
+          ? createPortal(
+            <div
+              className="modal-overlay"
+              data-testid="secullum-batch-modal"
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(15,23,42,0.55)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 1000,
+                padding: 16,
+              }}
+              onClick={() => setSecullumBatch(null)}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                  background: "#fff",
+                  borderRadius: 14,
+                  padding: 24,
+                  width: "100%",
+                  maxWidth: 640,
+                  maxHeight: "85vh",
+                  display: "flex",
+                  flexDirection: "column",
+                  boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+                }}
+              >
+                <h3 style={{ margin: "0 0 4px", fontSize: 18, color: "#0f172a" }}>
+                  Atualizar em lote pelo Secullum
+                </h3>
+                <p style={{ fontSize: 13, color: "#475569", margin: "0 0 12px" }}>
+                  {secullumBatch.filter((item) => item.selected).length} de{" "}
+                  {secullumBatch.length} funcionário(s) com alterações reais em{" "}
+                  <strong>{filters.date}</strong>. Revise e desmarque quem não
+                  deseja alterar. As alterações vão para o pré-envio (não salvam
+                  no banco até clicar em "Salvar dia do mês").
+                </p>
+                <div style={{ margin: "0 0 8px" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    data-testid="secullum-batch-toggle-all"
+                    onClick={() =>
+                      setSecullumBatch((prev) => {
+                        if (!prev) return prev;
+                        const allSelected = prev.every((it) => it.selected);
+                        return prev.map((it) => ({ ...it, selected: !allSelected }));
+                      })
+                    }
+                  >
+                    {secullumBatch.every((it) => it.selected)
+                      ? "Desmarcar todos"
+                      : "Marcar todos"}
+                  </button>
+                </div>
+                <div
+                  style={{
+                    overflowY: "auto",
+                    flex: 1,
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 10,
+                    padding: 6,
+                  }}
+                >
+                  {secullumBatch.map((item, idx) => (
+                    <label
+                      key={item.employee.id}
+                      data-testid={`secullum-batch-row-${item.employee.id}`}
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        alignItems: "flex-start",
+                        padding: "10px 8px",
+                        borderBottom:
+                          idx < secullumBatch.length - 1
+                            ? "1px solid #f1f5f9"
+                            : "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.selected}
+                        data-testid={`secullum-batch-check-${item.employee.id}`}
+                        onChange={() =>
+                          setSecullumBatch((prev) =>
+                            prev
+                              ? prev.map((it, i) =>
+                                i === idx
+                                  ? { ...it, selected: !it.selected }
+                                  : it,
+                              )
+                              : prev,
+                          )
+                        }
+                        style={{ marginTop: 3, width: 16, height: 16 }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div
+                          style={{ fontWeight: 600, fontSize: 14, color: "#0f172a" }}
+                        >
+                          {item.employee.name}
+                        </div>
+                        {item.diffs.map((d) => (
+                          <div
+                            key={d.field}
+                            style={{ fontSize: 12, color: "#64748b" }}
+                          >
+                            {d.label}: {d.from} →{" "}
+                            <strong style={{ color: "#0f766e" }}>{d.to}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: 8,
+                    marginTop: 18,
+                  }}
+                >
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    data-testid="secullum-batch-cancel"
+                    onClick={() => setSecullumBatch(null)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    data-testid="secullum-batch-confirm"
+                    disabled={
+                      !secullumBatch.some((item) => item.selected)
+                    }
+                    onClick={() => confirmSecullumBatch()}
+                  >
+                    Adicionar ao pré-envio (
+                    {secullumBatch.filter((item) => item.selected).length})
                   </button>
                 </div>
               </div>

@@ -59,27 +59,34 @@ export default function CompanyFolderSidebar() {
 
               {isOpen ? (
                 <div className="company-folder-employees">
-                  {group.employees.map(({ employee, departmentName, documentCount, missingAlertCount }) => (
-                    <div className="employee-folder-card" key={employee.id}>
-                      <button
-                        className={effectiveEmployeeId === employee.id ? "is-selected" : undefined}
-                        type="button"
-                        onClick={() => setSelectedEmployeeId(employee.id)}
-                      >
-                        <Folder size={16} />
-                        <span className="employee-folder-info">
-                          <strong>{employee.name}</strong>
-                          <small>{departmentName}</small>
-                        </span>
-                        <span className="folder-counter-stack is-employee">
-                          <strong className="employee-doc-count" title="Total de documentos">{documentCount}</strong>
-                          {missingAlertCount ? (
-                            <strong className="folder-missing-alert-count" title="Documentos sem alerta">{missingAlertCount} sem alerta</strong>
-                          ) : null}
-                        </span>
-                      </button>
-                    </div>
-                  ))}
+                  {group.employees.map(({ employee, departmentName, documentCount, missingAlertCount }) => {
+                    const isDismissed = employee.status === "terminated";
+
+                    return (
+                      <div className="employee-folder-card" key={employee.id}>
+                        <button
+                          className={[
+                            effectiveEmployeeId === employee.id ? "is-selected" : "",
+                            isDismissed ? "is-dismissed" : "",
+                          ].filter(Boolean).join(" ") || undefined}
+                          type="button"
+                          onClick={() => setSelectedEmployeeId(employee.id)}
+                        >
+                          <Folder size={16} />
+                          <span className="employee-folder-info">
+                            <strong>{employee.name}</strong>
+                            <small>{departmentName}</small>
+                          </span>
+                          <span className="folder-counter-stack is-employee">
+                            <strong className="employee-doc-count" title="Total de documentos">{documentCount}</strong>
+                            {!isDismissed && missingAlertCount ? (
+                              <strong className="folder-missing-alert-count" title="Documentos sem alerta">{missingAlertCount} sem alerta</strong>
+                            ) : null}
+                          </span>
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

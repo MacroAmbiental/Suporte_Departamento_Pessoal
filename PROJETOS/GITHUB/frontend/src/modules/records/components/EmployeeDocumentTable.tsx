@@ -10,10 +10,13 @@ export default function EmployeeDocumentTable() {
   const {
     data,
     deleteDocument,
+    dismissalSelectedDocumentIds,
     openAlertEditor,
     openDocument,
     permissions,
     selectedDocuments,
+    selectedEmployee,
+    toggleDismissalDocumentSelection,
     toggleDocument,
     updateDocumentAttachment,
   } = useRecordsContext();
@@ -49,14 +52,31 @@ export default function EmployeeDocumentTable() {
           {selectedDocuments.map((document: EmployeeDocument) => {
             const alert = alertByDocumentId.get(document.id);
             const active = document.active !== false;
+            const dismissalMode = selectedEmployee?.status === "terminated";
+            const selectedForDismissal = dismissalSelectedDocumentIds.includes(document.id);
 
             return (
-              <tr key={document.id}>
+              <tr key={document.id} className={dismissalMode ? "is-dismissal-row" : ""}>
                 <td className="strong-cell">
-                  <span className="record-name">
-                    <FileText size={15} /> {document.name}
-                  </span>
-                  <span className="muted">{active ? "Ativo" : "Inativo"}</span>
+                  {dismissalMode ? (
+                    <label className="dismissal-doc-selection">
+                      <input
+                        type="checkbox"
+                        checked={selectedForDismissal}
+                        onChange={() => toggleDismissalDocumentSelection(document.id)}
+                      />
+                      <span className="record-name">
+                        <FileText size={15} /> {document.name}
+                      </span>
+                    </label>
+                  ) : (
+                    <>
+                      <span className="record-name">
+                        <FileText size={15} /> {document.name}
+                      </span>
+                      <span className="muted">{active ? "Ativo" : "Inativo"}</span>
+                    </>
+                  )}
                 </td>
 
                 <td>{formatDate(document.realizedDate)}</td>
@@ -64,74 +84,80 @@ export default function EmployeeDocumentTable() {
                 <td>{formatDate(document.expirationDate)}</td>
 
                 <td>
-                  {alert ? (
+                  {alert && !dismissalMode ? (
                     <span className={`badge ${badgeClass(alert.status)}`}>
                       {alert.title}
                     </span>
+                  ) : dismissalMode ? (
+                    <span className="muted">-</span>
                   ) : (
                     "-"
                   )}
                 </td>
 
                 <td>
-                  <div className="table-actions">
-                    {document.fileUrl ? (
-                      <button type="button" onClick={() => openDocument(document)}>
-                        <Eye size={16} />
-                      </button>
-                    ) : null}
+                  {dismissalMode ? (
+                    <span className="muted">Seleção para demissão</span>
+                  ) : (
+                    <div className="table-actions">
+                      {document.fileUrl ? (
+                        <button type="button" onClick={() => openDocument(document)}>
+                          <Eye size={16} />
+                        </button>
+                      ) : null}
 
-                    {permissions.canEditDocuments ? (
-                      <>
-                        <input
-                          className="table-upload-input"
-                          id={`document-upload-${document.id}`}
-                          type="file"
-                          accept={attachmentAccept}
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            if (file) void updateDocumentAttachment(document.id, file);
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                        <label
-                          className="table-upload-action"
-                          htmlFor={`document-upload-${document.id}`}
-                          title={document.fileUrl ? "Trocar anexo" : "Adicionar anexo"}
-                          aria-label={document.fileUrl ? "Trocar anexo" : "Adicionar anexo"}
+                      {permissions.canEditDocuments ? (
+                        <>
+                          <input
+                            className="table-upload-input"
+                            id={`document-upload-${document.id}`}
+                            type="file"
+                            accept={attachmentAccept}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) void updateDocumentAttachment(document.id, file);
+                              event.currentTarget.value = "";
+                            }}
+                          />
+                          <label
+                            className="table-upload-action"
+                            htmlFor={`document-upload-${document.id}`}
+                            title={document.fileUrl ? "Trocar anexo" : "Adicionar anexo"}
+                            aria-label={document.fileUrl ? "Trocar anexo" : "Adicionar anexo"}
+                          >
+                            <Upload size={14} />
+                          </label>
+                        </>
+                      ) : null}
+
+                      {canWriteAlerts ? (
+                        <button
+                          type="button"
+                          onClick={() => openAlertEditor(document.id)}
                         >
-                          <Upload size={14} />
-                        </label>
-                      </>
-                    ) : null}
+                          <Pencil size={14} /> 
+                        </button>
+                      ) : null}
 
-                    {canWriteAlerts ? (
-                      <button
-                        type="button"
-                        onClick={() => openAlertEditor(document.id)}
-                      >
-                        <Pencil size={14} /> 
-                      </button>
-                    ) : null}
+                      {permissions.canEditDocuments ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleDocument(document.id)}
+                        >
+                          <Power size={14} /> {active ? "" : "Ativar"}
+                        </button>
+                      ) : null}
 
-                    {permissions.canEditDocuments ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleDocument(document.id)}
-                      >
-                        <Power size={14} /> {active ? "" : "Ativar"}
-                      </button>
-                    ) : null}
-
-                    {permissions.canDeleteDocuments ? (
-                      <button
-                        type="button"
-                        onClick={() => deleteDocument(document.id)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    ) : null}
-                  </div>
+                      {permissions.canDeleteDocuments ? (
+                        <button
+                          type="button"
+                          onClick={() => deleteDocument(document.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
                 </td>
               </tr>
             );

@@ -953,8 +953,49 @@ button:disabled:hover {
   background: #f1fbf8;
 }
 
+.records-page .company-folder-employees button.is-dismissed {
+  background: #f0f1f4;
+  border-color: #dfe3e8;
+  color: #5d6872;
+  opacity: 0.92;
+}
+
 .records-page .company-folder-employees button.is-selected {
   box-shadow: inset 3px 0 0 #099164;
+}
+
+.records-page .selected-employee-panel.is-dismissed {
+  background: #f3f4f6;
+  border-color: #dfe3e8;
+}
+
+.records-page .selected-employee-panel .badge.is-terminated {
+  background: #e4e7eb;
+  color: #565f69;
+}
+
+.records-page .dismissal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.records-page .dismissal-doc-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.records-page .dismissal-doc-selection input {
+  width: 16px;
+  height: 16px;
+  accent-color: #099164;
+}
+
+.records-page .data-table tbody tr.is-dismissal-row {
+  background: rgba(148, 163, 184, 0.05);
 }
 
 .records-page .empty-folder-message {

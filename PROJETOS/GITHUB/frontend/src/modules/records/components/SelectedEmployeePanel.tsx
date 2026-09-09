@@ -4,14 +4,25 @@ import { useRecordsContext } from "@/modules/records/context/RecordsContext";
 export default function SelectedEmployeePanel() {
   const {
     activeAlertCount,
+    confirmDismissalCancellation,
+    confirmDismissalHomologation,
     data,
     employeeCompany,
     employeeSector,
+    employeeTeam,
     openWizard,
     permissions,
     selectedDocuments,
     selectedEmployee,
   } = useRecordsContext();
+
+  const contractTypeLabel = (() => {
+    const kind = selectedEmployee?.registrationData?.employeeKind;
+    if (kind === "company") return "Funcionário da empresa";
+    if (kind === "diarist") return "Diarista";
+    return "Funcionário de contrato";
+  })();
+
   const activeAlertDocumentIds = new Set(
     data.documentAlerts
       .filter((alert) => alert.status !== "completed")
@@ -20,18 +31,25 @@ export default function SelectedEmployeePanel() {
   const documentsWithoutAlert = selectedDocuments
     .filter((document) => !activeAlertDocumentIds.has(document.id))
     .sort((left, right) => (left.name || "").localeCompare(right.name || "", "pt-BR"));
+  const isDismissedEmployee = selectedEmployee?.status === "terminated";
 
   return (
-    <article className="panel selected-employee-panel">
+    <article className={`panel selected-employee-panel ${isDismissedEmployee ? "is-dismissed" : ""}`.trim()}>
       <div>
         <h2 className="panel-title">{selectedEmployee?.name || "Selecione um funcionário"}</h2>
         <p className="muted">
-          {employeeCompany(selectedEmployee)?.name || "-"} · {employeeSector(selectedEmployee)?.name || "-"} · Cargo: {selectedEmployee?.position || "-"} · Função: {selectedEmployee?.role || "-"}
+          {employeeCompany(selectedEmployee)?.name || "-"} · {employeeSector(selectedEmployee)?.name || "-"} · Cargo: {selectedEmployee?.position || "-"} · Função: {selectedEmployee?.role || "-"} · Equipe: {employeeTeam(selectedEmployee)?.name || "-"} · Contrato: {contractTypeLabel}
         </p>
-        <span className="badge is-active">
-          <Bell size={14} /> {activeAlertCount} alertas
-        </span>
-        {selectedEmployee && documentsWithoutAlert.length ? (
+        {!isDismissedEmployee ? (
+          <span className="badge is-active">
+            <Bell size={14} /> {activeAlertCount} alertas
+          </span>
+        ) : (
+          <span className="badge is-terminated">
+            <BellOff size={14} /> Demissão em processo
+          </span>
+        )}
+        {selectedEmployee && !isDismissedEmployee && documentsWithoutAlert.length ? (
           <div className="employee-missing-alert-docs">
             <span><BellOff size={13} /> Documentos sem alerta nesta pasta</span>
             <div>
@@ -42,10 +60,20 @@ export default function SelectedEmployeePanel() {
           </div>
         ) : null}
       </div>
-      {selectedEmployee && permissions.canCreateDocuments ? (
+      {selectedEmployee && !isDismissedEmployee && permissions.canCreateDocuments ? (
         <button className="btn btn-soft" type="button" onClick={() => openWizard(selectedEmployee.id)}>
           <Plus size={16} /> Adicionar nesta pasta
         </button>
+      ) : null}
+      {selectedEmployee && isDismissedEmployee ? (
+        <div className="dismissal-actions">
+          <button className="btn btn-soft" type="button" onClick={() => confirmDismissalCancellation()}>
+            Cancelar demissão
+          </button>
+          <button className="btn btn-primary" type="button" onClick={() => confirmDismissalHomologation()}>
+            Homologar demissão
+          </button>
+        </div>
       ) : null}
     </article>
   );

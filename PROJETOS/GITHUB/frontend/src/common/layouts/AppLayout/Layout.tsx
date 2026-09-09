@@ -194,11 +194,14 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, can } = useAuth();
-  const { documentAlerts, undoState, runUndo, dismissUndo } = useDomainData();
+  const domain = useDomainData();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const today = todayISO();
-  const activeAlerts = documentAlerts.filter((alert) => alert.status !== "completed" && (alert.notifyDate || alert.dueDate) <= today).length;
+  const activeAlerts = domain.documentAlerts.filter((alert) => {
+    const employee = domain.employees.find((item) => item.id === alert.employeeId);
+    return alert.status !== "completed" && employee?.status !== "terminated" && (alert.notifyDate || alert.dueDate) <= today;
+  }).length;
   const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view")), [can]);
   const currentScreen = useMemo(() => screenFromPathname(location.pathname), [location.pathname]);
   const isWideWorkspace = currentScreen
@@ -366,13 +369,13 @@ export default function Layout() {
         <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "timekeeping" ? " is-fullwidth" : ""}`}>
           <Outlet />
         </main>
-        {undoState ? (
+        {domain.undoState ? (
           <div className="undo-toast" role="status">
-            <span>{undoState.message}</span>
-            <button type="button" onClick={() => void runUndo()}>
+            <span>{domain.undoState.message}</span>
+            <button type="button" onClick={() => void domain.runUndo()}>
               <RotateCcw size={15} /> Desfazer alteracao
             </button>
-            <button type="button" onClick={dismissUndo}>Fechar</button>
+            <button type="button" onClick={domain.dismissUndo}>Fechar</button>
           </div>
         ) : null}
       </div>
