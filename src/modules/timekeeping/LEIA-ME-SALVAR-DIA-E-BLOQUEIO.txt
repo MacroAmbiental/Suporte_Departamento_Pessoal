@@ -1,8 +1,0 @@
-ALTERACOES - SALVAR DIA E BLOQUEIO DA TABELA
-
-1. O botao "Salvar dia do mes" foi movido para o cabecalho da tabela, ao lado de "Feriado".
-2. Ao salvar o dia, os registros daquela data sao persistidos para todos os funcionarios exibidos.
-3. Um funcionario desativado posteriormente continua aparecendo em datas anteriores quando existir registro salvo naquela data.
-4. Na data da desativacao e nas datas posteriores, o funcionario nao aparece na folha de ponto.
-5. A tabela inicia bloqueada para impedir alteracoes acidentais.
-6. O novo botao de cadeado, ao lado de "Salvar dia do mes", alterna entre Bloqueada e Liberada.

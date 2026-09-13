@@ -1,8 +1,0 @@
-Correção do botão "Preencher com Secullum"
-
-- Registros vazios com valores padrão 00:00 não são mais classificados como lançamentos manuais.
-- O botão permanece disponível após a leitura da planilha e informa o motivo caso nenhuma linha possa ser importada.
-- Lançamentos realmente preenchidos pelo DP continuam protegidos.
-- Foi adicionado tratamento de erro para arquivos Excel inválidos ou sem aba legível.
-
-Observação: o aviso do Vite sobre stream.Readable vem da biblioteca xlsx-js-style e não impede a leitura da planilha. A importação agora trata falhas reais e mostra mensagem na tela.
