@@ -1,0 +1,14 @@
+Atualização da importação Secullum
+
+O botão Secullum agora:
+1. Lê a planilha PONTO DIÁRIO do Secullum mesmo quando o cabeçalho não começa na primeira linha.
+2. Confere a data da planilha com a data selecionada na tela do sistema.
+   - Se a planilha tiver data divergente, a importação é bloqueada e mostra o motivo.
+3. Identifica registros já preenchidos manualmente no sistema.
+   - Registros manuais são preservados e não são sobrescritos.
+   - Apenas linhas sem lançamento manual ficam disponíveis para preenchimento automático.
+4. Antes de gravar, pergunta se deseja preencher automaticamente os registros disponíveis com os dados do Secullum.
+
+Observação:
+- Para a exportação Excel estilizada, mantenha instalada a dependência:
+  npm install xlsx-js-style

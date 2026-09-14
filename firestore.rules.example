@@ -1,0 +1,309 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profilePath() {
+      return /databases/$(database)/documents/systemUsers/$(request.auth.uid);
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(profilePath());
+    }
+
+    function isAdmin() {
+      return hasProfile() && get(profilePath()).data.isAdmin == true;
+    }
+
+    function canUse(screen, action) {
+      return isAdmin()
+        || (
+          signedIn()
+          && exists(/databases/$(database)/documents/systemPermissions/$(request.auth.uid + "-" + screen))
+          && get(/databases/$(database)/documents/systemPermissions/$(request.auth.uid + "-" + screen)).data.actions.hasAny([action, "manage"])
+        );
+    }
+
+    function canView(screen) {
+      return canUse(screen, "view");
+    }
+
+    function canCreate(screen) {
+      return canUse(screen, "create");
+    }
+
+    function canEdit(screen) {
+      return canUse(screen, "edit");
+    }
+
+    function canDelete(screen) {
+      return canUse(screen, "delete");
+    }
+
+    // Para estas regras de servidor funcionarem, o documento systemUsers/{uid}
+    // deve usar o mesmo uid do Firebase Authentication do usuario logado.
+    match /systemUsers/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /systemPermissions/{permissionId} {
+      allow read: if isAdmin() || (signedIn() && permissionId.matches(request.auth.uid + "-.*"));
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /permissionProfiles/{id} {
+      allow read: if canView("permissions");
+      allow create, update, delete: if isAdmin() || canUse("permissions", "manage");
+    }
+
+    match /accessKeys/{id} {
+      allow read: if isAdmin() || canUse("permissions", "manage");
+      allow create, update, delete: if isAdmin() || canUse("permissions", "manage");
+    }
+
+    match /employeeDocumentFiles/{id} {
+      allow read: if canView("records");
+      allow create: if canCreate("records");
+      allow update: if canEdit("records");
+      allow delete: if canDelete("records");
+    }
+
+    match /employeeDocumentFileChunks/{id} {
+      allow read: if canView("records");
+      allow create: if canCreate("records");
+      allow update: if canEdit("records");
+      allow delete: if canDelete("records");
+    }
+
+    match /companies/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /departments/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /sectors/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /subsectors/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /teams/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /organizational_nodes/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /employee_assignments/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /companyGroups/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /companyGroupCompanies/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /companyGroupUnits/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /companyGroupUnitLinks/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /companyGroupEmployeeAssignments/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /companyGroupLeadershipAssignments/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /customModules/{id} {
+      allow read: if canView("companies");
+      allow create: if canCreate("companies");
+      allow update: if canEdit("companies");
+      allow delete: if canDelete("companies");
+    }
+
+    match /benefitContracts/{id} {
+      allow read: if canView("benefits");
+      allow create: if canCreate("benefits");
+      allow update: if canEdit("benefits");
+      allow delete: if canDelete("benefits");
+    }
+
+    match /benefitPlans/{id} {
+      allow read: if canView("benefits");
+      allow create: if canCreate("benefits");
+      allow update: if canEdit("benefits");
+      allow delete: if canDelete("benefits");
+    }
+
+    match /benefitFolders/{id} {
+      allow read: if canView("benefits");
+      allow create: if canCreate("benefits");
+      allow update: if canEdit("benefits");
+      allow delete: if canDelete("benefits");
+    }
+
+    match /benefitCustomFields/{id} {
+      allow read: if canView("benefits");
+      allow create: if canCreate("benefits");
+      allow update: if canEdit("benefits");
+      allow delete: if canDelete("benefits");
+    }
+
+    match /employeeBenefits/{id} {
+      allow read: if canView("benefits");
+      allow create: if canCreate("benefits");
+      allow update: if canEdit("benefits");
+      allow delete: if canDelete("benefits");
+    }
+
+    match /employees/{id} {
+      allow read: if canView("employees");
+      allow create: if canCreate("employees");
+      allow update: if canEdit("employees");
+      allow delete: if canDelete("employees");
+    }
+
+    match /employeePromotions/{id} {
+      allow read: if canView("employees");
+      allow create: if canCreate("employees") || canEdit("employees");
+      allow update: if canEdit("employees");
+      allow delete: if canDelete("employees");
+    }
+
+    match /employeeDrafts/{id} {
+      allow read: if canView("employees");
+      allow create: if canCreate("employees");
+      allow update: if canEdit("employees");
+      allow delete: if canDelete("employees");
+    }
+
+    match /appDrafts/{id} {
+      allow read: if canView("dashboard");
+      allow create: if canCreate("dashboard");
+      allow update: if canEdit("dashboard");
+      allow delete: if canDelete("dashboard");
+    }
+
+    match /employeeDocuments/{id} {
+      allow read: if canView("records");
+      allow create: if canCreate("records");
+      allow update: if canEdit("records");
+      allow delete: if canDelete("records");
+    }
+
+    match /documentAlerts/{id} {
+      allow read: if canView("notifications") || canView("records");
+      allow create: if canCreate("notifications") || canCreate("records");
+      allow update: if canEdit("notifications") || canEdit("records");
+      allow delete: if canDelete("notifications") || canDelete("records");
+    }
+
+    match /timeRecords/{date} {
+      allow read: if canView("timekeeping");
+      allow create: if canCreate("timekeeping");
+      allow update: if canEdit("timekeeping");
+      allow delete: if canDelete("timekeeping");
+
+      match /employeePoints/{employeeId} {
+        allow read: if canView("timekeeping");
+        allow create: if canCreate("timekeeping");
+        allow update: if canEdit("timekeeping");
+        allow delete: if canDelete("timekeeping");
+      }
+    }
+
+    match /timekeepingColumns/{id} {
+      allow read: if canView("timekeeping");
+      allow create: if canCreate("timekeeping");
+      allow update: if canEdit("timekeeping");
+      allow delete: if canDelete("timekeeping");
+    }
+
+    match /timekeepingDayTables/{id} {
+      allow read: if canView("timekeeping");
+      allow create: if canCreate("timekeeping");
+      allow update: if canEdit("timekeeping");
+      allow delete: if canDelete("timekeeping");
+    }
+
+    match /timekeepingPresence/{id} {
+      allow read: if canView("timekeeping");
+      allow create, update, delete: if canEdit("timekeeping");
+    }
+
+    match /auditLogs/{id} {
+      allow read: if canView("monitoring");
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /talentCandidates/{id} {
+      allow read: if canView("talentBank");
+      allow create: if canCreate("talentBank");
+      allow update: if canEdit("talentBank");
+      allow delete: if canDelete("talentBank");
+    }
+
+    match /talentColumnOptions/{id} {
+      allow read: if canView("talentBank");
+      allow create: if canCreate("talentBank");
+      allow update: if canEdit("talentBank");
+      allow delete: if canDelete("talentBank");
+    }
+  }
+}

@@ -1,0 +1,9 @@
+AJUSTES DO MODULO EMPLOYEES
+
+1. Modal de aviso previo ampliado e com conteudo visivel.
+2. Aviso previo agora possui data inicial e data final.
+3. Antes da data inicial, o funcionario continua Ativo.
+4. Durante o periodo, o status exibido e Aviso previo e pode ser filtrado.
+5. Na data final, o funcionario e desativado automaticamente e sai da folha de ponto.
+6. Reativar limpa as datas do aviso anterior.
+7. Paginacao e botoes de acao permanecem ajustados.
