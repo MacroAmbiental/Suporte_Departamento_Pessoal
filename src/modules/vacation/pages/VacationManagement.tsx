@@ -675,8 +675,10 @@ function VacationEditorModal({
         motivo: motivo.trim(),
         notes,
       });
+      const wasEditing = Boolean(editingId);
       resetForm();
       await onSaved();
+      window.alert(wasEditing ? "Alterações salvas com sucesso!" : "Férias registradas com sucesso!");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao salvar as férias.");
     } finally {
@@ -731,7 +733,7 @@ function VacationEditorModal({
               </label>
               <label style={{ fontSize: 13, color: "#475569" }}>
                 Período aquisitivo (ano)
-                <input type="number" data-testid="vacation-acqyear" value={acqYear} min={admYear || undefined} onChange={(e) => setAcqYear(e.target.value)} placeholder="ex.: 2024" style={{ ...inputStyle, width: "100%" }} />
+                <input type="number" data-testid="vacation-acqyear" value={acqYear} readOnly title="Definido automaticamente pelo período selecionado" placeholder="—" style={{ ...inputStyle, width: "100%", background: "#f1f5f9", color: "#475569", cursor: "not-allowed" }} />
               </label>
             </div>
             <p style={{ fontSize: 13, color: "#334155", margin: "8px 0 0" }}>
