@@ -315,6 +315,7 @@ export default function VacationManagement() {
                 return (
                   <tr
                     key={r.employee.id}
+                    className="vacation-list-row"
                     data-testid={`vacation-row-${r.employee.id}`}
                     onClick={() => setEditing(r.employee)}
                     style={{ borderTop: "1px solid #f1f5f9", cursor: "pointer" }}
@@ -472,11 +473,13 @@ function VacationEditorModal({
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(false);
 
   const days = daysBetweenInclusive(start, end);
   const soldDays = daysBetweenInclusive(soldStart, soldEnd);
 
   function resetForm() {
+    setShowForm(false);
     setEditingId(null);
     setStart("");
     setEnd("");
@@ -490,6 +493,7 @@ function VacationEditorModal({
   function launchForPeriod(year: number) {
     resetForm();
     setAcqYear(String(year));
+    setShowForm(true);
   }
 
   function editVacation(v: Vacation) {
@@ -502,11 +506,25 @@ function VacationEditorModal({
     setMotivo(v.motivo || "");
     setNotes(v.notes || "");
     setError("");
+    setShowForm(true);
   }
 
   const today = todayISO();
   const admission = employee.admissionDate || "";
   const admYear = admission ? new Date(`${admission}T00:00:00`).getFullYear() : 0;
+  const folgaWeekdays = useMemo(() => {
+    const map: Record<string, number> = {
+      domingo: 0, segunda: 1, terça: 2, terca: 2, quarta: 3, quinta: 4, sexta: 5, sábado: 6, sabado: 6,
+    };
+    const set = new Set<number>();
+    (employee.workScheduleDays || []).forEach((d) => {
+      if (!d.enabled) {
+        const wd = map[d.day.trim().toLowerCase()];
+        if (wd !== undefined) set.add(wd);
+      }
+    });
+    return set;
+  }, [employee.workScheduleDays]);
   const periods = useMemo(
     () => buildAcquisitionPeriods(employee.admissionDate, today),
     [employee.admissionDate, today],
@@ -621,6 +639,24 @@ function VacationEditorModal({
         return;
       }
     }
+    if (!editingId) {
+      const p = periods.find((x) => x.year === Number(acqYear));
+      if (p && !p.complete) {
+        setError("Este período aquisitivo ainda não venceu (menos de 1 ano). Só é possível lançar férias de períodos vencidos.");
+        return;
+      }
+    }
+    if (start && folgaWeekdays.size > 0) {
+      const s = new Date(`${start}T00:00:00`);
+      for (const offset of [1, 2]) {
+        const d = new Date(s);
+        d.setDate(d.getDate() + offset);
+        if (folgaWeekdays.has(d.getDay())) {
+          setError("Pela CLT (art. 134, §3º), as férias não podem iniciar nos 2 dias que antecedem a folga/repouso semanal do funcionário. Escolha outra data de início.");
+          return;
+        }
+      }
+    }
     setBusy(true);
     setError("");
     try {
@@ -662,7 +698,7 @@ function VacationEditorModal({
   const sorted = [...vacations].sort((a, b) => b.startDate.localeCompare(a.startDate));
 
   return (
-    <div className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle} onClick={onClose}>
+    <div className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle}>
       <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ ...dialogStyle, maxWidth: 940, maxHeight: "92vh" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: "#0f172a" }}>Férias — {employee.name}</h3>
@@ -672,75 +708,84 @@ function VacationEditorModal({
           Admissão: {employee.admissionDate ? formatDate(employee.admissionDate) : "—"}
         </p>
 
-        {editingId ? (
-          <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
-            Editando lançamento — período aquisitivo {acqYear || "—"}
-          </div>
-        ) : (
-          <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
-            Novo lançamento — período aquisitivo {acqYear || "—"}
-          </div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <label style={{ fontSize: 13, color: "#475569" }}>
-            Início das férias
-            <input type="date" data-testid="vacation-start" value={start} min={admission || undefined} onChange={(e) => setStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
-          </label>
-          <label style={{ fontSize: 13, color: "#475569" }}>
-            Retorno (último dia)
-            <input type="date" data-testid="vacation-end" value={end} min={start || admission || undefined} onChange={(e) => setEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
-          </label>
-          <label style={{ fontSize: 13, color: "#475569" }}>
-            Período aquisitivo (ano)
-            <input type="number" data-testid="vacation-acqyear" value={acqYear} min={admYear || undefined} onChange={(e) => setAcqYear(e.target.value)} placeholder="ex.: 2024" style={{ ...inputStyle, width: "100%" }} />
-          </label>
-        </div>
-        <p style={{ fontSize: 13, color: "#334155", margin: "8px 0 0" }}>
-          Dias gozados: <strong>{days || "—"}</strong>
-        </p>
-
-        <div style={{ marginTop: 12, padding: "10px 12px", border: "1px dashed #cbd5e1", borderRadius: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginBottom: 6 }}>Férias vendidas (abono) — período</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <label style={{ fontSize: 13, color: "#475569" }}>
-              Início da venda
-              <input type="date" data-testid="vacation-sold-start" value={soldStart} min={admission || undefined} onChange={(e) => setSoldStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
-            </label>
-            <label style={{ fontSize: 13, color: "#475569" }}>
-              Fim da venda
-              <input type="date" data-testid="vacation-sold-end" value={soldEnd} min={soldStart || admission || undefined} onChange={(e) => setSoldEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
-            </label>
-          </div>
-          <p style={{ fontSize: 12, color: "#334155", margin: "8px 0 0" }}>
-            Dias vendidos: <strong>{soldDays || "—"}</strong>
-          </p>
-        </div>
-
-        <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
-          Motivo {!start && !end && !soldStart && !soldEnd ? <strong style={{ color: "#b45309" }}>(obrigatório sem gozo/venda)</strong> : "(opcional)"}
-          <input type="text" data-testid="vacation-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: sem histórico, afastamento, etc." style={{ ...inputStyle, width: "100%" }} />
-        </label>
-        <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
-          Observações
-          <input type="text" data-testid="vacation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="opcional" style={{ ...inputStyle, width: "100%" }} />
-        </label>
-
-        {error ? <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 10 }}>{error}</div> : null}
-
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 16 }}>
-          <div>
+        {showForm ? (
+          <>
             {editingId ? (
-              <button className="btn btn-secondary" data-testid="vacation-cancel-edit" onClick={resetForm} disabled={busy}>Cancelar edição</button>
+              <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
+                Editando lançamento — período aquisitivo {acqYear || "—"}
+              </div>
+            ) : (
+              <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
+                Novo lançamento — período aquisitivo {acqYear || "—"}
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <label style={{ fontSize: 13, color: "#475569" }}>
+                Início das férias
+                <input type="date" data-testid="vacation-start" value={start} min={admission || undefined} onChange={(e) => setStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+              </label>
+              <label style={{ fontSize: 13, color: "#475569" }}>
+                Retorno (último dia)
+                <input type="date" data-testid="vacation-end" value={end} min={start || admission || undefined} onChange={(e) => setEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+              </label>
+              <label style={{ fontSize: 13, color: "#475569" }}>
+                Período aquisitivo (ano)
+                <input type="number" data-testid="vacation-acqyear" value={acqYear} min={admYear || undefined} onChange={(e) => setAcqYear(e.target.value)} placeholder="ex.: 2024" style={{ ...inputStyle, width: "100%" }} />
+              </label>
+            </div>
+            <p style={{ fontSize: 13, color: "#334155", margin: "8px 0 0" }}>
+              Dias gozados: <strong>{days || "—"}</strong>
+            </p>
+            {folgaWeekdays.size > 0 ? (
+              <p style={{ fontSize: 12, color: "#b45309", margin: "6px 0 0" }} data-testid="vacation-clt-hint">
+                CLT art. 134, §3º: as férias não podem iniciar nos 2 dias que antecedem a folga/repouso semanal do funcionário.
+              </p>
             ) : null}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Fechar</button>
-            <button className="btn btn-primary" data-testid="vacation-save" onClick={() => void handleSave()} disabled={busy}>
-              {busy ? "Salvando…" : editingId ? "Salvar alterações" : "Registrar férias"}
-            </button>
-          </div>
-        </div>
+
+            <div style={{ marginTop: 12, padding: "10px 12px", border: "1px dashed #cbd5e1", borderRadius: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginBottom: 6 }}>Férias vendidas (abono) — período</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <label style={{ fontSize: 13, color: "#475569" }}>
+                  Início da venda
+                  <input type="date" data-testid="vacation-sold-start" value={soldStart} min={admission || undefined} onChange={(e) => setSoldStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+                </label>
+                <label style={{ fontSize: 13, color: "#475569" }}>
+                  Fim da venda
+                  <input type="date" data-testid="vacation-sold-end" value={soldEnd} min={soldStart || admission || undefined} onChange={(e) => setSoldEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+                </label>
+              </div>
+              <p style={{ fontSize: 12, color: "#334155", margin: "8px 0 0" }}>
+                Dias vendidos: <strong>{soldDays || "—"}</strong>
+              </p>
+            </div>
+
+            <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
+              Motivo {!start && !end && !soldStart && !soldEnd ? <strong style={{ color: "#b45309" }}>(obrigatório sem gozo/venda)</strong> : "(opcional)"}
+              <input type="text" data-testid="vacation-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: sem histórico, afastamento, etc." style={{ ...inputStyle, width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
+              Observações
+              <input type="text" data-testid="vacation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="opcional" style={{ ...inputStyle, width: "100%" }} />
+            </label>
+
+            {error ? <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 10 }}>{error}</div> : null}
+
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 16 }}>
+              <div>
+                <button className="btn btn-secondary" data-testid="vacation-cancel-edit" onClick={resetForm} disabled={busy}>
+                  {editingId ? "Cancelar edição" : "Cancelar"}
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Fechar</button>
+                <button className="btn btn-primary" data-testid="vacation-save" onClick={() => void handleSave()} disabled={busy}>
+                  {busy ? "Salvando…" : editingId ? "Salvar alterações" : "Registrar férias"}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
 
         <div style={{ marginTop: 22 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
@@ -793,7 +838,16 @@ function VacationEditorModal({
                         {loadingAbsences ? "…" : right.lost ? "—" : pendentes}
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
-                        {periodVacations.length === 0 ? (
+                        {periodVacations.length > 0 ? (
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: "4px 10px", fontSize: 12 }}
+                            data-testid={`vacation-edit-${period.year}`}
+                            onClick={() => editVacation(periodVacations[0])}
+                          >
+                            Editar
+                          </button>
+                        ) : period.complete ? (
                           <button
                             className="btn btn-primary"
                             style={{ padding: "4px 10px", fontSize: 12 }}
@@ -803,14 +857,7 @@ function VacationEditorModal({
                             Lançar férias
                           </button>
                         ) : (
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: "4px 10px", fontSize: 12 }}
-                            data-testid={`vacation-edit-${period.year}`}
-                            onClick={() => editVacation(periodVacations[0])}
-                          >
-                            Editar
-                          </button>
+                          <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>Não vencido</span>
                         )}
                       </td>
                     </tr>
