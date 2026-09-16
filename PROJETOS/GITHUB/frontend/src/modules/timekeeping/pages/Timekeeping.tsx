@@ -1,3 +1,4 @@
+import { noticeAdjustedMinutes, noticeWorkAdjustment } from "../utils/noticeWorkAdjustment";
 import {
   CalendarDays,
   Calculator,
@@ -86,6 +87,7 @@ import {
   structureItemsForGroup,
 } from "@/common/utils/groupStructure";
 import { badgeClass, labelStatus, todayISO } from "@/utils/format";
+import { isInExperience, processModalities, terminationModes } from "@/modules/employees/experience";
 
 const fallbackStatuses: AttendanceStatus[] = [
   "present",
@@ -124,6 +126,41 @@ function employeeKindLabel(employee: Employee) {
     "",
   ).toLowerCase();
   return employeeKindLabels[kind] || "-";
+}
+
+function employeeProcessBadge(employee: Employee, date: string) {
+  const fields = employee.registrationData || {};
+  const mode = String(fields.terminationMode || "");
+  const end = String(
+    fields.noticeEndDate ||
+      fields.scheduledDeactivationDate ||
+      fields.deactivationEffectiveDate ||
+      "",
+  );
+  const label = terminationModes[mode as keyof typeof terminationModes];
+
+  if (employee.status === "terminated") return null;
+
+  if (label && (!end || date <= end)) {
+    const reduction =
+      fields.noticeReductionApplies === "true" &&
+      fields.noticeReduction === "hours" &&
+      noticeWorkAdjustment(employee, date) === "hours"
+        ? " · redução de 2h/dia"
+        : "";
+
+    return `${label}${reduction}`;
+  }
+
+  if (fields.noticeStartDate && end && date >= fields.noticeStartDate && date < end) {
+    return "Aviso prévio";
+  }
+
+  if (!label && (fields.scheduledDeactivationDate || fields.deactivationEffectiveDate)) {
+    return terminationModes.quick;
+  }
+
+  return isInExperience(employee, date) ? "Contrato de experiência" : null;
 }
 
 const baseColumns = [
@@ -1149,9 +1186,9 @@ function normalLimitMinutesForEmployeeDate(
   if (!date) return 0;
   if (hasRegisteredSchedule(employee)) {
     const schedule = employee ? scheduleForDate(employee, date) : undefined;
-    return scheduleDailyWorkMinutes(schedule) ?? 0;
+    return noticeAdjustedMinutes(employee, date, scheduleDailyWorkMinutes(schedule) ?? 0);
   }
-  return normalLimitMinutesForDate(date, settings);
+  return noticeAdjustedMinutes(employee, date, normalLimitMinutesForDate(date, settings));
 }
 
 function scheduleDefaultsForDate(
@@ -1763,7 +1800,9 @@ function createDisplayRecord(
 ): TimeRecord {
   const normalLimitMinutes = normalLimitMinutesForEmployeeDate(employee, date, settings);
   const scheduleDefaults = scheduleDefaultsForDate(employee, date, settings);
+  const noticeAdjustment = noticeWorkAdjustment(employee, date);
   const status =
+    noticeAdjustment === "leave" && (!existing?.status || isFullDayAbsenceStatus(existing.status)) ? "day_off" :
     existing?.status ||
     (isHoliday(date, settings) || normalLimitMinutes <= 0
       ? "day_off"
@@ -1855,19 +1894,19 @@ function createDisplayRecord(
     ? secullumTimeToHours(finalNormais)
     : neutralStatus || fullDayAbsence
       ? 0
-      : (existing?.usefulHours ?? calculated.usefulHours);
+      : (noticeAdjustment !== "none" ? calculated.usefulHours : existing?.usefulHours ?? calculated.usefulHours);
   const displayedBaseHours = manualMetricOverrides.has("carga")
     ? secullumTimeToHours(finalCarga)
     : fullDayAbsence
       ? normalLimitMinutes / 60
       : neutralStatus
         ? 0
-        : (existing?.baseHours ?? calculated.baseHours);
+        : (noticeAdjustment !== "none" ? calculated.baseHours : existing?.baseHours ?? calculated.baseHours);
   const displayedOvertimeHours = manualMetricOverrides.has("extras")
     ? secullumTimeToHours(finalExtras)
     : neutralStatus || fullDayAbsence
       ? 0
-      : (existing?.overtimeHours ?? calculated.overtimeHours);
+      : (noticeAdjustment !== "none" ? calculated.overtimeHours : existing?.overtimeHours ?? calculated.overtimeHours);
   const displayedAbsenceCount = manualMetricOverrides.has("faltas")
     ? (secullumTimeToMinutes(finalFaltas) || 0) > 0
       ? 1
@@ -1876,7 +1915,7 @@ function createDisplayRecord(
       ? 1
       : neutralStatus
         ? 0
-        : (existing?.absenceCount ?? calculated.absenceCount);
+        : (noticeAdjustment !== "none" ? calculated.absenceCount : existing?.absenceCount ?? calculated.absenceCount);
 
   return {
     id: existing?.id || "",
@@ -2165,6 +2204,7 @@ export default function Timekeeping() {
     filters.employeeIds.length ||
     filters.cpfValues.length ||
     filters.statuses.length ||
+    filters.terminationModes?.length ||
     filters.search ||
     filters.date !== todayISO(),
   );
@@ -6106,15 +6146,27 @@ export default function Timekeeping() {
     const tdClass = wrap ? "is-wrapped" : "is-nowrap";
 
     if (column.type === "system") {
+      const processBadge = column.systemField === "employee"
+        ? employeeProcessBadge(employee, filters.date)
+        : null;
       return (
         <td
           key={column.key}
           style={{ minWidth: width, width }}
           className={tdClass}
         >
-          <span className="benefit-cell-value">
-            {systemValue(employee, record, column)}
-          </span>
+          {processBadge ? (
+            <span className="timekeeping-employee-name">
+              <span className="timekeeping-process-badge">{processBadge}</span>
+              <span className="benefit-cell-value">
+                {systemValue(employee, record, column)}
+              </span>
+            </span>
+          ) : (
+            <span className="benefit-cell-value">
+              {systemValue(employee, record, column)}
+            </span>
+          )}
         </td>
       );
     }
@@ -6787,6 +6839,13 @@ export default function Timekeeping() {
             { value: "leave", label: "Afastado" },
             { value: "terminated", label: "Desativado" },
           ])}
+        />
+        <MultiSelect
+          label="Modalidade"
+          placeholder="Modalidade"
+          value={filters.terminationModes || []}
+          onChange={(terminationModes) => setFilters({ ...filters, terminationModes })}
+          options={sortOptions(Object.values(processModalities).map((label) => ({ value: label, label })))}
         />
         <MultiSelect
           label="Equipe real"

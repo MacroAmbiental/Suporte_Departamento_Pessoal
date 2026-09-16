@@ -7,6 +7,7 @@ export type TimekeepingFilters = {
   employeeIds: string[];
   cpfValues: string[];
   statuses: string[];
+  terminationModes: string[];
   date: string;
   search: string;
 };
