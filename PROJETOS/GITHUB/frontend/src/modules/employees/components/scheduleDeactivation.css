@@ -1,0 +1,32 @@
+﻿.deactivation-backdrop { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; background: rgba(14, 31, 44, 0.42); }
+.modal-panel.deactivation-modal { width: min(760px, 100%); max-width: 100%; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; overflow: hidden; padding: 0; border: 1px solid #dbe5ee; border-radius: 18px; box-shadow: 0 24px 80px #15344d33; background: #fff; }
+.deactivation-modal .modal-header { display: flex; align-items: center; gap: 14px; padding: 24px 28px; border-bottom: 1px solid #e5edf4; flex-shrink: 0; }
+.deactivation-heading-icon { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; color: #17799b; background: #eaf6fb; border-radius: 14px; }
+.deactivation-modal .modal-header > div { flex: 1; min-width: 0; }
+.deactivation-modal .modal-header h2 { margin: 0 0 7px; font-size: 22px; }
+.deactivation-modal .modal-header p { margin: 0 0 4px; font-weight: 600; overflow-wrap: anywhere; }
+.deactivation-modal .modal-header small { color: #738295; }
+.deactivation-body { border: 0; margin: 0; padding: 24px 28px; display: grid; gap: 20px; min-width: 0; min-height: 0; flex: 1 1 auto; max-height: min(68vh, 720px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.deactivation-section-title { margin: 0 0 12px; font-size: 14px; color: #38536c; }
+.deactivation-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.deactivation-option { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 18px 14px; border: 1px solid #dce6ef; border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
+.deactivation-option > input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.deactivation-option > svg { flex-shrink: 0; color: #55768e; }
+.deactivation-option strong { display: block; font-size: 14px; color: #203e56; }
+.deactivation-option small { display: block; margin-top: 6px; color: #687d8e; line-height: 1.5; }
+.deactivation-option:hover { background: #f7fafc; border-color: #9fb9ce; }
+.deactivation-option.is-selected { background: #edf8fc; border: 2px solid #218caf; padding: 17px 13px; }
+.deactivation-option:focus-within { outline: 3px solid #79b7ed; outline-offset: 2px; }
+.deactivation-option.is-quick.is-selected { background: #fff5ef; border-color: #cb692f; }
+.deactivation-modal .field { display: grid; gap: 8px; margin: 0; }
+.deactivation-modal .field input { min-height: 42px; max-width: 100%; box-sizing: border-box; }
+.deactivation-modal p { margin: 0; line-height: 1.6; }
+.deactivation-quick-summary { display: flex; align-items: flex-start; gap: 12px; padding: 18px; border: 1px solid #f3d5bd; border-radius: 12px; color: #874623; background: #fff8f2; }
+.deactivation-quick-summary > svg { flex-shrink: 0; }
+.deactivation-quick-summary p { margin: 8px 0 16px; }
+.deactivation-confirmation { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; cursor: pointer; }
+.deactivation-confirmation input { flex: 0 0 auto; width: 17px; height: 17px; margin-top: 3px; }
+.deactivation-modal .modal-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 18px 28px; border-top: 1px solid #e5edf4; background: #f8fafc; flex-shrink: 0; }
+.deactivation-modal .modal-footer button { min-height: 44px; }
+.deactivation-modal .deactivation-submit-quick { background: #bb492d; border-color: #bb492d; }
+@media (max-width: 600px) { .deactivation-backdrop { padding: 12px; } .modal-panel.deactivation-modal { max-height: calc(100dvh - 24px); border-radius: 14px; } .deactivation-options { grid-template-columns: 1fr; } .deactivation-modal .modal-header, .deactivation-body { padding: 18px; } .deactivation-modal .modal-header h2 { font-size: 19px; } .deactivation-heading-icon { display: none; } .deactivation-modal .modal-footer { padding: 14px 18px; flex-wrap: wrap; } .deactivation-modal .modal-footer button { flex: 1; } }

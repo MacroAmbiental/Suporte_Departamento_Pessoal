@@ -1,5 +1,5 @@
+import { EXPERIENCE_DURATION_DAYS } from "../experience";
 import {
-  CalendarClock,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -32,6 +32,7 @@ import {
   structureScopePayload,
 } from "@/common/utils/groupStructure";
 import EmployeesPagination from "../components/EmployeesPagination";
+import ScheduleDeactivationModal from "../components/ScheduleDeactivationModal";
 import MultiSelect from "../../../common/components/MultiSelect";
 import { employeeStandardDocumentNames } from "@/modules/records/utils/recordsDocuments";
 import { createUsernameFromName, hashPassword, normalizeUsername, systemScreens } from "@/services/accessControl";
@@ -55,6 +56,7 @@ import type {
 } from "@/types/domain";
 import { badgeClass, formatCurrency, formatDate, labelStatus, todayISO } from "@/utils/format";
 import { parseEmployeePdf } from "@/utils/pdfEmployeeImport";
+import { isInExperience, processModalities, terminationModes } from "../experience";
 
 type UndoState = { message: string; undo: () => Promise<void> } | null;
 type EmployeeKind = "contract" | "company" | "diarist";
@@ -72,6 +74,9 @@ interface EmployeeWizardForm extends Partial<Employee> {
   diaristBankDetails: string;
   diaristResponsible: string;
   diaristWorkplace: string;
+  salaryPeriod: "mês" | "dia" | "hora" | "semana";
+  experienceDays: number;
+  experienceAlertDays: number;
 }
 
 type EmployeeGroupUnitSelection = {
@@ -328,6 +333,9 @@ const emptyEmployee: EmployeeWizardForm = {
   diaristBankDetails: "",
   diaristResponsible: "",
   diaristWorkplace: "",
+  salaryPeriod: "mês",
+  experienceDays: EXPERIENCE_DURATION_DAYS,
+  experienceAlertDays: 7,
 };
 
 function normalizeKey(key: string) {
@@ -584,7 +592,7 @@ function suggestUsername(name: string) {
   return createUsernameFromName(name);
 }
 
-export default function Employees() {
+export default function Employees({ initialEmployeeId = "", initialModal }: { initialEmployeeId?: string; initialModal?: "deactivate" | "reactivate" }) {
   const data = useDomainData();
   const { can, user } = useAuth();
   const canCreateEmployees = can("employees", "create");
@@ -625,6 +633,7 @@ export default function Employees() {
     cpfValues: [] as string[],
     usernameValues: [] as string[],
     statuses: [] as string[],
+    terminationModes: [] as string[],
     employeeKinds: [] as EmployeeKind[],
     birthdayMode: "month" as BirthdayFilterMode,
     birthdayMonth: "",
@@ -642,10 +651,7 @@ export default function Employees() {
   const [exportPassword, setExportPassword] = useState("");
   const [exportPasswordError, setExportPasswordError] = useState("");
   const [exportChecking, setExportChecking] = useState(false);
-  const [noticeEmployee, setNoticeEmployee] = useState<Employee | null>(null);
-  const [noticeStartDate, setNoticeStartDate] = useState("");
-  const [noticeEndDate, setNoticeEndDate] = useState("");
-  const [noticeSaving, setNoticeSaving] = useState(false);
+  const [deactivationEmployee, setDeactivationEmployee] = useState<Employee | null>(null);
   const [statusScheduleEmployee, setStatusScheduleEmployee] =
     useState<Employee | null>(null);
   const [statusScheduleAction, setStatusScheduleAction] =
@@ -906,6 +912,24 @@ export default function Employees() {
       .map((year) => ({ value: year, label: year }));
   }, [data.employees]);
 
+  function getEmployeeProcessBadge(employee: Employee) {
+    const registrationData = employee.registrationData || {};
+    const today = todayISO();
+    const noticeStartDate = registrationData.noticeStartDate || "";
+    const noticeEndDate = registrationData.noticeEndDate || registrationData.noticeDate || "";
+    if (employee.status === "terminated") return null;
+    if (registrationData.terminationMode && terminationModes[registrationData.terminationMode as keyof typeof terminationModes]) {
+      return { label: terminationModes[registrationData.terminationMode as keyof typeof terminationModes], tone: "warning" };
+    }
+    if (noticeStartDate && noticeEndDate && today >= noticeStartDate && today < noticeEndDate) {
+      return { label: "Aviso prévio", tone: "warning" };
+    }
+    if (isInExperience(employee, today)) {
+      return { label: "Contrato de experiência", tone: "experience" };
+    }
+    return null;
+  }
+
   function getEmployeeDisplayStatus(employee: Employee) {
     const today = todayISO();
     const scheduledReactivationDate =
@@ -979,6 +1003,7 @@ export default function Employees() {
       && (!filters.cpfValues.length || filters.cpfValues.includes(employee.cpf?.trim() || ""))
       && (!filters.usernameValues.length || filters.usernameValues.includes(login?.username || ""))
       && (!filters.statuses.length || filters.statuses.includes(displayStatus))
+      && (!filters.terminationModes?.length || filters.terminationModes.includes(getEmployeeProcessBadge(employee)?.label || ""))
       && (!filters.employeeKinds.length || filters.employeeKinds.includes(employeeKind))
       && matchesBirthdayFilter(
         employee.registrationData?.birthDate,
@@ -1006,6 +1031,15 @@ export default function Employees() {
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    if (!initialEmployeeId || !data.employees.length) return;
+    const target = data.employees.find((employee) => employee.id === initialEmployeeId);
+    if (!target || target.registrationData?.dismissalApprovedAt) return;
+    if (initialModal === "deactivate") {
+      setDeactivationEmployee(target);
+    }
+  }, [data.employees, initialEmployeeId, initialModal]);
 
   useEffect(() => {
     if (!wizardOpen || !editingEmployeeId || !selectedFormUsesGroupStructure || !selectedFormGroup) return;
@@ -1078,6 +1112,10 @@ export default function Employees() {
             scheduledReactivationDate: "",
             reactivationEffectiveDate: "",
             reactivationCompletedDate: today,
+            processStartedAt: "",
+            processNotes: "",
+            terminationMode: "",
+            terminationRiskConfirmedAt: "",
             noticeDate: "",
             noticeStartDate: "",
             noticeEndDate: "",
@@ -1104,6 +1142,7 @@ export default function Employees() {
     || filters.cpfValues.length
     || filters.usernameValues.length
     || filters.statuses.length
+    || filters.terminationModes.length
     || filters.employeeKinds.length
     || filters.birthdayMonth
     || filters.birthdayYear
@@ -1693,6 +1732,9 @@ export default function Employees() {
       diaristBankDetails: registrationData.diaristBankDetails || "",
       diaristResponsible: registrationData.diaristResponsible || "",
       diaristWorkplace: registrationData.diaristWorkplace || "",
+      salaryPeriod: (registrationData.salaryPeriod as EmployeeWizardForm["salaryPeriod"]) || "mês",
+      experienceDays: EXPERIENCE_DURATION_DAYS,
+      experienceAlertDays: Number(registrationData.experienceAlertDays || 7),
       workScheduleDays: draftPayload?.workScheduleDays?.length ? draftPayload.workScheduleDays : scheduleTemplate,
       complement: { ...emptyComplement, ...draftPayload?.complement },
       createLogin: draftPayload?.id ? Boolean(login) : false,
@@ -1708,12 +1750,12 @@ export default function Employees() {
   }
 
   function startEdit(employee: Employee) {
-    if (!canEditEmployees) return;
+    if (!canEditEmployees || employee.registrationData?.dismissalApprovedAt) return;
     startDraft(employee, undefined, 1, false);
   }
 
   function startPromotion(employee: Employee) {
-    if (!canEditEmployees) return;
+    if (!canEditEmployees || employee.registrationData?.dismissalApprovedAt) return;
     startDraft(employee, undefined, 2, true);
   }
 
@@ -2078,6 +2120,9 @@ export default function Employees() {
           diaristBankDetails: form.diaristBankDetails || "",
           diaristResponsible: form.diaristResponsible || "",
           diaristWorkplace: form.diaristWorkplace || "",
+          salaryPeriod: form.salaryPeriod || "mês",
+          experienceDays: String(form.employeeKind === "diarist" ? 0 : EXPERIENCE_DURATION_DAYS),
+          experienceAlertDays: String(Math.max(1, Number(form.experienceAlertDays || 7))),
         },
         createdAt: previous?.createdAt || now,
         updatedAt: now,
@@ -2222,55 +2267,6 @@ export default function Employees() {
     });
   }
 
-  function openNoticeModal(employee: Employee) {
-    if (!canEditEmployees) return;
-    const savedStart = employee.registrationData?.noticeStartDate || todayISO();
-    const savedEnd = employee.registrationData?.noticeEndDate || employee.registrationData?.noticeDate || savedStart;
-    setNoticeEmployee(employee);
-    setNoticeStartDate(savedStart);
-    setNoticeEndDate(savedEnd);
-  }
-
-  function closeNoticeModal() {
-    if (noticeSaving) return;
-    setNoticeEmployee(null);
-    setNoticeStartDate("");
-    setNoticeEndDate("");
-  }
-
-  async function saveNoticeDate(event: FormEvent) {
-    event.preventDefault();
-    if (!noticeEmployee || !noticeStartDate || !noticeEndDate || noticeSaving) return;
-    if (noticeEndDate < noticeStartDate) {
-      window.alert("A data final do aviso prévio não pode ser anterior à data inicial.");
-      return;
-    }
-    setNoticeSaving(true);
-    try {
-      const today = todayISO();
-      const shouldDeactivateNow = noticeEndDate <= today;
-      await data.upsertEmployee({
-        ...noticeEmployee,
-        status: shouldDeactivateNow ? "terminated" : "active",
-        registrationData: {
-          ...(noticeEmployee.registrationData || {}),
-          noticeStartDate,
-          noticeEndDate,
-          noticeDate: noticeEndDate,
-          scheduledDeactivationDate: noticeEndDate,
-          deactivationEffectiveDate: noticeEndDate,
-          noticeScheduledAt: new Date().toISOString(),
-          noticeCompletedDate: shouldDeactivateNow ? today : "",
-          deactivationCompletedDate: shouldDeactivateNow ? today : "",
-        },
-        updatedAt: new Date().toISOString(),
-      });
-      closeNoticeModal();
-    } finally {
-      setNoticeSaving(false);
-    }
-  }
-
   function openStatusScheduleModal(
     employee: Employee,
     action: StatusScheduleAction,
@@ -2316,6 +2312,10 @@ export default function Employees() {
           status: isDueNow ? "active" : "terminated",
           registrationData: {
             ...(statusScheduleEmployee.registrationData || {}),
+            processStartedAt: "",
+            processNotes: "",
+            terminationMode: "",
+            terminationRiskConfirmedAt: "",
             noticeDate: "",
             noticeStartDate: "",
             noticeEndDate: "",
@@ -2380,12 +2380,26 @@ export default function Employees() {
     openStatusScheduleModal(employee, "reactivate");
   }
 
+  function hasActiveNoticeProcess(employee: Employee) {
+    const registrationData = employee.registrationData || {};
+    const hasNoticeMode = ["employee", "employer", "indemnified"].includes(String(registrationData.terminationMode || ""));
+    const hasNoticeDates = Boolean(
+      registrationData.noticeStartDate
+      || registrationData.noticeScheduledAt
+      || registrationData.noticeEndDate
+      || registrationData.noticeDate
+    );
+
+    return employee.status !== "terminated" && (hasNoticeMode || hasNoticeDates);
+  }
+
   function deactivateEmployee(employee: Employee) {
-    openStatusScheduleModal(employee, "deactivate");
+    if (!canEditEmployees || employee.registrationData?.dismissalApprovedAt || hasActiveNoticeProcess(employee)) return;
+    setDeactivationEmployee(employee);
   }
 
   function deleteEmployee(employee: Employee) {
-    if (!canDeleteEmployees) return;
+    if (!canDeleteEmployees || employee.registrationData?.dismissalApprovedAt) return;
     setConfirmState({
       title: "Excluir funcionário",
       description: `Deseja excluir ${employee.name}?`,
@@ -2613,6 +2627,13 @@ export default function Employees() {
           ]}
         />
         <MultiSelect
+          label="Modalidade"
+          placeholder="Modalidade"
+          value={filters.terminationModes || []}
+          onChange={(terminationModes) => setFilters({ ...filters, terminationModes })}
+          options={Object.values(processModalities).map((label) => ({ value: label, label }))}
+        />
+        <MultiSelect
           label="Tipo de contrato"
           placeholder="Tipo de contrato"
           value={filters.employeeKinds}
@@ -2703,13 +2724,23 @@ export default function Employees() {
               const login = data.systemUsers.find((user) => user.employeeId === employee.id);
               const scheduledStatusText = employeeStatusScheduleText(employee);
               const displayStatus = getEmployeeDisplayStatus(employee);
+              const processBadge = getEmployeeProcessBadge(employee);
+              const isDismissalApproved = Boolean(employee.registrationData?.dismissalApprovedAt);
               const group = groupForCompany(employee.companyId);
               const groupSectorName = groupUnitNameForEmployee(employee, "sector");
               const groupTeamName = groupUnitNameForEmployee(employee, "team");
 
               return (
                 <tr key={employee.id} style={displayStatus === "terminated" ? { background: "rgba(220, 38, 38, 0.09)" } : undefined}>
-                  <td><strong>{employee.name}</strong><br /><span className="muted">{employee.registration} {login ? `· ${login.username}` : ""}</span></td>
+                  <td>
+                    <div className="employee-name-cell">
+                      {processBadge ? <div className={`employee-process-badge is-${processBadge.tone}`}>{processBadge.label}</div> : null}
+                      <div className="employee-name-cell-main">
+                        <strong>{employee.name}</strong>
+                        <span className="muted">{employee.registration} {login ? `· ${login.username}` : ""}</span>
+                      </div>
+                    </div>
+                  </td>
                   <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{groupSectorName || sector?.name || "-"}</span><br /><span className="muted">Equipe: {groupTeamName || team?.name || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
                   <td>{employee.role || "-"}<br /><span className="muted">{employee.position || "-"}</span></td>
                   <td>{renderSensitiveValue(<>{employee.workSchedule || "-"}<br /><span className="muted">{employee.weeklyHours || 0}h semanais</span></>, "Jornada")}</td>
@@ -2731,23 +2762,23 @@ export default function Employees() {
                     <div className="table-actions" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "nowrap", whiteSpace: "nowrap" }}>
                       {canEditEmployees ? (
                         <>
-                          <button type="button" title="Editar funcionário" disabled={wizardOpen || confirmingAction} onClick={() => startEdit(employee)}><Pencil size={14} /></button>
-                          <button type="button" title="Registrar alteração de cargo" disabled={wizardOpen || confirmingAction} onClick={() => startPromotion(employee)}><Plus size={14} /></button>
-                          <button type="button" title="Determinar aviso prévio" disabled={confirmingAction} onClick={() => openNoticeModal(employee)}><CalendarClock size={14} /></button>
+                          <button type="button" title="Editar funcionário" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startEdit(employee)}><Pencil size={14} /></button>
+                          <button type="button" title="Registrar alteração de cargo" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startPromotion(employee)}><Plus size={14} /></button>
                           <button
                             type="button"
                             title={
                               displayStatus === "terminated"
                                 ? "Agendar reativação do funcionário"
-                                : "Agendar desativação do funcionário"
+                                : "Agendar desativação"
                             }
-                            disabled={confirmingAction}
+                            aria-label={displayStatus === "terminated" ? "Agendar reativação" : "Agendar desativação"}
+                            disabled={confirmingAction || isDismissalApproved || (!displayStatus || displayStatus === "terminated" ? false : hasActiveNoticeProcess(employee))}
                             onClick={() => displayStatus === "terminated" ? reactivateEmployee(employee) : deactivateEmployee(employee)}
-                          ><Power size={14} /></button>
+                          ><Power size={16} /></button>
                         </>
                       ) : null}
                       {canDeleteEmployees ? (
-                        <button type="button" title="Excluir funcionário" disabled={confirmingAction} onClick={() => deleteEmployee(employee)}><Trash2 size={14} /></button>
+                        <button type="button" title="Excluir funcionário" disabled={isDismissalApproved || confirmingAction} onClick={() => deleteEmployee(employee)}><Trash2 size={14} /></button>
                       ) : null}
                     </div>
                   </td>
@@ -2874,62 +2905,7 @@ export default function Employees() {
         </div>
       ) : null}
 
-      {noticeEmployee ? (
-        <div className="modal-backdrop" role="presentation" style={{ zIndex: 10000, padding: 24, overflowY: "auto" }}>
-          <form
-            className="modal-panel notice-period-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="notice-period-title"
-            onSubmit={saveNoticeDate}
-            style={{ width: "min(680px, calc(100vw - 48px))", maxHeight: "none", overflow: "visible", margin: "40px auto", background: "#fff" }}
-          >
-            <div className="modal-header" style={{ padding: "24px 28px" }}>
-              <div>
-                <h2 id="notice-period-title">Determinar aviso prévio</h2>
-                <p className="muted" style={{ marginTop: 4 }}>{noticeEmployee.name}</p>
-              </div>
-              <button type="button" className="icon-button" disabled={noticeSaving} onClick={closeNoticeModal} aria-label="Fechar"><X size={18} /></button>
-            </div>
-            <div className="modal-body" style={{ padding: "28px", overflow: "visible" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
-                <label className="field">
-                  Início do aviso prévio
-                  <input
-                    type="date"
-                    value={noticeStartDate}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setNoticeStartDate(value);
-                      if (noticeEndDate && noticeEndDate < value) setNoticeEndDate(value);
-                    }}
-                    required
-                  />
-                </label>
-                <label className="field">
-                  Fim do aviso prévio / desativação
-                  <input
-                    type="date"
-                    min={noticeStartDate || undefined}
-                    value={noticeEndDate}
-                    onChange={(event) => setNoticeEndDate(event.target.value)}
-                    required
-                  />
-                </label>
-              </div>
-              <div style={{ marginTop: 20, padding: 16, borderRadius: 12, background: "#f4f7fb", lineHeight: 1.5 }}>
-                O status <strong>Aviso prévio</strong> começa na data inicial. Ao chegar à data final, o funcionário é desativado automaticamente e deixa de aparecer na folha de ponto.
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "20px 28px", display: "flex", justifyContent: "flex-end", gap: 12 }}>
-              <button type="button" className="btn btn-secondary" disabled={noticeSaving} onClick={closeNoticeModal}>Cancelar</button>
-              <button type="submit" className="btn btn-primary" disabled={noticeSaving || !noticeStartDate || !noticeEndDate}>
-                <Save size={16} /> {noticeSaving ? "Salvando..." : "Confirmar período"}
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
+      {deactivationEmployee ? <ScheduleDeactivationModal employee={deactivationEmployee} onClose={() => setDeactivationEmployee(null)} /> : null}
 
       {statusScheduleEmployee ? (
         <div className="modal-backdrop" role="presentation" style={{ zIndex: 10000, padding: 24, overflowY: "auto" }}>
@@ -3147,7 +3123,18 @@ export default function Employees() {
                   </table>
                 </div>
                 <label className="field">Carga horária semanal<input type="number" value={form.weeklyHours ?? calculateWeeklyHours(form.workScheduleDays || [])} readOnly /></label>
-                <label className="field">Salário<input type="number" step="0.01" value={form.salary ?? 0} onChange={(e) => setForm({ ...form, salary: Number(e.target.value) })} /></label>
+                <label className="field" style={{ minWidth: 120 }}>
+                  Salário
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="number" step="0.01" value={form.salary ?? 0} onChange={(e) => setForm({ ...form, salary: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <select value={form.salaryPeriod} onChange={(e) => setForm({ ...form, salaryPeriod: e.target.value as EmployeeWizardForm["salaryPeriod"] })} style={{ width: 92 }}>
+                      <option value="mês">mês</option>
+                      <option value="dia">dia</option>
+                      <option value="hora">hora</option>
+                      <option value="semana">semana</option>
+                    </select>
+                  </div>
+                </label>
                 <label className="field">E-mail<input value={form.complement?.email ?? ""} onChange={(e) => setComplement("email", e.target.value)} /></label>
                 <label className="field">Contato de emergência<input value={form.complement?.emergencyContact ?? ""} onChange={(e) => setComplement("emergencyContact", e.target.value)} /></label>
                 <label className="field is-wide-field">Observações<textarea value={form.complement?.notes ?? ""} onChange={(e) => setComplement("notes", e.target.value)} /></label>
@@ -3168,7 +3155,12 @@ export default function Employees() {
               <div className="review-box">
                 <strong>{form.name}</strong>
                 <span>{form.role || "-"} · {form.position || "-"}</span>
-                <span>{form.workSchedule || "-"} · {form.weeklyHours || 0}h · {formatCurrency(Number(form.salary || 0))}</span>
+                <span>{form.workSchedule || "-"} · {form.weeklyHours || 0}h · {formatCurrency(Number(form.salary || 0))} / {form.salaryPeriod}</span>
+                {form.employeeKind !== "diarist" ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", background: "#fef3c7", color: "#92400e", border: "1px solid #facc15", borderRadius: 6, padding: "6px 10px", fontWeight: 600, width: "fit-content" }}>
+                    Período de experiência: {form.experienceDays} dias
+                  </span>
+                ) : null}
                 <span>{form.createLogin ? `Login: ${form.username}` : "Login pode ser criado depois"}</span>
                 {selectedPromotions.length ? <span>{selectedPromotions.length} alteração(ões) de trajetória já registrada(s).</span> : null}
                 {promotionMode ? <span>Fluxo de promoção: a trajetória só será registrada se houver mudança de função ou cargo.</span> : null}
@@ -3207,3 +3199,6 @@ export default function Employees() {
     </section>
   );
 }
+
+
+
