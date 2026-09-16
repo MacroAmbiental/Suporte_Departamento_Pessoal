@@ -1,4 +1,4 @@
-import type { AppScreen, DomainSnapshot } from "@/types/domain";
+﻿import type { AppScreen, DomainSnapshot } from "@/types/domain";
 
 export type DomainCollectionName = keyof DomainSnapshot;
 
@@ -31,6 +31,7 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "documentAlerts",
   ],
   employees: [
+    "employeeProcessHistory",
     "companies",
     "companyGroups",
     "companyGroupCompanies",
@@ -42,6 +43,7 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "subsectors",
     "teams",
     "employees",
+    "employeeDocuments",
     "employeeDrafts",
     "employeePromotions",
     "systemUsers",
@@ -129,6 +131,8 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
  * otimista após escrita, reduzindo drasticamente leituras e re-renderizações.
  */
 const realtimeScopes: Partial<Record<AppScreen, DomainCollectionName[]>> = {
+  // Shared cache + listener: pagination and employee subpage navigation stay local.
+  employees: ["employees", "companies", "employeeDocuments", "employeeProcessHistory"],
   notifications: ["documentAlerts"],
   records: ["documentAlerts"],
 };
@@ -142,3 +146,5 @@ export function realtimeCollectionsForScreen(screen: AppScreen | null): DomainCo
   if (!screen) return [];
   return Array.from(new Set(realtimeScopes[screen] || []));
 }
+
+

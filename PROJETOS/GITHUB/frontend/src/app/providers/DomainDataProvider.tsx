@@ -1,3 +1,7 @@
+﻿import { archiveEmployeeProcess } from "@/modules/employees/processHistory";
+import { todayISO } from "@/utils/format";
+import { processEntryDate } from "@/modules/employees/processEntryDate";
+import { isInExperience } from "@/modules/employees/experience";
 import { createContext, startTransition, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { where } from "firebase/firestore";
 import { useLocation } from "react-router-dom";
@@ -184,6 +188,7 @@ const emptySnapshot: DomainSnapshot = {
   benefitFolders: [],
   benefitCustomFields: [],
   employeeBenefits: [],
+  employeeProcessHistory: [],
   employees: [],
   employeePromotions: [],
   employeeDrafts: [],
@@ -1267,6 +1272,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
 
   const deleteEmployee = useCallback(async (employeeId: string) => {
     const snapshot = await loadEmployeeDeletionSnapshot([employeeId]);
+    for (const employee of snapshot.employees) await archiveEmployeeProcess(employee);
     mergeDeletionSnapshot(snapshot);
     return deleteMany({
       ...collectEmployeeLinkedIds([employeeId], snapshot),
@@ -1276,6 +1282,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
 
   const deleteCompany = useCallback(async (companyId: string) => {
     const snapshot = await loadCompanyDeletionSnapshot(companyId);
+    for (const employee of snapshot.employees) await archiveEmployeeProcess(employee);
     mergeDeletionSnapshot(snapshot);
     const employeeIds = snapshot.employees.filter((item) => item.companyId === companyId).map((item) => item.id);
     if (employeeIds.length) {
@@ -1882,7 +1889,22 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    return upsert<Employee>("employees", "employee", payload);
+    const previous = data.employees.find((employee) => employee.id === payload.id);
+    const employee = { ...previous, ...payload } as Employee;
+    const experience = isInExperience(employee, todayISO());
+    const enteredAt = processEntryDate(employee, experience);
+    const fields = employee.registrationData || {};
+    const hasProcess = experience || fields.scheduledDeactivationDate || fields.deactivationEffectiveDate || fields.noticeStartDate;
+    if (previous) await archiveEmployeeProcess(previous);
+    const savedEmployee = await upsert<Employee>("employees", "employee", {
+      ...payload,
+      registrationData: {
+        ...fields,
+        processStartedAt: fields.processStartedAt || (!previous && hasProcess ? new Date().toISOString() : enteredAt),
+      },
+    });
+    await archiveEmployeeProcess(savedEmployee);
+    return savedEmployee;
   }, [data.employees, upsert]);
 
   const deleteOrganizationalNode = useCallback(async (id: string) => {
@@ -2092,3 +2114,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     </DomainDataContext.Provider>
   );
 }
+
+
+
+

@@ -1,3 +1,4 @@
+import type { EmployeeProcessHistory } from "@/modules/employees/processHistory";
 export type AlertStatus = "active" | "overdue" | "pending" | "completed";
 export type AlertPriority = "high" | "medium" | "low";
 export type NotifyChannel = "system" | "email" | "whatsapp";
@@ -670,6 +671,7 @@ export interface TalentColumnOption {
 }
 
 export interface DomainSnapshot {
+  employeeProcessHistory: EmployeeProcessHistory[];
   systemUsers: SystemUser[];
   systemPermissions: SystemPermission[];
   permissionProfiles: PermissionProfile[];

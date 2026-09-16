@@ -70,6 +70,13 @@
   flex: 0 0 auto;
 }
 
+.sidebar-nav a.sidebar-subpage {
+  margin-left: 18px;
+  padding: 8px 12px;
+  border-left: 2px solid #ffffff50;
+  font-size: 12px;
+}
+
 .nav-count {
   display: inline-flex;
   align-items: center;
@@ -346,4 +353,13 @@
   .user-chip span {
     display: none;
   }
+}
+
+/* A subtela ocupa toda a área disponível, inclusive com o menu recolhido. */
+.workspace.employee-process-workspace,
+.app-shell.sidebar-collapsed .workspace.employee-process-workspace {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding-inline: clamp(12px, 1.2vw, 24px);
 }

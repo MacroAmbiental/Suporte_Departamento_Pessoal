@@ -51,6 +51,7 @@ const collectionLoadPool = new Map<CollectionName, Promise<Entity[]>>();
 const LISTENER_GRACE_PERIOD_MS = 60_000;
 
 export const collectionNames: CollectionName[] = [
+  "employeeProcessHistory",
   "systemUsers",
   "systemPermissions",
   "permissionProfiles",

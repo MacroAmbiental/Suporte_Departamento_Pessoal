@@ -1,5 +1,6 @@
-import {
+﻿import {
   Activity,
+  CalendarClock,
   Bell,
   Briefcase,
   Building2,
@@ -34,11 +35,13 @@ const navItems: {
   icon: typeof LayoutDashboard;
   screen: AppScreen;
   end?: boolean;
+  subpage?: string;
 }[] = [
     { to: "/app", label: "Painel", icon: LayoutDashboard, screen: "dashboard", end: true },
     { to: "/app/companies", label: "Empresas", icon: Building2, screen: "companies" },
     { to: "/app/records", label: "Registros", icon: Files, screen: "records" },
     { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
+    { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },
     { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits" },
     { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping" },
     { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
@@ -319,9 +322,9 @@ export default function Layout() {
             return (
               <NavLink
                 key={item.to}
-                to={securePath(item.screen)}
+                to={`${securePath(item.screen)}${item.subpage ? `?tab=${item.subpage}` : ""}`}
                 end={item.end}
-                className={({ isActive }) => (isActive ? "is-active" : undefined)}
+                className={({ isActive }) => [item.subpage ? "sidebar-subpage" : "", isActive && (item.screen !== "employees" || (new URLSearchParams(location.search).get("tab") === "processos") === Boolean(item.subpage)) ? "is-active" : ""].filter(Boolean).join(" ")}
                 onClick={(event) => {
                   if (!canNavigateAway()) {
                     event.preventDefault();
@@ -366,7 +369,7 @@ export default function Layout() {
             </div>
           ) : null}
         </header>
-        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "timekeeping" ? " is-fullwidth" : ""}`}>
+        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "employees" ? " is-fullwidth" : ""}${currentScreen === "employees" && new URLSearchParams(location.search).get("tab") === "processos" ? " employee-process-workspace" : ""}`}>
           <Outlet />
         </main>
         {domain.undoState ? (
@@ -382,3 +385,4 @@ export default function Layout() {
     </div>
   );
 }
+
