@@ -41,6 +41,8 @@ export default function DocumentWizard({
   onSave,
   getEmployeeCompanyName,
 }: DocumentWizardProps) {
+  const selectedEmployee = employees.find((employee) => employee.id === draftEmployeeId);
+
   return (
     <div className="modal-backdrop" role="presentation">
       <div
@@ -50,7 +52,15 @@ export default function DocumentWizard({
         aria-labelledby="document-wizard-title"
       >
         <div className="modal-header">
-          <h2 id="document-wizard-title">Adicionar documentos</h2>
+          <div>
+            <h2 id="document-wizard-title">Adicionar documentos</h2>
+            {selectedEmployee ? (
+              <p className="muted" style={{ marginTop: 4 }}>
+                Funcionário: {selectedEmployee.name}
+                {getEmployeeCompanyName(selectedEmployee) ? ` · ${getEmployeeCompanyName(selectedEmployee)}` : ""}
+              </p>
+            ) : null}
+          </div>
 
           <button
             className="icon-button"
@@ -68,7 +78,7 @@ export default function DocumentWizard({
             type="button"
             onClick={() => onStepChange(1)}
           >
-            1. Funcionário
+            1. Documentos
           </button>
 
           <button
@@ -76,41 +86,11 @@ export default function DocumentWizard({
             type="button"
             onClick={() => onStepChange(2)}
           >
-            2. Documentos
-          </button>
-
-          <button
-            className={step === 3 ? "is-active" : ""}
-            type="button"
-            onClick={() => onStepChange(3)}
-          >
-            3. Alertas
+            2. Alertas
           </button>
         </div>
 
         {step === 1 ? (
-          <div className="form-grid">
-            <label className="field is-wide-field">
-              Funcionário
-              <select
-                value={draftEmployeeId}
-                onChange={(event) =>
-                  onDraftEmployeeChange(event.target.value)
-                }
-              >
-                <option value="">Selecione</option>
-
-                {employees.map((employee) => (
-                  <option value={employee.id} key={employee.id}>
-                    {employee.name} · {getEmployeeCompanyName(employee) || "-"}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        ) : null}
-
-        {step === 2 ? (
           <div className="document-draft-list">
             {documents.map((document) => (
               <div className="document-draft" key={document.id}>
@@ -234,7 +214,7 @@ export default function DocumentWizard({
           </div>
         ) : null}
 
-        {step === 3 ? (
+        {step === 2 ? (
           canCreateAlerts ? (
             <div className="wizard-alert-list">
               {documents.map((document) => {
@@ -363,7 +343,7 @@ export default function DocumentWizard({
             </button>
           ) : null}
 
-          {step < 3 ? (
+          {step < 2 ? (
             <button
               className="btn btn-primary"
               type="button"

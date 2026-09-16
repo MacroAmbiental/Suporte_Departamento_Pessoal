@@ -201,7 +201,7 @@ button:disabled:hover {
 }
 
 .table-panel {
-  overflow: hidden;
+  overflow-x: auto;
   border: 1px solid #dbe5ee;
   border-radius: 20px;
   background: #ffffff;
@@ -220,7 +220,9 @@ button:disabled:hover {
 .data-table th,
 .data-table td {
   min-width: 0;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .data-table th {
@@ -274,6 +276,7 @@ button:disabled:hover {
   font-size: 14px;
   border-bottom: 1px solid #f0f3f6;
   vertical-align: middle;
+  line-height: 1.45;
 }
 
 .data-table tr {
@@ -475,8 +478,10 @@ button:disabled:hover {
 
 .table-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .link-button {
@@ -719,9 +724,11 @@ button:disabled:hover {
 
 .records-split {
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1.8fr);
   gap: 24px;
   align-items: start;
+  width: min(100%, 1700px);
+  max-width: 100%;
 }
 
 .records-main {
@@ -736,6 +743,7 @@ button:disabled:hover {
   justify-content: space-between;
   gap: 18px;
   padding: 20px 22px;
+  flex-wrap: wrap;
 }
 
 .folders-panel {
@@ -874,6 +882,50 @@ button:disabled:hover {
   gap: 5px;
 }
 
+.records-page .employee-folder-info {
+  display: grid;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.records-page .employee-folder-modality-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid #dfeaf4;
+  border-radius: 999px;
+  background: #edf3fb;
+  color: #24527a;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.records-page .employee-folder-modality-badge.is-warning {
+  border-color: #f5d880;
+  background: #fff3c9;
+  color: #8b6200;
+}
+
+.records-page .employee-folder-modality-badge.is-info {
+  border-color: #9ec5f4;
+  background: #e2f0ff;
+  color: #1c5f91;
+}
+
+.records-page .employee-folder-modality-badge.is-danger {
+  border-color: #f2a7b7;
+  background: #ffe4ec;
+  color: #b42348;
+}
+
 .records-page .employee-missing-alert-docs {
   display: grid;
   gap: 6px;
@@ -953,6 +1005,32 @@ button:disabled:hover {
   background: #f1fbf8;
 }
 
+@media (max-width: 1200px) {
+  .records-split {
+    grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .records-split {
+    grid-template-columns: 1fr;
+  }
+
+  .records-page .folders-panel {
+    position: static;
+    max-height: none;
+  }
+
+  .records-page .employee-folder-tree {
+    max-height: none;
+  }
+
+  .selected-employee-panel {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 .records-page .company-folder-employees button.is-dismissed {
   background: #f0f1f4;
   border-color: #dfe3e8;
@@ -972,6 +1050,136 @@ button:disabled:hover {
 .records-page .selected-employee-panel .badge.is-terminated {
   background: #e4e7eb;
   color: #565f69;
+}
+
+.records-page .selected-employee-panel .dismissal-timestamp {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.employee-document-cards {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.table-panel.employee-document-card {
+  padding: 0;
+}
+
+.employee-document-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  color: #31475b;
+  cursor: pointer;
+  list-style: none;
+}
+
+.employee-document-card-header::-webkit-details-marker {
+  display: none;
+}
+
+.employee-document-card-header:hover {
+  background: #f5f8fa;
+}
+
+.employee-document-card-header:focus-visible {
+  outline: 2px solid #099164;
+  outline-offset: -4px;
+  border-radius: 20px;
+}
+
+.employee-document-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-weight: 800;
+}
+
+.employee-document-card-title svg {
+  flex-shrink: 0;
+}
+
+.employee-document-card-count {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #edf1f5;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.employee-document-card-chevron {
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+
+.employee-document-card[open] > summary .employee-document-card-chevron {
+  transform: rotate(180deg);
+}
+
+.employee-document-card-content {
+  overflow-x: auto;
+  border-top: 1px solid #edf1f5;
+}
+
+.employee-document-card-empty {
+  margin: 0;
+  padding: 0 20px 20px;
+}
+
+.active-document-checklist {
+  display: grid;
+  gap: 2px;
+  padding: 10px 20px 16px;
+  border-top: 1px solid #edf1f5;
+}
+
+.active-document-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  color: #31475b;
+  cursor: pointer;
+}
+
+.active-document-checklist-item input {
+  width: 16px;
+  height: 16px;
+  accent-color: #099164;
+}
+
+.active-document-checklist-item input:checked + span {
+  color: #64748b;
+  text-decoration: line-through;
+}
+
+.active-document-checklist-item input:disabled {
+  cursor: not-allowed;
+}
+
+.dismissal-document-upload {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 20px 0;
+}
+
+.dismissal-document-upload.is-card-header {
+  padding: 0;
+}
+
+.records-page .archive-section-header {
+  background: #edf1f5;
+  color: #31475b;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .records-page .dismissal-actions {
@@ -1120,8 +1328,12 @@ button:disabled:hover {
 
 .record-name {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .record-alert-count {
@@ -3269,6 +3481,36 @@ button:disabled:hover {
   overflow-wrap: anywhere;
 }
 
+.timekeeping-employee-name {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  min-width: 0;
+}
+
+.timekeeping-employee-name > .benefit-cell-value {
+  width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.timekeeping-process-badge {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid #7fb9db;
+  border-radius: 999px;
+  background: #e8f6fc;
+  color: #155d82;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: right;
+  white-space: normal;
+}
+
 .timekeeping-actions-head,
 .timekeeping-actions-cell {
   width: 190px;
@@ -4075,18 +4317,28 @@ button:disabled:hover {
 }
 
 .badge-success {
-  background: #d8f5e7;
-  color: #058356;
+  background: #e7f7ef;
+  color: #0c7c5b;
 }
 
 .badge-info {
-  background: #e3f1ff;
-  color: #246999;
+  background: #e2f0ff;
+  color: #1c5f91;
 }
 
 .badge-warning {
-  background: #fff0c7;
-  color: #a16b00;
+  background: #fff3c9;
+  color: #8b6200;
+}
+
+.badge-danger {
+  background: #ffe4ec;
+  color: #b42348;
+}
+
+.badge-experience {
+  background: #e2f0ff;
+  color: #1c5f91;
 }
 
 @media (max-width: 980px) {

@@ -1,8 +1,8 @@
-import { Plus, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { useRecordsContext } from "@/modules/records/context/RecordsContext";
 
 export default function RecordsHeader() {
-  const { openStandardDocsModal, openWizard, permissions } = useRecordsContext();
+  const { openStandardDocsModal, permissions } = useRecordsContext();
 
   return (
     <div className="page-header">
@@ -15,12 +15,6 @@ export default function RecordsHeader() {
           <button className="btn btn-secondary" type="button" onClick={() => openStandardDocsModal()}>
             <Settings size={17} />
             Documentos padrões
-          </button>
-        ) : null}
-        {permissions.canCreateDocuments ? (
-          <button className="btn btn-primary" type="button" onClick={() => openWizard()}>
-            <Plus size={17} />
-            Adicionar documento
           </button>
         ) : null}
       </div>

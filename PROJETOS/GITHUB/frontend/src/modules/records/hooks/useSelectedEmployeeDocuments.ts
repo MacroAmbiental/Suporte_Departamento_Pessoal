@@ -9,8 +9,30 @@ type UseSelectedEmployeeDocumentsParams = {
   selectedEmployeeId: string;
 };
 
-function isDismissalModeEmployee(employee?: Employee) {
-  return Boolean(employee && employee.status === "terminated");
+export function isRecordsDismissalEmployee(employee?: Employee | null) {
+  if (!employee) return false;
+
+  const fields = employee.registrationData || {};
+  const hasScheduledDismissal = Boolean(
+    fields.terminationMode
+    || fields.noticeStartDate
+    || fields.noticeScheduledAt
+    || fields.noticeEndDate
+    || fields.noticeDate
+    || fields.scheduledDeactivationDate
+    || fields.deactivationEffectiveDate
+    || fields.deactivationScheduledAt,
+  );
+
+  return employee.status === "terminated" || (hasScheduledDismissal && !fields.dismissalApprovedAt && !fields.dismissalCancelledAt);
+}
+
+export function isDismissalInProgressEmployee(employee?: Employee | null) {
+  return isRecordsDismissalEmployee(employee) && !Boolean(employee?.registrationData?.dismissalApprovedAt);
+}
+
+export function isDismissalArchivedEmployee(employee?: Employee | null) {
+  return Boolean(employee && employee.status === "terminated" && Boolean(employee.registrationData?.dismissalApprovedAt));
 }
 
 export function useSelectedEmployeeDocuments({
@@ -41,7 +63,7 @@ export function useSelectedEmployeeDocuments({
   const selectedDocumentIds = useMemo(() => new Set(selectedDocuments.map((document) => document.id)), [selectedDocuments]);
 
   const activeAlertCount = useMemo(() => {
-    if (isDismissalModeEmployee(selectedEmployee)) {
+    if (isDismissalArchivedEmployee(selectedEmployee)) {
       return 0;
     }
 

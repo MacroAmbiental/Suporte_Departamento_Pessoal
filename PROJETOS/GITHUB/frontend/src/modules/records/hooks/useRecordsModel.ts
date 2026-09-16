@@ -6,7 +6,7 @@ import { useCompanyFolderGroups } from "@/modules/records/hooks/useCompanyFolder
 import { useDocumentDrafts } from "@/modules/records/hooks/useDocumentDrafts";
 import { useRecordsFilters } from "@/modules/records/hooks/useRecordsFilters";
 import { useRecordsPermissions } from "@/modules/records/hooks/useRecordsPermissions";
-import { useSelectedEmployeeDocuments } from "@/modules/records/hooks/useSelectedEmployeeDocuments";
+import { isDismissalInProgressEmployee, useSelectedEmployeeDocuments } from "@/modules/records/hooks/useSelectedEmployeeDocuments";
 import type { ConfirmActionState } from "@/modules/records/types";
 import {
   buildEmployeeFolderPath,
@@ -48,6 +48,10 @@ export function useRecordsModel() {
     addDocument,
     handleFile,
   } = useDocumentDrafts({ createAlerts: permissions.canCreateAlerts });
+  const initialEmployeeId = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("employeeId") || "";
+  }, []);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
@@ -62,6 +66,12 @@ export function useRecordsModel() {
   const [standardDocsRoleKey, setStandardDocsRoleKey] = useState("");
   const [standardDocsText, setStandardDocsText] = useState("");
   const [savingStandardDocs, setSavingStandardDocs] = useState(false);
+
+  useEffect(() => {
+    if (!initialEmployeeId) return;
+    if (!data.employees.some((employee) => employee.id === initialEmployeeId)) return;
+    setSelectedEmployeeId(initialEmployeeId);
+  }, [data.employees, initialEmployeeId]);
 
   const companyById = useMemo(() => new Map(data.companies.map((company) => [company.id, company])), [data.companies]);
   const departmentById = useMemo(() => new Map(data.departments.map((department) => [department.id, department])), [data.departments]);
@@ -444,6 +454,83 @@ export function useRecordsModel() {
     });
   }
 
+  function toggleActiveDocumentChecklist(documentId: string) {
+    if (!selectedEmployee || !permissions.canEditDocuments) return;
+
+    let completedIds: string[] = [];
+    try {
+      const saved = JSON.parse(selectedEmployee.registrationData?.activeDocumentChecklistIds || "[]") as string[];
+      completedIds = Array.isArray(saved) ? saved.filter(Boolean) : [];
+    } catch {
+      completedIds = [];
+    }
+
+    const nextIds = completedIds.includes(documentId)
+      ? completedIds.filter((id) => id !== documentId)
+      : [...completedIds, documentId];
+
+    void data.upsertEmployee({
+      ...selectedEmployee,
+      registrationData: {
+        ...(selectedEmployee.registrationData || {}),
+        activeDocumentChecklistIds: JSON.stringify(nextIds),
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async function addDismissalDocument(file: File) {
+    if (!selectedEmployee || !permissions.canCreateDocuments || !isDismissalInProgressEmployee(selectedEmployee)) return;
+
+    const employee = selectedEmployee;
+    const now = new Date().toISOString();
+    const company = employeeCompany(employee);
+    const department = employeeDepartment(employee);
+    const sector = employeeSector(employee);
+    const subsector = employeeSubsector(employee);
+    const folderPath = buildEmployeeFolderPath([company?.name, department?.name, sector?.name, subsector?.name, employee.name]);
+    const fileUrl = await uploadEmployeeDocumentFile(employee.id, file);
+    const savedDocument = await data.upsertEmployeeDocument({
+      companyId: employee.companyId,
+      groupId: employee.groupId || "",
+      departmentId: employee.departmentId,
+      sectorId: employee.sectorId,
+      subsectorId: employee.subsectorId,
+      employeeId: employee.id,
+      name: file.name,
+      kind: documentKindFromFileName(file.name),
+      folderPath,
+      fileUrl,
+      size: formatDocumentFileSize(file),
+      realizedDate: "",
+      expirationDate: "",
+      active: true,
+      createdAt: now,
+      attachmentDate: now,
+      updatedAt: now,
+    });
+
+    const latestEmployee = data.employees.find((item) => item.id === employee.id) || employee;
+    const selectedIds = parseDismissalSelection(latestEmployee);
+    let createdIds: string[] = [];
+    try {
+      const saved = JSON.parse(latestEmployee.registrationData?.dismissalCreatedDocumentIds || "[]") as string[];
+      createdIds = Array.isArray(saved) ? saved.filter(Boolean) : [];
+    } catch {
+      createdIds = [];
+    }
+
+    await data.upsertEmployee({
+      ...latestEmployee,
+      registrationData: {
+        ...(latestEmployee.registrationData || {}),
+        dismissalSelectedDocumentIds: JSON.stringify(Array.from(new Set([...selectedIds, savedDocument.id]))),
+        dismissalCreatedDocumentIds: JSON.stringify(Array.from(new Set([...createdIds, savedDocument.id]))),
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   function confirmDismissalHomologation() {
     if (!selectedEmployee) return;
 
@@ -467,6 +554,7 @@ export function useRecordsModel() {
             dismissalSelectedDocumentIds: JSON.stringify(selectedDocumentIds),
             dismissalAlertSnapshot: JSON.stringify(snapshot),
             dismissalApprovedAt: now,
+            dismissalCancelledAt: "",
           },
           updatedAt: now,
         });
@@ -500,8 +588,10 @@ export function useRecordsModel() {
           registrationData: {
             ...(employee.registrationData || {}),
             dismissalSelectedDocumentIds: "[]",
+            dismissalCreatedDocumentIds: "[]",
             dismissalAlertSnapshot: "",
             dismissalApprovedAt: "",
+            dismissalCancelledAt: now,
           },
           updatedAt: now,
         });
@@ -808,6 +898,8 @@ export function useRecordsModel() {
     setStandardDocsModalOpen,
     setStandardDocsText,
     toggleDocument,
+    toggleActiveDocumentChecklist,
+    addDismissalDocument,
     toggleDismissalDocumentSelection,
     confirmDismissalHomologation,
     confirmDismissalCancellation,

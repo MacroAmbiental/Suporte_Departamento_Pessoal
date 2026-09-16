@@ -1,9 +1,20 @@
+.records-page {
+  width: 100%;
+  max-width: none;
+}
+
 .records-page .records-layout,
 .records-page .records-split {
   display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(440px, 480px) minmax(0, 1fr);
+  gap: 24px;
   align-items: start;
+  width: 100%;
+}
+
+.records-page .records-main {
+  width: 100%;
+  min-width: 0;
 }
 
 .records-header-info {
@@ -72,6 +83,8 @@
 .records-page .folders-panel {
   position: sticky;
   top: 16px;
+  width: 100%;
+  box-sizing: border-box;
   max-height: calc(100vh - 110px);
   overflow: hidden;
   display: flex;
@@ -86,8 +99,9 @@
 .records-page .folders-panel .panel-title {
   margin: 0 0 16px;
   color: #102a43;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 900;
+  letter-spacing: -0.02em;
 }
 
 .records-page .folder-list,
@@ -117,12 +131,12 @@
 
 .records-page .company-folder-button {
   width: 100%;
-  min-height: 58px;
+  min-height: 62px;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 12px;
+  padding: 12px 13px;
   border: 1px solid #d8e7f2;
   border-radius: 14px;
   background: #f8fbfd;
@@ -158,7 +172,7 @@
   max-width: 100%;
   overflow: hidden;
   color: #102a43;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -169,7 +183,7 @@
   display: block;
   overflow: hidden;
   color: #627d98;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -202,12 +216,12 @@
 .records-page .company-folder-employees button,
 .records-page .employee-folder-list button {
   width: 100%;
-  min-height: 54px;
+  min-height: 60px;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px;
+  padding: 10px 10px;
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
@@ -249,7 +263,7 @@
   display: block;
   overflow: hidden;
   color: #183b56;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -261,7 +275,7 @@
   display: block;
   overflow: hidden;
   color: #6b7f91;
-  font-size: 10.5px;
+  font-size: 10.8px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -296,6 +310,16 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.employee-document-cards,
+.table-panel.employee-document-card,
+.selected-employee-panel,
+.records-page .records-main > * {
+  width: 100%;
+  max-width: none;
 }
 
 .button-primary,
@@ -383,7 +407,7 @@
   color: #627d98;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1250px) {
   .records-page .records-layout,
   .records-page .records-split {
     grid-template-columns: 1fr;

@@ -5,7 +5,25 @@ import type { CompanyFolderGroup } from "@/modules/records/types";
 const fallbackCompanyId = "__without-company";
 
 function isDismissalStateEmployee(employee?: Employee | null) {
-  return Boolean(employee && employee.status === "terminated");
+  if (!employee) return false;
+
+  const fields = employee.registrationData || {};
+  const hasScheduledDismissal = Boolean(
+    fields.terminationMode
+    || fields.noticeStartDate
+    || fields.noticeScheduledAt
+    || fields.noticeEndDate
+    || fields.noticeDate
+    || fields.scheduledDeactivationDate
+    || fields.deactivationEffectiveDate
+    || fields.deactivationScheduledAt,
+  );
+
+  return employee.status === "terminated" || (hasScheduledDismissal && !fields.dismissalApprovedAt && !fields.dismissalCancelledAt);
+}
+
+function isDismissalArchivedEmployee(employee?: Employee | null) {
+  return Boolean(employee && employee.status === "terminated" && Boolean(employee.registrationData?.dismissalApprovedAt));
 }
 
 type UseCompanyFolderGroupsParams = {
@@ -61,7 +79,7 @@ export function useCompanyFolderGroups({
       const documentsWithoutAlert = [...documentStats.documentsWithoutAlert]
         .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
       const documentCount = documentStats.documentCount;
-      const missingAlertCount = isDismissalStateEmployee(employee) ? 0 : documentsWithoutAlert.length;
+      const missingAlertCount = isDismissalStateEmployee(employee) || isDismissalArchivedEmployee(employee) ? 0 : documentsWithoutAlert.length;
       const group = acc.get(companyId) || {
         id: companyId,
         companyName,

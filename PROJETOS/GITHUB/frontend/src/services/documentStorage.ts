@@ -191,15 +191,20 @@ export async function openEmployeeDocumentFile(fileUrl: string, fileName = "docu
     return;
   }
 
-  const opened = window.open(fileUrl, "_blank", "noopener,noreferrer");
-  if (!opened) {
-    const link = document.createElement("a");
-    link.href = fileUrl;
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    link.download = fileName;
+  // Use a single navigation. window.open with noopener can return null even
+  // when it succeeds, so its return value must not trigger a second download.
+  const link = document.createElement("a");
+  link.href = fileUrl;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.download = fileName;
+  document.body.appendChild(link);
+  try {
     link.click();
+  } finally {
+    link.remove();
   }
+
 }
 
 export async function deleteEmployeeDocumentFile(fileUrl: string) {

@@ -1,6 +1,8 @@
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { employeeProcessModalityLabel } from "@/modules/employees/experience";
 import { useRecordsContext } from "@/modules/records/context/RecordsContext";
+import { todayISO } from "@/utils/format";
 
 export default function CompanyFolderSidebar() {
   const {
@@ -60,7 +62,28 @@ export default function CompanyFolderSidebar() {
               {isOpen ? (
                 <div className="company-folder-employees">
                   {group.employees.map(({ employee, departmentName, documentCount, missingAlertCount }) => {
-                    const isDismissed = employee.status === "terminated";
+                    const hasScheduledDismissal = Boolean(
+                      employee.registrationData?.terminationMode
+                      || employee.registrationData?.noticeStartDate
+                      || employee.registrationData?.noticeScheduledAt
+                      || employee.registrationData?.noticeEndDate
+                      || employee.registrationData?.noticeDate
+                      || employee.registrationData?.scheduledDeactivationDate
+                      || employee.registrationData?.deactivationEffectiveDate
+                      || employee.registrationData?.deactivationScheduledAt,
+                    );
+                    const isDismissed = employee.status === "terminated" || (hasScheduledDismissal && !employee.registrationData?.dismissalApprovedAt && !employee.registrationData?.dismissalCancelledAt);
+                    const isArchivedDismissal = Boolean(employee.registrationData?.dismissalApprovedAt);
+                    const processModalityLabel = employeeProcessModalityLabel(employee, todayISO());
+                    const modalityBadgeClass = processModalityLabel === "Aviso prévio"
+                      || processModalityLabel === "Aviso prévio indenizado"
+                      || processModalityLabel === "Aviso prévio do empregado"
+                      ? "is-warning"
+                      : processModalityLabel === "Contrato de experiência"
+                        ? "is-info"
+                        : processModalityLabel === "Desativação rápida"
+                          ? "is-danger"
+                          : "";
 
                     return (
                       <div className="employee-folder-card" key={employee.id}>
@@ -76,10 +99,11 @@ export default function CompanyFolderSidebar() {
                           <span className="employee-folder-info">
                             <strong>{employee.name}</strong>
                             <small>{departmentName}</small>
+                            {processModalityLabel ? <span className={`employee-folder-modality-badge ${modalityBadgeClass}`.trim()}>{processModalityLabel}</span> : null}
                           </span>
                           <span className="folder-counter-stack is-employee">
                             <strong className="employee-doc-count" title="Total de documentos">{documentCount}</strong>
-                            {!isDismissed && missingAlertCount ? (
+                            {!isDismissed && !isArchivedDismissal && missingAlertCount ? (
                               <strong className="folder-missing-alert-count" title="Documentos sem alerta">{missingAlertCount} sem alerta</strong>
                             ) : null}
                           </span>

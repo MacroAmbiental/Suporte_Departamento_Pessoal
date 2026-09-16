@@ -5,6 +5,7 @@ import RecordsHeader from "@/modules/records/components/RecordsHeader";
 import RecordsModals from "@/modules/records/components/RecordsModals";
 import SelectedEmployeePanel from "@/modules/records/components/SelectedEmployeePanel";
 import { RecordsProvider } from "@/modules/records/context/RecordsContext";
+import "./records.css";
 
 export default function Records() {
   return (
