@@ -2,7 +2,6 @@
   Activity,
   CalendarClock,
   Bell,
-  Briefcase,
   Building2,
   ChartColumn,
   Clock,
@@ -45,7 +44,6 @@ const navItems: {
     { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits" },
     { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping" },
     { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
-    { to: "/app/talent-bank", label: "Banco de talentos", icon: Briefcase, screen: "talentBank" },
     { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications" },
     { to: "/app/monitoring", label: "Monitoramento", icon: Activity, screen: "monitoring" },
     { to: "/app/permissions", label: "Permissões do sistema", icon: ShieldCheck, screen: "permissions" },
@@ -369,7 +367,7 @@ export default function Layout() {
             </div>
           ) : null}
         </header>
-        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "employees" ? " is-fullwidth" : ""}${currentScreen === "employees" && new URLSearchParams(location.search).get("tab") === "processos" ? " employee-process-workspace" : ""}`}>
+        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" ? " is-fullwidth" : ""}${currentScreen === "employees" && new URLSearchParams(location.search).get("tab") === "processos" ? " employee-process-workspace" : ""}`}>
           <Outlet />
         </main>
         {domain.undoState ? (
@@ -385,4 +383,3 @@ export default function Layout() {
     </div>
   );
 }
-

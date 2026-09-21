@@ -99,7 +99,8 @@ export function employeeEffectiveStatusForDate(
       registrationData.dismissalDate ||
       "",
   );
-  if (deactivationDate && date >= deactivationDate) return "terminated";
+  if (deactivationDate && (date > deactivationDate || (date === deactivationDate && registrationData.terminationWorkedOnDeactivationDate !== "true"))) return "terminated";
+  if (deactivationDate && date === deactivationDate && registrationData.terminationWorkedOnDeactivationDate === "true") return "active";
   if (employee.status === "terminated" && deactivationDate && date < deactivationDate)
     return "active";
 

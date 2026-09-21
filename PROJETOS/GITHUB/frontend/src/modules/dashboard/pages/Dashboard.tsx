@@ -1,4 +1,4 @@
-import { AlertTriangle, Briefcase, Building2, Clock, Files, Gift, Users } from "lucide-react";
+import { AlertTriangle, Building2, Clock, Files, Gift, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useDomainData } from "@/hooks/useDomainData";
 import { useDashboardMetrics } from "@/modules/dashboard/hooks/useDashboardMetrics";
@@ -21,7 +21,6 @@ export default function Dashboard() {
     { label: "Alertas abertos", value: activeAlerts.length, icon: AlertTriangle, to: securePath("notifications") },
     { label: "Planos de benefício", value: dashboardMetrics.benefitPlans, icon: Gift, to: securePath("benefits") },
     { label: "Faltas", value: dashboardMetrics.absences, icon: Clock, to: securePath("timekeeping") },
-    { label: "Candidatos", value: dashboardMetrics.talentCandidates, icon: Briefcase, to: securePath("talentBank") },
   ];
 
   return (

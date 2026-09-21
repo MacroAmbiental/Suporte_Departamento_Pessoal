@@ -1,5 +1,6 @@
 import NoticeReductionFields from "./NoticeReductionFields";
 import { noticeSpecialty, validNoticeReduction } from "../noticeSpecialty";
+import TerminationExitFields from "./TerminationExitFields";
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { Employee } from "@/types/domain";
@@ -8,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { securePath } from "@/services/secureRoutes";
 import { formatDate, todayISO } from "@/utils/format";
 import { processEntryDate } from "../processEntryDate";
-import { isInExperience, terminationModes } from "../experience";
+import { addDays, isInExperience, terminationModes } from "../experience";
 const modes = { ...terminationModes, experience: "Contrato de Experiência" };
 export default function ProcessModalityEditor({ employee }: { employee: Employee }) {
   const data = useDomainData();
@@ -20,6 +21,8 @@ export default function ProcessModalityEditor({ employee }: { employee: Employee
   const [date, setDate] = useState(fields.scheduledDeactivationDate || fields.deactivationEffectiveDate || fields.noticeEndDate || fields.noticeDate || "");
   const [start, setStart] = useState(fields.noticeStartDate || todayISO());
   const [confirmed, setConfirmed] = useState(false);
+  const [workedOnDate, setWorkedOnDate] = useState(fields.terminationWorkedOnDeactivationDate || "");
+  const settlementPaid = fields.terminationSettlementPaid === "true" ? "true" : "false";
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const hasNotice = ["employee", "employer", "indemnified"].includes(fields.terminationMode || "");
@@ -41,6 +44,7 @@ export default function ProcessModalityEditor({ employee }: { employee: Employee
     const end = mode === "quick" ? today : mode === "experience" ? "" : date;
     if (mode !== "experience" && (!end || end < today || end < current.admissionDate || (["employee", "employer", "indemnified"].includes(mode) && (!start || start < current.admissionDate || start > end)))) { setMessage("Confira as datas do processo."); return; }
     if ((mode === "quick" || mode === "experience") && !confirmed) return;
+    if (mode !== "experience" && !workedOnDate) { setMessage("Informe se o funcionário trabalhou na data do desligamento."); return; }
     if (!validNoticeReduction(mode, reduction, start, date)) { setMessage("Selecione a reducao e confira se os sete dias cabem no periodo do aviso."); return; }
     setBusy(true); setMessage("");
     try {
@@ -52,7 +56,7 @@ export default function ProcessModalityEditor({ employee }: { employee: Employee
         terminationMode: mode === "experience" ? "" : mode,
         processModalityChangedAt: now, processModalityChangedBy: user?.id || "",
         scheduledDeactivationDate: end, deactivationEffectiveDate: end, deactivationScheduledAt: end ? now : "", deactivationCompletedDate: end && end <= today ? today : "",
-        noticeEndDate: (mode === "employee" || mode === "employer") ? end : "", noticeDate: (mode === "employee" || mode === "employer") ? end : "", noticeScheduledAt: (mode === "employee" || mode === "employer") ? now : "", noticeCompletedDate: "", ...noticeSpecialty(mode, reduction, start, date), noticeReductionApplies: (["employee", "indemnified"].includes(mode) && applyReduction) ? "true" : "false",
+        terminationWorkedOnDeactivationDate: mode === "experience" ? "" : workedOnDate, terminationSettlementDueDate: mode === "experience" ? "" : addDays(end, 10), terminationSettlementPaid: mode === "experience" ? "" : settlementPaid, terminationSettlementPaidAt: settlementPaid === "true" ? now : "", terminationSettlementPaidBy: settlementPaid === "true" ? user?.id || "" : "", noticeEndDate: (mode === "employee" || mode === "employer") ? end : "", noticeDate: (mode === "employee" || mode === "employer") ? end : "", noticeScheduledAt: (mode === "employee" || mode === "employer") ? now : "", noticeCompletedDate: "", ...noticeSpecialty(mode, reduction, start, date), noticeReductionApplies: mode === "employee" && applyReduction ? "true" : "false",
         scheduledReactivationDate: "", reactivationEffectiveDate: "",
         ...(mode === "experience" ? { experienceConfirmedAt: "", experienceConfirmedBy: "", employmentContractType: "experience" } : {}),
         terminationRiskConfirmedAt: confirmed ? now : "", terminationRiskConfirmedBy: confirmed ? user?.id || "" : "",
@@ -104,7 +108,6 @@ export default function ProcessModalityEditor({ employee }: { employee: Employee
         updatedAt: now,
       });
       setMode(""); setConfirmed(false); setMessage("Aviso prévio cancelado. O funcionário voltou ao status ativo.");
-    } catch {
       setMessage("Não foi possível cancelar o aviso prévio. Tente novamente.");
     } finally { setBusy(false); }
   }
@@ -228,9 +231,10 @@ export default function ProcessModalityEditor({ employee }: { employee: Employee
           </label>
         )}
 
-        {(mode === "employee" || mode === "indemnified") && (
+        {mode === "employee" && (
           <NoticeReductionFields value={reduction} onChange={setReduction} end={date} applies={applyReduction} onAppliesChange={setApplyReduction} />
         )}
+        {mode && mode !== "experience" && <TerminationExitFields date={mode === "quick" ? todayISO() : date} workedOnDate={workedOnDate} onWorkedOnDateChange={setWorkedOnDate} />}
 
         <button className="btn btn-primary process-save-button" type="submit" disabled={!mode || busy || ((mode === "quick" || mode === "experience") && !confirmed)}>
           {busy ? "Salvando..." : "Salvar modalidade"}

@@ -592,7 +592,7 @@ function suggestUsername(name: string) {
   return createUsernameFromName(name);
 }
 
-export default function Employees({ initialEmployeeId = "", initialModal }: { initialEmployeeId?: string; initialModal?: "deactivate" | "reactivate" }) {
+export default function Employees({ initialEmployeeId = "", initialModal, initialQuickDismissal }: { initialEmployeeId?: string; initialModal?: "deactivate" | "reactivate"; initialQuickDismissal?: "quick" | "warning" }) {
   const data = useDomainData();
   const { can, user } = useAuth();
   const canCreateEmployees = can("employees", "create");
@@ -1189,10 +1189,10 @@ export default function Employees({ initialEmployeeId = "", initialModal }: { in
         "CPF": employee.cpf || "",
         "Telefone": employee.phone || "",
         "Empresa": company?.name || "",
-        "Departamento": groupDepartmentName || department?.name || "",
-        "Setor": groupSectorName || sector?.name || "",
-        "Subsetor": groupSubsectorName || subsector?.name || "",
-        "Equipe": groupTeamName || team?.name || "",
+        "Departamento": department?.name || groupDepartmentName || "",
+        "Setor": sector?.name || groupSectorName || "",
+        "Subsetor": subsector?.name || groupSubsectorName || "",
+        "Equipe": team?.name || groupTeamName || "",
         "Encarregado": employee.isTeamLead ? "Sim" : "Não",
         "Função": employee.role || "",
         "Cargo": employee.position || "",
@@ -2741,7 +2741,7 @@ export default function Employees({ initialEmployeeId = "", initialModal }: { in
                       </div>
                     </div>
                   </td>
-                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{groupSectorName || sector?.name || "-"}</span><br /><span className="muted">Equipe: {groupTeamName || team?.name || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
+                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{sector?.name || groupSectorName || "-"}</span><br /><span className="muted">Equipe: {team?.name || groupTeamName || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
                   <td>{employee.role || "-"}<br /><span className="muted">{employee.position || "-"}</span></td>
                   <td>{renderSensitiveValue(<>{employee.workSchedule || "-"}<br /><span className="muted">{employee.weeklyHours || 0}h semanais</span></>, "Jornada")}</td>
                   <td>{renderSensitiveValue(formatCurrency(Number(employee.salary || 0)), "Salário")}</td>
@@ -2905,7 +2905,7 @@ export default function Employees({ initialEmployeeId = "", initialModal }: { in
         </div>
       ) : null}
 
-      {deactivationEmployee ? <ScheduleDeactivationModal employee={deactivationEmployee} onClose={() => setDeactivationEmployee(null)} /> : null}
+      {deactivationEmployee ? <ScheduleDeactivationModal employee={deactivationEmployee} initialQuickDismissal={initialQuickDismissal} onClose={() => setDeactivationEmployee(null)} /> : null}
 
       {statusScheduleEmployee ? (
         <div className="modal-backdrop" role="presentation" style={{ zIndex: 10000, padding: 24, overflowY: "auto" }}>

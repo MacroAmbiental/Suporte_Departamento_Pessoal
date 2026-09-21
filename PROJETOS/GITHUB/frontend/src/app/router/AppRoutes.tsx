@@ -16,7 +16,6 @@ const screenComponents: Record<AppScreen, LazyExoticComponent<ComponentType>> = 
   benefits: lazy(() => import("@/modules/benefits/pages/BenefitsPage")),
   timekeeping: lazy(() => import("@/modules/timekeeping/pages/TimekeepingPage")),
   hrControl: lazy(() => import("@/modules/hrControl/pages/HrControl")),
-  talentBank: lazy(() => import("@/modules/talentBank/pages/TalentBank")),
   notifications: lazy(() => import("@/modules/notifications/pages/NotificationsPage")),
   monitoring: lazy(() => import("@/modules/monitoring/pages/Monitoring")),
   permissions: lazy(() => import("@/modules/permissions/pages/Permissions")),
@@ -51,6 +50,7 @@ function SecureScreenRoute() {
   const screenName = screenFromSecureToken(routeToken);
 
   if (!screenName) return <NotFound />;
+  if (screenName === "talentBank") return <Navigate to="/app" replace />;
 
   return screenElement(screenName);
 }
@@ -72,7 +72,8 @@ export default function AppRoutes() {
         <Route path="timekeeping" element={<Navigate to={securePath("timekeeping")} replace />} />
         <Route path="hr-control" element={<Navigate to={securePath("hrControl")} replace />} />
         <Route path="controle-rh" element={<Navigate to={securePath("hrControl")} replace />} />
-        <Route path="talent-bank" element={<Navigate to={securePath("talentBank")} replace />} />
+        <Route path="talent-bank" element={<Navigate to="/app" replace />} />
+        <Route path="banco-talentos" element={<Navigate to="/app" replace />} />
         <Route path="notifications" element={<Navigate to={securePath("notifications")} replace />} />
         <Route path="notificacoes" element={<Navigate to={securePath("notifications")} replace />} />
         <Route path="monitoring" element={<Navigate to={securePath("monitoring")} replace />} />

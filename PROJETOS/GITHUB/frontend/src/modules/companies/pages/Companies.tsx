@@ -4592,7 +4592,6 @@ function clearDatabaseFromScreen() {
                     <option value="records">Registros</option>
                     <option value="benefits">Benefícios</option>
                     <option value="timekeeping">Controle de ponto</option>
-                    <option value="talentBank">Banco de talentos</option>
                   </select>
                 </label>
 

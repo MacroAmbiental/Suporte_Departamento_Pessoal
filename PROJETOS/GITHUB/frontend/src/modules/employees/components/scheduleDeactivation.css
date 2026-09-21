@@ -1,4 +1,4 @@
-﻿.deactivation-backdrop { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; background: rgba(14, 31, 44, 0.42); }
+.deactivation-backdrop { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; background: rgba(14, 31, 44, 0.42); }
 .modal-panel.deactivation-modal { width: min(760px, 100%); max-width: 100%; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; overflow: hidden; padding: 0; border: 1px solid #dbe5ee; border-radius: 18px; box-shadow: 0 24px 80px #15344d33; background: #fff; }
 .deactivation-modal .modal-header { display: flex; align-items: center; gap: 14px; padding: 24px 28px; border-bottom: 1px solid #e5edf4; flex-shrink: 0; }
 .deactivation-heading-icon { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; color: #17799b; background: #eaf6fb; border-radius: 14px; }
@@ -30,3 +30,92 @@
 .deactivation-modal .modal-footer button { min-height: 44px; }
 .deactivation-modal .deactivation-submit-quick { background: #bb492d; border-color: #bb492d; }
 @media (max-width: 600px) { .deactivation-backdrop { padding: 12px; } .modal-panel.deactivation-modal { max-height: calc(100dvh - 24px); border-radius: 14px; } .deactivation-options { grid-template-columns: 1fr; } .deactivation-modal .modal-header, .deactivation-body { padding: 18px; } .deactivation-modal .modal-header h2 { font-size: 19px; } .deactivation-heading-icon { display: none; } .deactivation-modal .modal-footer { padding: 14px 18px; flex-wrap: wrap; } .deactivation-modal .modal-footer button { flex: 1; } }
+
+.deactivation-date-section { display: grid; gap: 12px; }
+.deactivation-date-layout { display: grid; gap: 14px; }
+.deactivation-date-layout.has-side-details { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); align-items: start; }
+.deactivation-date-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; color: #4d6c84; }
+.deactivation-date-heading .deactivation-section-title { margin-bottom: 5px; }
+.deactivation-date-heading > svg { margin-top: 4px; flex-shrink: 0; }
+.deactivation-calendar-card { border: 1px solid #dce6ef; border-radius: 14px; padding: 14px; background: #fbfdff; }
+.deactivation-calendar-topline { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr); gap: 12px; align-items: stretch; }
+.deactivation-calendar-topline.is-compact { grid-template-columns: minmax(260px, 340px) minmax(220px, 0.8fr); }
+.deactivation-calendar-card.is-inline-card { width: fit-content; max-width: 100%; }
+.deactivation-calendar-card.is-inline-card .deactivation-calendar-topline.is-compact { grid-template-columns: minmax(260px, 340px); }
+.deactivation-native-date { padding: 12px; border: 1px solid #dce6ef; border-radius: 12px; background: #fff; }
+.deactivation-native-date span { font-size: 12px; font-weight: 700; color: #55708a; }
+.deactivation-native-date input { margin-top: 8px; }
+.deactivation-experience-marker { display: flex; align-items: center; gap: 10px; min-height: 74px; padding: 12px 14px; border: 1px solid #f2cfa3; border-radius: 12px; background: #fff7ea; color: #825314; }
+.deactivation-experience-marker svg { flex-shrink: 0; }
+.deactivation-experience-marker div { display: grid; gap: 3px; }
+.deactivation-experience-marker strong { font-size: 13px; }
+.deactivation-experience-marker span { font-size: 12px; }
+.deactivation-calendar { margin-top: 14px; }
+.deactivation-calendar-header { display: grid; grid-template-columns: 36px 1fr 36px; align-items: center; gap: 8px; margin-bottom: 8px; text-align: center; }
+.deactivation-calendar-header .icon-button { width: 36px; height: 36px; }
+.deactivation-calendar-header strong { text-transform: capitalize; color: #233f55; }
+.deactivation-calendar-weekdays, .deactivation-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.deactivation-calendar-weekdays { margin-bottom: 4px; }
+.deactivation-calendar-weekdays span { padding: 5px 0; text-align: center; color: #7890a2; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.deactivation-calendar-day, .deactivation-calendar-empty { min-height: 40px; border-radius: 10px; }
+.deactivation-calendar-day { position: relative; display: grid; place-items: center; border: 1px solid transparent; background: #fff; color: #29465c; cursor: pointer; }
+.deactivation-calendar-day:hover:not(:disabled) { border-color: #a9c1d5; background: #f5f9fc; }
+.deactivation-calendar-day.is-selected { border-color: #1d83aa; background: #eaf7fb; color: #0c5d7d; font-weight: 800; }
+.deactivation-calendar-day.is-experience-end { border-color: #e2a64e; background: #fff4df; color: #7d5313; font-weight: 800; }
+.deactivation-calendar-day.is-experience-end.is-selected { box-shadow: inset 0 0 0 2px #d58a24; }
+.deactivation-calendar-day i { position: absolute; right: 6px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: #d58a24; }
+.deactivation-calendar-day.is-disabled { opacity: .38; cursor: not-allowed; }
+.deactivation-calendar-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; color: #6e8294; font-size: 11px; }
+.deactivation-calendar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.deactivation-calendar-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.legend-selected { background: #1d83aa; }
+.legend-warning { background: #d58a24; }
+.deactivation-date-alert { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; border-radius: 12px; font-size: 12px; }
+.deactivation-date-alert > svg { flex-shrink: 0; margin-top: 1px; }
+.deactivation-date-alert strong { display: block; margin-bottom: 4px; }
+.deactivation-date-alert p { margin: 0; line-height: 1.55; }
+.deactivation-date-alert.is-warning { border: 1px solid #f1d0a0; background: #fff8ec; color: #7d5a23; }
+.deactivation-date-alert.is-success { border: 1px solid #cde7d8; background: #f2fbf5; color: #1b6a42; }
+.deactivation-date-alert.is-clt { border: 1px solid #cfe0f2; background: #f3f8fd; color: #305b7a; }
+.deactivation-option.is-locked { cursor: not-allowed; opacity: .58; }
+.deactivation-option.is-locked:hover { background: transparent; border-color: #dce6ef; }
+.deactivation-option-lock-note { color: #9a5d30 !important; }
+.deactivation-clt-next-step { padding: 14px 16px; border: 1px solid #cfe0f2; border-radius: 12px; background: #f3f8fd; color: #315a77; }
+.deactivation-clt-next-step strong { display: block; margin-bottom: 4px; }
+.deactivation-clt-next-step p { margin: 0; font-size: 12px; }
+.experience-clt-confirmation-backdrop { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(14, 31, 44, 0.4); border-radius: inherit; }
+.experience-clt-confirmation { width: min(520px, 100%); padding: 24px; border: 1px solid #dbe5ee; border-radius: 16px; background: #fff; box-shadow: 0 20px 60px rgba(21, 52, 77, .28); }
+.experience-clt-confirmation-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 14px; border-radius: 12px; color: #9a5d30; background: #fff3e7; }
+.experience-clt-confirmation h2 { margin: 0 0 10px; font-size: 20px; color: #1f3d55; }
+.experience-clt-confirmation p { margin: 0 0 10px; color: #5c7284; line-height: 1.55; font-size: 13px; }
+.experience-clt-confirmation-note { margin: 14px 0 18px; padding: 12px 13px; border-radius: 10px; background: #f5f8fb; color: #425f75; font-size: 12px; line-height: 1.5; }
+.experience-clt-confirmation-actions { display: flex; justify-content: flex-end; gap: 10px; }
+@media (max-width: 650px) {
+  .deactivation-date-layout.has-side-details { grid-template-columns: 1fr; }
+  .deactivation-calendar-topline { grid-template-columns: 1fr; }
+  .deactivation-date-heading > svg { display: none; }
+  .experience-clt-confirmation-backdrop { padding: 14px; }
+  .experience-clt-confirmation { padding: 20px; }
+  .experience-clt-confirmation-actions { flex-wrap: wrap; }
+  .experience-clt-confirmation-actions .btn { flex: 1; }
+}
+
+.deactivation-option.is-suspension.is-selected { background: #eefaf7; border-color: #138a6a; }
+.deactivation-option.is-suspension > svg { color: #138a6a; }
+.suspension-period-card, .suspension-documents-card { border: 1px solid #dce6ef; border-radius: 14px; padding: 16px; background: #fbfdff; display: grid; gap: 14px; }
+.suspension-period-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.suspension-period-summary { margin: 0; padding: 10px 12px; border-radius: 10px; background: #eefaf7; color: #276653; font-size: 13px; }
+.suspension-form-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr); gap: 14px; align-items: start; }
+.suspension-form-grid textarea { min-height: 112px; resize: vertical; box-sizing: border-box; width: 100%; }
+.suspension-upload-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: fit-content; padding: 11px 14px; border: 1px dashed #8fb8aa; border-radius: 10px; background: #f5fbf9; color: #176c58; font-size: 13px; font-weight: 700; cursor: pointer; }
+.suspension-upload-button:hover { background: #edf8f4; border-color: #5e9f8b; }
+.suspension-upload-button input { display: none; }
+.suspension-document-list { display: grid; gap: 8px; }
+.suspension-document-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #dfe8ef; border-radius: 10px; background: #fff; }
+.suspension-document-item > svg { flex-shrink: 0; color: #65849b; }
+.suspension-document-item > div { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.suspension-document-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #26465d; font-size: 13px; }
+.suspension-document-item small { color: #7a8e9f; }
+.suspension-no-documents { margin: 0; color: #8193a2; font-size: 12px; }
+.deactivation-submit-suspension { background: #138a6a; border-color: #138a6a; }
+@media (max-width: 650px) { .suspension-period-grid, .suspension-form-grid { grid-template-columns: 1fr; } }

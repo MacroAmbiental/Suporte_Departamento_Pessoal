@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   CalendarDays,
   ChartColumn,
   ChartPie,
@@ -20,7 +21,9 @@ import {
   structureItemsForGroup,
 } from "@/common/utils/groupStructure";
 import { useDomainData } from "@/hooks/useDomainData";
+import EmployeesPagination from "@/modules/employees/components/EmployeesPagination";
 import { cidDetailsFromValue } from "@/modules/timekeeping/data/cidCatalog";
+import { employeeEffectiveStatusForDate } from "@/modules/timekeeping/hooks/useTimekeepingModel";
 import { loadTimekeepingDayTables } from "@/modules/timekeeping/data/timekeepingDayRepository";
 import { loadTimeRecordsRange } from "@/modules/timekeeping/data/timeRecordsRepository";
 import type { CompanyGroup, Employee, TimekeepingColumn, TimekeepingDayTable, TimeRecord, WorkScheduleDay } from "@/types/domain";
@@ -47,10 +50,14 @@ const absenceTypeColors = {
 } as const;
 const cidPieColors = ["#1f95ed", "#099164", "#ec6b35", "#7d5ab6", "#d94f5c", "#16899a", "#d59a22", "#718497"];
 const manualStatusSelectedField = "__manual_status_selected";
+const hrControlFiltersStorageKey = "hr-control-filters-v1";
+const hrControlDataCacheTtlMs = 5 * 60 * 1000;
+const monitoringPageSize = 10;
 
-type HrView = "general" | "overtime" | "absenceTypes" | "cids";
+type HrView = "general" | "overtime" | "absenceTypes" | "absenceMonitoring" | "cids";
 type HrAnalysisScope = "group" | "company";
 type AbsenceType = keyof typeof absenceTypeLabels;
+type MonitoringRiskFilter = "all" | "recurrence" | "alert" | "abandonment";
 
 type ChartRow = {
   label: string;
@@ -95,6 +102,15 @@ type CidPieRow = ChartRow & {
   employees: CidEmployeeEntry[];
 };
 
+type UnjustifiedAbsenceRun = {
+  employeeId: string;
+  employeeName: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  recurringAbsencesInMonth: number;
+};
+
 type ClassifiedAbsence = {
   type: AbsenceType;
   label: string;
@@ -109,12 +125,135 @@ type HrDetailFilterSets = {
   subsectorIds: Set<string>;
 };
 
+type HrControlFiltersCache = {
+  activeView: HrView;
+  startDate: string;
+  endDate: string;
+  analysisScope: HrAnalysisScope;
+  selectedGroupId: string;
+  companyIds: string[];
+  teamIds: string[];
+  employeeIds: string[];
+  functionKeys: string[];
+  cpfValues: string[];
+  departmentIds: string[];
+  sectorIds: string[];
+  subsectorIds: string[];
+  weekKey: string;
+  absenceTypeFilters: string[];
+  cidCategoryFilters: string[];
+  selectedCidLabel: string;
+  monitoringPage: number;
+};
+
+type RecordsCacheEntry = {
+  cachedAt: number;
+  records: TimeRecord[];
+};
+
+type DayTablesCacheEntry = {
+  cachedAt: number;
+  tables: TimekeepingDayTable[];
+};
+
+const hrRecordsRangeCache = new Map<string, RecordsCacheEntry>();
+const hrDayTablesCache = new Map<number, DayTablesCacheEntry>();
+
 const microScreens: Array<{ key: HrView; label: string; icon: typeof ChartColumn }> = [
   { key: "general", label: "Geral", icon: ChartPie },
   { key: "overtime", label: "H extra", icon: ChartColumn },
   { key: "absenceTypes", label: "Tipos de Faltas", icon: HeartPulse },
+  { key: "absenceMonitoring", label: "Monitoramento", icon: AlertTriangle },
   { key: "cids", label: "CID's", icon: Stethoscope },
 ];
+
+function isHrView(value: unknown): value is HrView {
+  return value === "general" || value === "overtime" || value === "absenceTypes" || value === "absenceMonitoring" || value === "cids";
+}
+
+function isHrAnalysisScope(value: unknown): value is HrAnalysisScope {
+  return value === "group" || value === "company";
+}
+
+function monitoringRiskMatches(run: UnjustifiedAbsenceRun, filter: MonitoringRiskFilter) {
+  if (filter === "recurrence") return run.days >= 3 && run.days < 10;
+  if (filter === "alert") return run.days >= 10 && run.days < 30;
+  if (filter === "abandonment") return run.days >= 30;
+  return true;
+}
+
+function isIsoDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
+}
+
+function readHrControlFiltersCache(): Partial<HrControlFiltersCache> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(hrControlFiltersStorageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<HrControlFiltersCache>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeHrControlFiltersCache(value: HrControlFiltersCache) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(hrControlFiltersStorageKey, JSON.stringify(value));
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+function cacheIsFresh(cachedAt: number) {
+  return Date.now() - cachedAt <= hrControlDataCacheTtlMs;
+}
+
+function readCachedTimeRecordsRange(startDate: string, endDate: string) {
+  const key = `${startDate}:${endDate}`;
+  const entry = hrRecordsRangeCache.get(key);
+  if (!entry) return null;
+  if (!cacheIsFresh(entry.cachedAt)) {
+    hrRecordsRangeCache.delete(key);
+    return null;
+  }
+  return entry.records;
+}
+
+async function loadTimeRecordsRangeCached(startDate: string, endDate: string) {
+  const key = `${startDate}:${endDate}`;
+  const cached = readCachedTimeRecordsRange(startDate, endDate);
+  if (cached) return cached;
+
+  const records = await loadTimeRecordsRange(startDate, endDate);
+  hrRecordsRangeCache.set(key, { cachedAt: Date.now(), records });
+  return records;
+}
+
+function readCachedDayTables(limit: number) {
+  const entry = hrDayTablesCache.get(limit);
+  if (!entry) return null;
+  if (!cacheIsFresh(entry.cachedAt)) {
+    hrDayTablesCache.delete(limit);
+    return null;
+  }
+  return entry.tables;
+}
+
+async function loadTimekeepingDayTablesCached(limit: number) {
+  const cached = readCachedDayTables(limit);
+  if (cached) return cached;
+
+  const tables = await loadTimekeepingDayTables(limit);
+  hrDayTablesCache.set(limit, { cachedAt: Date.now(), tables });
+  return tables;
+}
 
 function compareText(left: string, right: string) {
   return left.localeCompare(right, "pt-BR", { sensitivity: "base", numeric: true });
@@ -853,23 +992,27 @@ function MonthlyPercentChart({ rows }: { rows: MonthChartRow[] }) {
 export default function HrControl() {
   const data = useDomainData();
   const today = todayISO();
-  const [activeView, setActiveView] = useState<HrView>("general");
-  const [startDate, setStartDate] = useState(yearStartISO(today));
-  const [endDate, setEndDate] = useState(today);
-  const [analysisScope, setAnalysisScope] = useState<HrAnalysisScope>("group");
-  const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [companyIds, setCompanyIds] = useState<string[]>([]);
-  const [teamIds, setTeamIds] = useState<string[]>([]);
-  const [employeeIds, setEmployeeIds] = useState<string[]>([]);
-  const [functionKeys, setFunctionKeys] = useState<string[]>([]);
-  const [cpfValues, setCpfValues] = useState<string[]>([]);
-  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
-  const [sectorIds, setSectorIds] = useState<string[]>([]);
-  const [subsectorIds, setSubsectorIds] = useState<string[]>([]);
-  const [weekKey, setWeekKey] = useState("all");
-  const [absenceTypeFilters, setAbsenceTypeFilters] = useState<string[]>([]);
-  const [cidCategoryFilters, setCidCategoryFilters] = useState<string[]>([]);
-  const [selectedCidLabel, setSelectedCidLabel] = useState("");
+  const defaultStartDate = yearStartISO(today);
+  const [cachedFilters] = useState(() => readHrControlFiltersCache());
+  const [activeView, setActiveView] = useState<HrView>(() => isHrView(cachedFilters.activeView) ? cachedFilters.activeView : "general");
+  const [startDate, setStartDate] = useState(() => isIsoDate(cachedFilters.startDate) ? cachedFilters.startDate : defaultStartDate);
+  const [endDate, setEndDate] = useState(() => isIsoDate(cachedFilters.endDate) ? cachedFilters.endDate : today);
+  const [analysisScope, setAnalysisScope] = useState<HrAnalysisScope>(() => isHrAnalysisScope(cachedFilters.analysisScope) ? cachedFilters.analysisScope : "group");
+  const [selectedGroupId, setSelectedGroupId] = useState(() => String(cachedFilters.selectedGroupId || ""));
+  const [companyIds, setCompanyIds] = useState<string[]>(() => asStringArray(cachedFilters.companyIds));
+  const [teamIds, setTeamIds] = useState<string[]>(() => asStringArray(cachedFilters.teamIds));
+  const [employeeIds, setEmployeeIds] = useState<string[]>(() => asStringArray(cachedFilters.employeeIds));
+  const [functionKeys, setFunctionKeys] = useState<string[]>(() => asStringArray(cachedFilters.functionKeys));
+  const [cpfValues, setCpfValues] = useState<string[]>(() => asStringArray(cachedFilters.cpfValues));
+  const [departmentIds, setDepartmentIds] = useState<string[]>(() => asStringArray(cachedFilters.departmentIds));
+  const [sectorIds, setSectorIds] = useState<string[]>(() => asStringArray(cachedFilters.sectorIds));
+  const [subsectorIds, setSubsectorIds] = useState<string[]>(() => asStringArray(cachedFilters.subsectorIds));
+  const [weekKey, setWeekKey] = useState(() => String(cachedFilters.weekKey || "all"));
+  const [absenceTypeFilters, setAbsenceTypeFilters] = useState<string[]>(() => asStringArray(cachedFilters.absenceTypeFilters));
+  const [cidCategoryFilters, setCidCategoryFilters] = useState<string[]>(() => asStringArray(cachedFilters.cidCategoryFilters));
+  const [selectedCidLabel, setSelectedCidLabel] = useState(() => String(cachedFilters.selectedCidLabel || ""));
+  const [monitoringPage, setMonitoringPage] = useState<number>(() => Math.max(1, Number(cachedFilters.monitoringPage) || 1));
+  const [monitoringRiskFilter, setMonitoringRiskFilter] = useState<MonitoringRiskFilter>("all");
   const [records, setRecords] = useState<TimeRecord[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [savedDayTables, setSavedDayTables] = useState<TimekeepingDayTable[]>([]);
@@ -1198,15 +1341,64 @@ export default function HrControl() {
   }, [activeView]);
 
   useEffect(() => {
+    writeHrControlFiltersCache({
+      activeView,
+      startDate,
+      endDate,
+      analysisScope,
+      selectedGroupId,
+      companyIds,
+      teamIds,
+      employeeIds,
+      functionKeys,
+      cpfValues,
+      departmentIds,
+      sectorIds,
+      subsectorIds,
+      weekKey,
+      absenceTypeFilters,
+      cidCategoryFilters,
+      selectedCidLabel,
+      monitoringPage,
+    });
+  }, [
+    absenceTypeFilters,
+    activeView,
+    analysisScope,
+    cidCategoryFilters,
+    companyIds,
+    cpfValues,
+    departmentIds,
+    employeeIds,
+    endDate,
+    functionKeys,
+    monitoringPage,
+    sectorIds,
+    selectedCidLabel,
+    selectedGroupId,
+    startDate,
+    subsectorIds,
+    teamIds,
+    weekKey,
+  ]);
+
+  useEffect(() => {
     if (invalidRange) {
       setRecords([]);
       setRecordsLoading(false);
       return undefined;
     }
 
+    const cached = readCachedTimeRecordsRange(startDate, endDate);
+    if (cached) {
+      setRecords(cached);
+      setRecordsLoading(false);
+      return undefined;
+    }
+
     let active = true;
     setRecordsLoading(true);
-    void loadTimeRecordsRange(startDate, endDate)
+    void loadTimeRecordsRangeCached(startDate, endDate)
       .then((nextRecords) => {
         if (active) setRecords(nextRecords);
       })
@@ -1230,9 +1422,16 @@ export default function HrControl() {
       return undefined;
     }
 
+    const cached = readCachedDayTables(1000);
+    if (cached) {
+      setSavedDayTables(cached);
+      setSavedDaysLoading(false);
+      return undefined;
+    }
+
     let active = true;
     setSavedDaysLoading(true);
-    void loadTimekeepingDayTables(1000)
+    void loadTimekeepingDayTablesCached(1000)
       .then((tables) => {
         if (active) setSavedDayTables(tables);
       })
@@ -1247,7 +1446,7 @@ export default function HrControl() {
     return () => {
       active = false;
     };
-  }, [invalidRange, startDate, endDate]);
+  }, [invalidRange]);
 
   const baseFilteredRecords = useMemo(
     () =>
@@ -1308,6 +1507,18 @@ export default function HrControl() {
     return map;
   }, [baseFilteredRecords]);
 
+  // O monitoramento deve refletir apenas quem ainda integra a folha de ponto
+  // na data final consultada. Registros históricos de desligados são mantidos
+  // para os demais indicadores, mas não geram alerta de ausência consecutiva.
+  const activeMonitoringEmployeeIds = useMemo(
+    () => new Set(
+      data.employees
+        .filter((employee) => employeeEffectiveStatusForDate(employee, endDate) === "active")
+        .map((employee) => employee.id),
+    ),
+    [data.employees, endDate],
+  );
+
   const expectedWorkDays = useMemo(() => {
     const byTeam = new Map<string, number>();
     const byMonth = new Map<string, number>();
@@ -1344,6 +1555,124 @@ export default function HrControl() {
     timekeepingSettingsByCompanyId,
   ]);
 
+  const unjustifiedAbsenceRuns = useMemo<UnjustifiedAbsenceRun[]>(() => {
+    const datesByEmployee = new Map<string, Set<string>>();
+    baseFilteredRecords.forEach((record) => {
+      if (!activeMonitoringEmployeeIds.has(record.employeeId)) return;
+      if (!absenceStatuses.has(record.status)) return;
+      const dates = datesByEmployee.get(record.employeeId) || new Set<string>();
+      dates.add(record.date);
+      datesByEmployee.set(record.employeeId, dates);
+    });
+
+    const runs: UnjustifiedAbsenceRun[] = [];
+    datesByEmployee.forEach((dates, employeeId) => {
+      const orderedDates = Array.from(dates).sort();
+      let startDate = "";
+      let previousDate = "";
+
+      function addRun() {
+        if (!startDate || !previousDate) return;
+        const days = Math.round((parseLocalDate(previousDate).getTime() - parseLocalDate(startDate).getTime()) / 86_400_000) + 1;
+        if (days < 3) return;
+        runs.push({
+          employeeId,
+          employeeName: employeeById.get(employeeId)?.name || "Funcionário removido",
+          startDate,
+          endDate: previousDate,
+          days,
+          recurringAbsencesInMonth: 0,
+        });
+      }
+
+      orderedDates.forEach((date) => {
+        if (!startDate) {
+          startDate = date;
+          previousDate = date;
+          return;
+        }
+        if (toISODate(addDays(parseLocalDate(previousDate), 1)) === date) {
+          previousDate = date;
+          return;
+        }
+        addRun();
+        startDate = date;
+        previousDate = date;
+      });
+      addRun();
+    });
+
+    const recurringDaysByEmployeeMonth = new Map<string, number>();
+    runs.forEach((run) => {
+      dateRange(run.startDate, run.endDate).forEach((date) => {
+        const key = `${run.employeeId}:${monthKey(date)}`;
+        recurringDaysByEmployeeMonth.set(key, (recurringDaysByEmployeeMonth.get(key) || 0) + 1);
+      });
+    });
+
+    return runs
+      .map((run) => ({
+        ...run,
+        recurringAbsencesInMonth: recurringDaysByEmployeeMonth.get(`${run.employeeId}:${monthKey(run.startDate)}`) || run.days,
+      }))
+      .sort((left, right) => right.days - left.days || compareText(left.employeeName, right.employeeName));
+  }, [activeMonitoringEmployeeIds, baseFilteredRecords, employeeById]);
+
+  const absenteeismExcludedAbsenceKeys = useMemo(() => {
+    const keys = new Set<string>();
+    unjustifiedAbsenceRuns.filter((run) => run.days >= 10).forEach((run) => {
+      dateRange(run.startDate, run.endDate).forEach((date) => keys.add(`${run.employeeId}:${date}`));
+    });
+    return keys;
+  }, [unjustifiedAbsenceRuns]);
+
+  const filteredMonitoringRuns = useMemo(
+    () => unjustifiedAbsenceRuns.filter((run) => monitoringRiskMatches(run, monitoringRiskFilter)),
+    [monitoringRiskFilter, unjustifiedAbsenceRuns],
+  );
+
+  const absenceMonitoringChartRows = useMemo<ChartRow[]>(
+    () => filteredMonitoringRuns.slice(0, 20).map((run) => ({
+      label: run.employeeName,
+      value: run.days,
+      detail: `${formatDate(run.startDate)} a ${formatDate(run.endDate)}`,
+      color: run.days >= 30 ? "#d94f5c" : run.days >= 10 ? "#d59a22" : "#ec6b35",
+    })),
+    [filteredMonitoringRuns],
+  );
+
+  const absenceMonitoringPieRows = useMemo<ChartRow[]>(() => [
+    { label: "Recorrência: 3 a 9 dias", value: filteredMonitoringRuns.filter((run) => run.days >= 3 && run.days < 10).length, color: "#ec6b35" },
+    { label: "Alerta: 10 a 29 dias", value: filteredMonitoringRuns.filter((run) => run.days >= 10 && run.days < 30).length, color: "#d59a22" },
+    { label: "Abandono: 30+ dias", value: filteredMonitoringRuns.filter((run) => run.days >= 30).length, color: "#d94f5c" },
+  ], [filteredMonitoringRuns]);
+
+  const monitoringTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredMonitoringRuns.length / monitoringPageSize)),
+    [filteredMonitoringRuns.length],
+  );
+  const monitoringCurrentPage = Math.min(monitoringPage, monitoringTotalPages);
+  const monitoringFirstItem = (monitoringCurrentPage - 1) * monitoringPageSize;
+  const monitoringVisibleRuns = useMemo(
+    () => filteredMonitoringRuns.slice(monitoringFirstItem, monitoringFirstItem + monitoringPageSize),
+    [filteredMonitoringRuns, monitoringFirstItem],
+  );
+  const monitoringFromItem = filteredMonitoringRuns.length ? monitoringFirstItem + 1 : 0;
+  const monitoringToItem = filteredMonitoringRuns.length
+    ? Math.min(monitoringFirstItem + monitoringVisibleRuns.length, filteredMonitoringRuns.length)
+    : 0;
+
+  useEffect(() => {
+    if (monitoringPage !== monitoringCurrentPage) {
+      setMonitoringPage(monitoringCurrentPage);
+    }
+  }, [monitoringCurrentPage, monitoringPage]);
+
+  function toggleMonitoringRiskFilter(filter: Exclude<MonitoringRiskFilter, "all">) {
+    setMonitoringRiskFilter((current) => current === filter ? "all" : filter);
+    setMonitoringPage(1);
+  }
+
   const metrics = useMemo(() => {
     let absences = 0;
     let certificates = 0;
@@ -1361,6 +1690,7 @@ export default function HrControl() {
       }
 
       if (classification) {
+        if (classification.type === "confirmed" && absenteeismExcludedAbsenceKeys.has(`${record.employeeId}:${record.date}`)) return;
         absences += 1;
         loss += absenceLossValue(record, employee);
         return;
@@ -1384,7 +1714,7 @@ export default function HrControl() {
       absenteeism: plannedDays ? (totalAbsencesAndCertificates / plannedDays) * 100 : 0,
       loss,
     };
-  }, [baseEmployees.length, baseFilteredRecords, employeeById, expectedWorkDays]);
+  }, [absenteeismExcludedAbsenceKeys, baseEmployees.length, baseFilteredRecords, employeeById, expectedWorkDays]);
 
   const overtimeByTeam = useMemo<ChartRow[]>(() => {
     const totals = new Map<string, number>();
@@ -1688,6 +2018,8 @@ export default function HrControl() {
     setCidCategoryFilters([]);
     setStartDate(yearStartISO(today));
     setEndDate(today);
+    setMonitoringPage(1);
+    setMonitoringRiskFilter("all");
   }
 
   const periodText = `${formatDate(startDate)} até ${formatDate(endDate)}`;
@@ -1997,6 +2329,45 @@ export default function HrControl() {
               secondaryLabel={absenceTypeLabels.certificate}
             />
           </section>
+        </div>
+      ) : null}
+
+      {activeView === "absenceMonitoring" ? (
+        <div className="hr-dashboard-grid">
+          <div className="hr-metric-grid hr-wide-chart" aria-label="Resumo de faltas confirmadas sem justificativa recorrentes">
+            <button className={`hr-metric-card is-yellow is-filter ${monitoringRiskFilter === "recurrence" ? "is-selected" : ""}`} type="button" aria-pressed={monitoringRiskFilter === "recurrence"} onClick={() => toggleMonitoringRiskFilter("recurrence")} title="Filtrar gráficos e lista por faltas confirmadas sem justificativa recorrentes de 3 a 9 dias"><AlertTriangle size={20} /><span>Recorrência: 3 a 9 dias</span><strong>{formatInteger(unjustifiedAbsenceRuns.filter((run) => run.days >= 3 && run.days < 10).length)}</strong></button>
+            <button className={`hr-metric-card is-red is-filter ${monitoringRiskFilter === "alert" ? "is-selected" : ""}`} type="button" aria-pressed={monitoringRiskFilter === "alert"} onClick={() => toggleMonitoringRiskFilter("alert")} title="Filtrar gráficos e lista por faltas confirmadas sem justificativa de 10 a 29 dias"><AlertTriangle size={20} /><span>Alerta: 10 dias ou mais</span><strong>{formatInteger(unjustifiedAbsenceRuns.filter((run) => run.days >= 10 && run.days < 30).length)}</strong></button>
+            <button className={`hr-metric-card is-red is-filter ${monitoringRiskFilter === "abandonment" ? "is-selected" : ""}`} type="button" aria-pressed={monitoringRiskFilter === "abandonment"} onClick={() => toggleMonitoringRiskFilter("abandonment")} title="Filtrar gráficos e lista por faltas confirmadas sem justificativa de 30 dias ou mais"><AlertTriangle size={20} /><span>Abandono: 30 dias ou mais</span><strong>{formatInteger(unjustifiedAbsenceRuns.filter((run) => run.days >= 30).length)}</strong></button>
+          </div>
+
+          <section className="hr-chart-panel hr-wide-chart">
+            <header className="hr-chart-header"><div><h2><Users size={18} /> Funcionários em análise</h2><span>Com 3 ou mais dias corridos de falta confirmada sem justificativa</span></div></header>
+            <div className="hr-monitoring-list">
+              {monitoringVisibleRuns.map((run) => {
+                const level = run.days >= 30 ? "Abandono de emprego" : run.days >= 10 ? "Alerta de recorrência" : "Recorrência";
+                const tone = run.days >= 30 ? "is-abandonment" : run.days >= 10 ? "is-critical" : "is-warning";
+                return <article key={`${run.employeeId}-${run.startDate}`} className={tone}><strong>{run.employeeName}</strong><span>{formatDate(run.startDate)} a {formatDate(run.endDate)}</span><b>{run.days} dias</b><em>{level} · {formatInteger(run.recurringAbsencesInMonth)} falta(s) no mês</em></article>;
+              })}
+              {!filteredMonitoringRuns.length ? <p className="muted">Nenhuma sequência corresponde ao nível de risco selecionado.</p> : null}
+            </div>
+            {filteredMonitoringRuns.length ? (
+              <EmployeesPagination
+                totalItems={filteredMonitoringRuns.length}
+                pageStart={monitoringFromItem}
+                pageEnd={monitoringToItem}
+                currentPage={monitoringCurrentPage}
+                totalPages={monitoringTotalPages}
+                onPageChange={setMonitoringPage}
+              />
+            ) : null}
+          </section>  
+
+          <section className="hr-chart-panel">
+            <header className="hr-chart-header"><div><h2><ChartPie size={18} /> Níveis de risco</h2><span>Faltas confirmadas sem justificativa recorrentes</span></div></header>
+            <PieSummary rows={absenceMonitoringPieRows} />
+          </section>
+
+
         </div>
       ) : null}
 

@@ -593,6 +593,7 @@ export interface DocumentAlert {
   recurrence: string;
   notifyBy: NotifyChannel[];
   description: string;
+  realized?: "yes" | "no";
   completedAt?: string;
   renewedFromAlertId?: string;
   previousDueDate?: string;

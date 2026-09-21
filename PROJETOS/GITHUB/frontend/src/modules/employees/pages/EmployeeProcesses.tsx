@@ -9,6 +9,7 @@ import { useDomainData } from "@/hooks/useDomainData";
 import { securePath } from "@/services/secureRoutes";
 import { formatDate, todayISO } from "@/utils/format";
 import ExperienceTracking from "../components/ExperienceTracking";
+import TerminationSettlementAlert from "../components/TerminationSettlementAlert";
 import { experienceAlerts, experienceEndingToday, needsExperienceFollowup, isInExperience, terminationModes, type TerminationMode } from "../experience";
 import { openEmployeeDocumentFile, uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import EmployeesPagination from "../components/EmployeesPagination";
@@ -38,6 +39,7 @@ export default function EmployeeProcesses() {
   const [page, setPage] = useState(1);
   const [today, setToday] = useState(todayISO);
   const [experienceFilter, setExperienceFilter] = useState("");
+  const [settlementFilter, setSettlementFilter] = useState("");
   useEffect(() => { const timer = window.setInterval(() => setToday(todayISO()), 60000); return () => window.clearInterval(timer); }, []);
   const enrollmentPending = useRef(new Set<string>());
   useEffect(() => {
@@ -75,6 +77,7 @@ export default function EmployeeProcesses() {
     if (!experience && !hasNotice && !end && !registration.deactivationScheduledAt && !registration.deactivationCompletedDate) return [];
     const reactivation = registration.scheduledReactivationDate || registration.reactivationEffectiveDate || "";
     if (reactivation && reactivation <= today && (!end || reactivation >= end)) return [];
+    const settlementPending = Boolean(registration.terminationSettlementDueDate) && registration.terminationSettlementPaid !== "true";
     const completed = employee.status === "terminated" || Boolean(end && end <= today);
     if (completed) return [];
     return [{
@@ -84,9 +87,9 @@ export default function EmployeeProcesses() {
       end,
       experience,
       modality: savedMode && terminationModes[savedMode] ? terminationModes[savedMode] : hasNotice ? "Aviso prévio" : experience && !end ? "Contrato de experiência" : "Desativação rápida",
-      status: completed ? "Concluído" : "Em andamento",
+      status: "Em andamento",
       company: companies.find((company) => company.id === employee.companyId)?.name || "—",
-      observation: completed ? "Funcionário desativado ou data de desativação atingida." : hasNotice ? (start && start > today ? "Aguardando início do aviso prévio." : "Aviso prévio em andamento.") : "Aguardando a data agendada para desativação.",
+      observation: hasNotice ? (start && start > today ? "Aguardando início do aviso prévio." : "Aviso prévio em andamento.") : "Aguardando a data agendada para desativação.",
     }];
   }).sort((a, b) => a.employee.name.localeCompare(b.employee.name, "pt-BR")), [employees, companies, today]);
   const selected = processes.find((process) => process.employee.id === selectedId);
@@ -154,7 +157,14 @@ export default function EmployeeProcesses() {
         ? experienceEndingToday(process.employee, today)
         : experienceAlerts(process.employee, today).some((alert) => !alert.acknowledged && (experienceFilter === "overdue" ? alert.remaining < 0 : alert.remaining >= 0 && alert.remaining <= 7))
     )))
-    && normalize(`${process.employee.name} ${process.employee.cpf} ${process.employee.registration} ${process.company}`).includes(normalize(search.trim()))), [processes, modality, status, search, experienceFilter, today]);
+    && (!settlementFilter || (() => {
+      const fields = process.employee.registrationData || {};
+      const due = fields.terminationSettlementDueDate || "";
+      const remaining = due ? Math.round((Date.parse(`${due}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) : Number.NaN;
+      if (!["indemnified", "employee"].includes(fields.terminationMode || "") || fields.terminationSettlementPaid === "true" || !due) return false;
+      return settlementFilter === "all" || (settlementFilter === "today" && remaining === 0) || (settlementFilter === "upcoming" && remaining >= 1 && remaining <= 3) || (settlementFilter === "overdue" && remaining < 0);
+    })())
+    && normalize(`${process.employee.name} ${process.employee.cpf} ${process.employee.registration} ${process.company}`).includes(normalize(search.trim()))), [processes, modality, status, search, experienceFilter, settlementFilter, today]);
   const modelDocuments = employeeDocuments.filter((document) => !document.employeeId && document.active !== false && document.folderPath.startsWith("Modelos utilizados /"));
   function openEmployeeRecordFolder(employee: Employee) {
     const url = new URL(securePath("records"), window.location.origin);
@@ -194,23 +204,27 @@ export default function EmployeeProcesses() {
           <input aria-label="Pesquisar funcionário, CPF, matrícula ou empresa" placeholder="Pesquisar funcionário, CPF ou empresa..." value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
           <select aria-label="Modalidade" value={modality} onChange={(event) => { setModality(event.target.value); setPage(1); }}><option value="">Todas as modalidades</option><option>Aviso prévio</option><option>Contrato de experiência</option>{Object.values(terminationModes).map((label) => <option key={label}>{label}</option>)}</select>
           <select aria-label="Status do processo" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">Todos os status</option><option>Em andamento</option></select>
-          <button type="button" className="btn btn-secondary" onClick={() => { setSearch(""); setModality(""); setStatus(""); setExperienceFilter(""); setPage(1); }}><RotateCcw size={14} /> Limpar filtros</button>
+          <button type="button" className="btn btn-secondary" onClick={() => { setSearch(""); setModality(""); setStatus(""); setExperienceFilter(""); setSettlementFilter(""); setPage(1); }}><RotateCcw size={14} /> Limpar filtros</button>
         </div>
         <div className="experience-filter-tabs" role="group" aria-label="Filtrar alertas de experiência">
           <strong>Alertas de experiência</strong>
-          {[{ value: "", label: "Todos" }, { value: "today", label: "Término de experiência hoje" }, { value: "upcoming", label: "Vence em até 7 dias" }, { value: "overdue", label: "Vencidos" }].map((filter) => <button key={filter.value} type="button" className={`btn btn-secondary${experienceFilter === filter.value ? " is-selected" : ""}`} aria-pressed={experienceFilter === filter.value} onClick={() => { setExperienceFilter(filter.value); setPage(1); }}>{filter.label}</button>)}
+          {[{ value: "today", label: "Término de experiência hoje" }, { value: "upcoming", label: "Vence em até 7 dias" }].map((filter) => <button key={filter.value} type="button" className={`btn btn-secondary${experienceFilter === filter.value ? " is-selected" : ""}`} aria-pressed={experienceFilter === filter.value} onClick={() => { setExperienceFilter((current) => current === filter.value ? "" : filter.value); setPage(1); }}>{filter.label}</button>)}
+        </div>
+        <div className="experience-filter-tabs" role="group" aria-label="Filtrar alertas de aviso prévio do empregado e indenizado">
+          <strong>Alertas de aviso prévio (empregado e indenizado)</strong>
+          {[{ value: "today", label: "Vencimento hoje" }, { value: "upcoming", label: "Vence em 3 dias" }, { value: "overdue", label: "Vencidos" }].map((filter) => <button key={filter.value} type="button" className={`btn btn-secondary${settlementFilter === filter.value ? " is-selected" : ""}`} aria-pressed={settlementFilter === filter.value} onClick={() => { setSettlementFilter((current) => current === filter.value ? "" : filter.value); setPage(1); }}>{filter.label}</button>)}
         </div>
         <div className="employee-process-table-wrap" tabIndex={0} role="region" aria-label="Processos de funcionários; role horizontalmente para visualizar todas as colunas">
           <table className="data-table">
-            <thead><tr><th>Funcionário</th><th>Empresa</th><th>Modalidade</th><th>Status</th><th>Inicio do processo</th><th>Desativação</th><th>Alerta / Continuidade</th><th>Observações</th></tr></thead>
+            <thead><tr><th>Funcionário</th><th>Empresa</th><th>Modalidade</th><th>Status</th><th>Inicio do processo</th><th>Desativação</th><th>Alerta / Continuidade</th><th>Tipo de Demissão</th><th>Observações</th></tr></thead>
             <tbody>
               {!loading && visibleProcesses.map((process) => <tr key={process.employee.id} onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest("button, textarea, input, select, a")) { event.stopPropagation(); setSelectedId(process.employee.id); } }}>
                 <td><div className="employee-process-person"><span className="employee-process-avatar">{process.employee.name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("")}</span><div><button type="button" className="process-open-button" onClick={() => setSelectedId(process.employee.id)}>{process.employee.name}</button><small className="muted">{process.employee.cpf || "CPF não informado"}</small></div></div></td>
                 <td>{process.company}</td><td><span className={`badge ${process.modality === "Contrato de experiência" ? "badge-experience" : process.modality === "Aviso prévio" ? "badge-warning" : "badge-danger"}`}>{process.modality}</span></td>
                 <td><span className={`badge ${process.status === "Concluído" ? "badge-success" : "badge-info"}`}>{process.status}</span></td>
-                <td>{process.enteredAt ? formatDate(process.enteredAt.slice(0, 10)) : "—"}</td><td>{process.end ? formatDate(process.end) : "—"}</td><td className="experience-action-cell">{process.experience ? <ExperienceTracking key={`${process.employee.id}-${process.employee.registrationData?.experienceAlertDays || 7}`} employee={process.employee} today={today} compact /> : "—"}</td><td>{notesEditor(process.employee)}</td>
+                <td>{process.enteredAt ? formatDate(process.enteredAt.slice(0, 10)) : "—"}</td><td>{process.end ? formatDate(process.end) : "—"}</td><td className="experience-action-cell">{process.experience ? <ExperienceTracking key={`${process.employee.id}-${process.employee.registrationData?.experienceAlertDays || 7}`} employee={process.employee} today={today} compact /> : <TerminationSettlementAlert employee={process.employee} today={today} />}</td><td>{process.employee.registrationData?.dismissalType || "—"}</td><td>{notesEditor(process.employee)}</td>
               </tr>)}
-              {(loading || !filtered.length) && <tr><td colSpan={8} className="employee-process-empty"><CalendarClock size={28} /><p>{loading ? "Carregando processos..." : processes.length ? "Nenhum processo corresponde aos filtros selecionados." : "Nenhum funcionário com aviso prévio ou desativação registrada."}</p></td></tr>}
+              {(loading || !filtered.length) && <tr><td colSpan={9} className="employee-process-empty"><CalendarClock size={28} /><p>{loading ? "Carregando processos..." : processes.length ? "Nenhum processo corresponde aos filtros selecionados." : "Nenhum funcionário com aviso prévio ou desativação registrada."}</p></td></tr>}
             </tbody>
           </table>
         </div>

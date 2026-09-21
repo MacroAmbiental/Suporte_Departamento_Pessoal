@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import ts from 'typescript';
 const source = readFileSync(new URL('./experience.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
-const { addDays, experienceMilestones, isInExperience, experienceWindow, experienceAlerts, needsExperienceFollowup, experienceEndingToday } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { addDays, experienceMilestones, isInExperience, experienceWindow, experienceAlerts, needsExperienceFollowup, experienceEndingToday, experienceTerminationAction } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 const employee = { admissionDate: '2026-01-01', status: 'active', registrationData: {} };
 test('marcos de 30 e 60 dias incluem o dia da admissao', () => {
   assert.deepEqual(experienceMilestones(employee).map((item) => item.date), ['2026-01-30', '2026-03-01']);
@@ -72,5 +72,11 @@ test('confirmacao antiga do marco 60 exige decisao definitiva explicita', () => 
   assert.equal(experienceAlerts(legacy, '2026-03-02')[1].alert, true);
   const confirmed = { ...legacy, registrationData: { ...legacy.registrationData, experienceConfirmedAt: '2026-03-02' } };
   assert.equal(experienceAlerts(confirmed, '2026-03-02')[1].alert, false);
+});
+
+test('desligamento rapido no fim do marco e aviso de multa antes do fim', () => {
+  assert.equal(experienceTerminationAction('2026-01-30', '2026-01-30'), 'quick');
+  assert.equal(experienceTerminationAction('2026-02-01', '2026-01-30'), 'warning');
+  assert.match(experienceTerminationAction('2026-02-01', '2026-01-30', true), /Art\. 477|multa/i);
 });
 

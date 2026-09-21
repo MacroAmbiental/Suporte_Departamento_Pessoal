@@ -18,12 +18,12 @@ test('duas horas e sete dias sao alternativas exclusivas', () => {
   assert.equal(fields.noticeLeaveStartDate, '');
   assert.equal(validNoticeReduction('employer', '', '2026-09-01', '2026-10-01'), false);
 });
-test('indenizado guarda inicio e opcao de reducao', () => {
+test('indenizado guarda inicio sem opcao de reducao', () => {
   const fields = noticeSpecialty('indemnified', 'hours', '2026-09-01', '2026-10-01');
   assert.equal(fields.noticeStartDate, '2026-09-01');
-  assert.equal(fields.noticeReduction, 'hours');
+  assert.equal(fields.noticeReduction, '');
+  assert.equal(validNoticeReduction('indemnified', '', '2026-09-01', '2026-10-01'), true);
 });
 test('dispensa nao pode comecar antes do aviso', () => {
   assert.equal(validNoticeReduction('employer', 'days', '2026-09-28', '2026-10-01'), false);
 });
-

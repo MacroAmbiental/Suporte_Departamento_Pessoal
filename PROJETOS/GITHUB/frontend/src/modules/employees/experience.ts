@@ -2,6 +2,7 @@ import type { Employee } from "@/types/domain";
 export const terminationModes = { indemnified: "Aviso prévio indenizado", employee: "Aviso prévio do empregado", quick: "Desativação rápida" } as const;
 export const processModalities = {
   ...terminationModes,
+  suspension: "Suspensão",
   notice: "Aviso prévio",
   experience: "Contrato de experiência",
 } as const;
@@ -16,6 +17,7 @@ export function employeeProcessModalityLabel(employee: Employee, date: string) {
   const label = processModalities[mode as keyof typeof processModalities];
 
   if (employee.status === "terminated") return "";
+  if (mode === "suspension") return fields.suspensionStartDate && fields.suspensionEndDate && fields.suspensionStartDate <= date && date <= fields.suspensionEndDate ? "Suspensão" : "";
   if (label && (!end || date <= end)) return label;
   if ((fields.noticeStartDate || fields.noticeScheduledAt) && (!end || (date >= String(fields.noticeStartDate || fields.noticeScheduledAt) && date < end))) return "Aviso prévio";
   if ((fields.scheduledDeactivationDate || fields.deactivationEffectiveDate) && !mode && !fields.noticeStartDate) return "Desativação rápida";
@@ -54,6 +56,20 @@ export function experienceEndingToday(employee: Employee, today: string) {
   if (!needsExperienceFollowup(employee, today)) return false;
   return experienceAlerts(employee, today).some((milestone) => milestone.days === EXPERIENCE_DURATION_DAYS && milestone.remaining === 0 && !milestone.acknowledged);
 }
+
+export function experienceTerminationAction(dismissalDate: string, milestoneEndDate: string, includeDetail = false) {
+  if (!dismissalDate || !milestoneEndDate) return includeDetail ? "" : "normal";
+  const dismissal = Date.parse(`${dismissalDate}T12:00:00Z`);
+  const milestone = Date.parse(`${milestoneEndDate}T12:00:00Z`);
+
+  if (dismissal === milestone) return includeDetail ? "Desligamento rápido: a data do desligamento coincide com o fim do marco; abre o modal de desligamento em modo rápido." : "quick";
+  if (dismissal < milestone) {
+    const detail = "Desligamento antes do fim do contrato de experiência: a rescisão antecipada pelo empregador pode gerar indenização prevista no Art. 479 da CLT, conforme a hipótese.";
+    return includeDetail ? detail : "warning";
+  }
+  return includeDetail ? "Desligamento após o fim do marco." : "normal";
+}
+
 export function needsExperienceFollowup(employee: Employee, today: string) {
   const fields = employee.registrationData || {};
   if (fields.experienceConfirmedAt || employee.status === "terminated" || fields.employeeKind === "diarist" || !employee.admissionDate || employee.admissionDate > today) return false;

@@ -1,0 +1,3 @@
+ABRIR DESLIGAMENTO
+
+O botao Desligar usa o mesmo mecanismo de abertura em nova guia usado pelo botao Anexar Documento: window.open(url, "_blank") sem recursos de janela.

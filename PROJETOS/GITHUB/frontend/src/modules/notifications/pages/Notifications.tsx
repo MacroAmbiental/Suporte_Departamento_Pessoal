@@ -1,21 +1,24 @@
 import {
   Bell,
   CalendarClock,
+  CalendarDays,
   Check,
   CheckCircle2,
-  ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  ExternalLink,
-  Filter,
+  ChevronsLeft,
+  ChevronsRight,
+  Eye,
+  FileText,
+  Pencil,
   RotateCcw,
-  Search,
+  Timer,
   Upload,
+  UserRound,
   X,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useDomainData } from "@/hooks/useDomainData";
-import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
-import MultiSelect from "../../../common/components/MultiSelect";
 import { openEmployeeDocumentFile, uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import { documentKindFromFileName, formatDocumentFileSize } from "@/modules/records/utils/recordsDocuments";
 import type { AlertPriority, DocumentAlert, EmployeeDocument } from "@/types/domain";
@@ -23,8 +26,60 @@ import { badgeClass, formatDate, getAlertStatus, labelStatus, todayISO } from "@
 
 type AlertSection = "active" | "renewed" | "completed";
 type DueWindowFilter = "all" | "overdue" | "one-day" | "three-days";
+type RealizedValue = "" | "yes" | "no";
+
+type NotificationColumnFilters = {
+  document: string;
+  employee: string;
+  notifyDate: string;
+  priority: "" | AlertPriority;
+  status: "" | "pending" | "renewed" | "recurring" | "completed";
+  realized: RealizedValue;
+  observations: string;
+  actions: "" | "with-file" | "without-file" | "pending-completion";
+};
 
 const pageSize = 10;
+
+const initialColumnFilters: NotificationColumnFilters = {
+  document: "",
+  employee: "",
+  notifyDate: "",
+  priority: "",
+  status: "",
+  realized: "",
+  observations: "",
+  actions: "",
+};
+
+const ObservationEditor = memo(function ObservationEditor({
+  alertId,
+  documentName,
+  initialValue,
+  onSave,
+}: {
+  alertId: string;
+  documentName: string;
+  initialValue: string;
+  onSave: (value: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState(initialValue);
+
+  useEffect(() => {
+    setValue(initialValue);
+  }, [alertId, initialValue]);
+
+  return (
+    <textarea
+      aria-label={`Observações de ${documentName}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => void onSave(value)}
+      placeholder="Adicionar observação..."
+      rows={2}
+    />
+  );
+});
 
 function normalizeText(value: string) {
   return value
@@ -132,18 +187,17 @@ function completedAtFromRealizedDate(realizedDate: string, today: string) {
 
 export default function Notifications() {
   const data = useDomainData();
-  const initialNotificationsFilters = { companyIds: [] as string[], employeeIds: [] as string[], documentName: "", priorities: [] as AlertPriority[] };
-  const [filters, setFilters] = useState(initialNotificationsFilters);
   const [dueWindowFilter, setDueWindowFilter] = useState<DueWindowFilter>("all");
   const [tablePages, setTablePages] = useState<Record<AlertSection, number>>({
     active: 1,
     renewed: 1,
     completed: 1,
   });
-  const [sectionOpen, setSectionOpen] = useState<Record<AlertSection, boolean>>({
-    active: false,
-    renewed: false,
-    completed: false,
+  const [activeSection, setActiveSection] = useState<AlertSection>("active");
+  const [columnFilters, setColumnFilters] = useState<Record<AlertSection, NotificationColumnFilters>>({
+    active: { ...initialColumnFilters },
+    renewed: { ...initialColumnFilters },
+    completed: { ...initialColumnFilters },
   });
   const [completionDraft, setCompletionDraft] = useState<{
     alertId: string;
@@ -153,6 +207,7 @@ export default function Notifications() {
     fileName: string;
   } | null>(null);
   const [completionSaving, setCompletionSaving] = useState(false);
+  const [completionDropActive, setCompletionDropActive] = useState(false);
   const today = todayISO();
 
   function alertEmployee(alert: DocumentAlert) {
@@ -179,18 +234,6 @@ export default function Notifications() {
     return alertCompany(alert)?.name || alert.companyName || "-";
   }
 
-  function matchesFilters(alert: DocumentAlert) {
-    const employee = alertEmployee(alert);
-    const document = alertDocument(alert);
-    const documentName = document?.name || alert.documentName || alert.title;
-    const documentSearch = normalizeText(filters.documentName);
-
-    return (!filters.companyIds.length || filters.companyIds.includes(alert.companyId))
-      && (!filters.employeeIds.length || filters.employeeIds.includes(alert.employeeId))
-      && (!filters.priorities.length || filters.priorities.includes(alert.priority))
-      && (!documentSearch || normalizeText(documentName).includes(documentSearch));
-  }
-
   const openAlerts = useMemo(
     () => data.documentAlerts.filter((alert) => {
       const document = data.employeeDocuments.find((item) => item.id === alert.documentId);
@@ -200,10 +243,7 @@ export default function Notifications() {
     [data.documentAlerts, data.employeeDocuments, data.employees],
   );
 
-  const filteredOpenAlerts = useMemo(
-    () => openAlerts.filter(matchesFilters),
-    [filters, openAlerts],
-  );
+  const filteredOpenAlerts = useMemo(() => openAlerts, [openAlerts]);
 
   const dueWindowCards = useMemo(
     () => [
@@ -211,19 +251,22 @@ export default function Notifications() {
         key: "overdue" as DueWindowFilter,
         label: "Ja venceram",
         value: filteredOpenAlerts.filter((alert) => matchesDueWindow(alert, "overdue", today)).length,
-        tone: "black",
+        tone: "blue",
+        icon: <CalendarDays size={26} />,
       },
       {
         key: "one-day" as DueWindowFilter,
         label: "Vencem em 1 dia",
         value: filteredOpenAlerts.filter((alert) => matchesDueWindow(alert, "one-day", today)).length,
-        tone: "red",
+        tone: "green",
+        icon: <Timer size={26} />,
       },
       {
         key: "three-days" as DueWindowFilter,
         label: "Vencem em 3 dias",
         value: filteredOpenAlerts.filter((alert) => matchesDueWindow(alert, "three-days", today)).length,
         tone: "orange",
+        icon: <CalendarClock size={26} />,
       },
     ],
     [filteredOpenAlerts, today],
@@ -251,26 +294,24 @@ export default function Notifications() {
     () => sortByUpdatedDate(
       data.documentAlerts
         .filter((alert) => alert.status === "completed")
-        .filter(matchesFilters)
         .filter((alert) => matchesDueWindow(alert, dueWindowFilter, today)),
     ),
-    [data.documentAlerts, dueWindowFilter, filters, today],
-  );
-  const hasActiveFilters = Boolean(
-    filters.companyIds.length
-    || filters.employeeIds.length
-    || filters.documentName
-    || filters.priorities.length
-    || dueWindowFilter !== "all",
-  );
-
-  const filterEmployees = useMemo(
-    () => data.employees.filter((employee) => !filters.companyIds.length || filters.companyIds.includes(employee.companyId)),
-    [data.employees, filters.companyIds],
+    [data.documentAlerts, dueWindowFilter, today],
   );
 
   function resetTablePages() {
     setTablePages({ active: 1, renewed: 1, completed: 1 });
+  }
+
+  function updateSectionColumnFilter<K extends keyof NotificationColumnFilters>(section: AlertSection, key: K, value: NotificationColumnFilters[K]) {
+    setColumnFilters((current) => ({
+      ...current,
+      [section]: {
+        ...current[section],
+        [key]: value,
+      },
+    }));
+    setTablePages((current) => ({ ...current, [section]: 1 }));
   }
 
   function toggleDueWindowFilter(filter: DueWindowFilter) {
@@ -279,6 +320,7 @@ export default function Notifications() {
   }
 
   function openCompletionModal(alertId: string) {
+    setCompletionDropActive(false);
     setCompletionDraft({
       alertId,
       realizedDate: today,
@@ -287,9 +329,70 @@ export default function Notifications() {
     });
   }
 
+  async function saveObservation(alert: DocumentAlert, value: string) {
+    const description = value.trim();
+    if (description === (alert.description || "")) return;
+
+    try {
+      await data.upsertDocumentAlert({ ...alert, description, updatedAt: new Date().toISOString() });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Não foi possível salvar a observação.");
+    }
+  }
+
+  function statusBucket(alert: DocumentAlert, type: AlertSection) {
+    if (type === "completed") return "completed" as const;
+    if (alert.renewedFromAlertId || alert.previousDueDate) return "renewed" as const;
+    if (isRecurring(alert.recurrence)) return "recurring" as const;
+    return "pending" as const;
+  }
+
+  function realizedValue(alert: DocumentAlert, type: AlertSection): RealizedValue {
+    if (alert.realized === "yes" || alert.realized === "no") return alert.realized;
+    return type === "completed" ? "yes" : "";
+  }
+
+  async function setAlertRealized(alert: DocumentAlert, type: AlertSection, value: Exclude<RealizedValue, "">) {
+    if (realizedValue(alert, type) === value) return;
+
+    try {
+      await data.upsertDocumentAlert({
+        ...alert,
+        realized: value,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Não foi possível atualizar o campo Realizado.");
+    }
+  }
+
+  function matchesColumnFilters(alert: DocumentAlert, type: AlertSection, filtersForSection: NotificationColumnFilters) {
+    const document = alertDocument(alert);
+    const docName = getDocumentName(alert);
+    const employeeName = getEmployeeName(alert);
+    const notifyDate = type === "completed" ? alert.dueDate : getStoredNotifyDate(alert);
+    const observations = alert.description || "";
+    const realized = realizedValue(alert, type);
+
+    if (filtersForSection.document && !normalizeText(docName).includes(normalizeText(filtersForSection.document))) return false;
+    if (filtersForSection.employee && !normalizeText(employeeName).includes(normalizeText(filtersForSection.employee))) return false;
+    if (filtersForSection.notifyDate && notifyDate !== filtersForSection.notifyDate) return false;
+    if (filtersForSection.priority && alert.priority !== filtersForSection.priority) return false;
+    if (filtersForSection.status && statusBucket(alert, type) !== filtersForSection.status) return false;
+    if (filtersForSection.realized && realized !== filtersForSection.realized) return false;
+    if (filtersForSection.observations && !normalizeText(observations).includes(normalizeText(filtersForSection.observations))) return false;
+
+    if (filtersForSection.actions === "with-file" && !document?.fileUrl) return false;
+    if (filtersForSection.actions === "without-file" && document?.fileUrl) return false;
+    if (filtersForSection.actions === "pending-completion" && type === "completed") return false;
+
+    return true;
+  }
+
   function closeCompletionModal() {
     if (completionSaving) return;
     setCompletionDraft(null);
+    setCompletionDropActive(false);
   }
 
   function updateCompletionFile(file?: File) {
@@ -346,6 +449,7 @@ export default function Notifications() {
         employeeName: employee?.name || alert.employeeName || "",
         documentName: document?.name || alert.documentName || "",
         companyName: company?.name || alert.companyName || "",
+        realized: "yes",
         status: "completed",
         completedAt,
         updatedAt: now,
@@ -379,6 +483,7 @@ export default function Notifications() {
           status: getAlertStatus(notifyDate),
           renewedFromAlertId: alert.id,
           previousDueDate: alert.dueDate,
+          realized: undefined,
           employeeName: employee?.name || alert.employeeName || "",
           documentName: document?.name || alert.documentName || "",
           companyName: company?.name || alert.companyName || "",
@@ -402,7 +507,7 @@ export default function Notifications() {
     if (!alerts.length) {
       return (
         <tr>
-          <td colSpan={9}>
+          <td colSpan={8}>
             {type === "completed"
               ? "Nenhum alerta concluido nesse filtro."
               : type === "renewed"
@@ -420,54 +525,42 @@ export default function Notifications() {
       const notifyDate = getStoredNotifyDate(alert);
       const renewedFromAlertId = alert.renewedFromAlertId;
       const previousDueDate = alert.previousDueDate;
-      const completedAt = alert.completedAt;
 
       return (
-        <tr key={alert.id}>
-          <td className="strong-cell">
-            {alert.title}
-            <br />
-            <span className="muted">{alert.description || "-"}</span>
+        <tr key={alert.id} className="notification-alert-row">
+          <td className="notification-document-cell">
+            <div className="notification-cell-content">
+              <span className="notification-row-icon"><FileText size={25} /></span>
+              <span><strong>{getDocumentName(alert)}</strong><small>{alert.title}</small></span>
+            </div>
           </td>
 
-          <td>{getCompanyName(alert)}</td>
-
-          <td>{getEmployeeName(alert)}</td>
-
-          <td>{getDocumentName(alert)}</td>
-
-          <td>
-            {type === "completed" ? formatDate(alert.dueDate) : formatDate(notifyDate)}
-
-            {type !== "completed" ? (
-              <>
-                <br />
-                <span className="muted">
-                  Vence em: {formatDate(alert.dueDate)}
-                  {advanceDays > 0 ? ` - ${advanceDays} dia(s) antes` : " - alerta no vencimento"}
-                </span>
-              </>
-            ) : null}
-
-            {type !== "completed" && isRecurring(alert.recurrence) && nextDueDate ? (
-              <>
-                <br />
-                <span className="muted">Ao concluir, renova para: {formatDate(getNotifyDate(nextDueDate, advanceDays))}</span>
-              </>
-            ) : null}
+          <td className="notification-employee-cell">
+            <div className="notification-cell-content">
+              <UserRound size={19} />
+              <span><strong>{getEmployeeName(alert)}</strong><small>{getCompanyName(alert)}</small></span>
+            </div>
           </td>
 
-          <td>
-            {completedAt ? formatDate(completedAt.slice(0, 10)) : "-"}
+          <td className="notification-date-cell">
+            <div className="notification-cell-content">
+              <CalendarDays size={19} />
+              <span>
+                <small>{type === "completed" ? "Venceu em" : "Vence em"}</small>
+                <strong>{formatDate(type === "completed" ? alert.dueDate : notifyDate)}</strong>
+                {type !== "completed" ? <small>Vencimento: {formatDate(alert.dueDate)}</small> : null}
+                {type !== "completed" && isRecurring(alert.recurrence) && nextDueDate ? <small>Renova: {formatDate(getNotifyDate(nextDueDate, advanceDays))}</small> : null}
+              </span>
+            </div>
           </td>
 
-          <td>
+          <td className="notification-priority-cell">
             <span className={`badge ${badgeClass(alert.priority)}`}>
               {labelStatus(alert.priority)}
             </span>
           </td>
 
-          <td>
+          <td className="notification-status-cell">
             {type === "completed" ? (
               <span className="badge badge-success">
                 <CheckCircle2 size={14} /> Concluido
@@ -487,24 +580,55 @@ export default function Notifications() {
             )}
           </td>
 
-          <td className="action-row">
-            {document?.fileUrl ? (
+          <td className="notification-realized-cell">
+            <div className="notification-realized-options" role="group" aria-label={`Realizado de ${getDocumentName(alert)}`}>
               <button
-                className="table-action"
                 type="button"
-                onClick={() => openEmployeeDocumentFile(document.fileUrl, document.name).catch((error) => {
-                  window.alert(error instanceof Error ? error.message : "Nao foi possivel abrir o documento.");
-                })}
+                className={`notification-realized-option${realizedValue(alert, type) === "yes" ? " is-active" : ""}`}
+                onClick={() => void setAlertRealized(alert, type, "yes")}
               >
-                <ExternalLink size={15} /> Ver
+                Sim
               </button>
-            ) : null}
+              <button
+                type="button"
+                className={`notification-realized-option${realizedValue(alert, type) === "no" ? " is-active" : ""}`}
+                onClick={() => void setAlertRealized(alert, type, "no")}
+              >
+                Não
+              </button>
+            </div>
+          </td>
 
-            {type !== "completed" ? (
-              <button className="btn btn-soft" type="button" onClick={() => openCompletionModal(alert.id)}>
-                <Check size={15} /> Concluir
-              </button>
-            ) : null}
+          <td className="notification-observations-cell">
+            <span>Observações <Pencil size={13} /></span>
+            <ObservationEditor
+              alertId={alert.id}
+              documentName={getDocumentName(alert)}
+              initialValue={alert.description || ""}
+              onSave={(value) => saveObservation(alert, value)}
+            />
+          </td>
+
+          <td className="action-row notification-actions-cell">
+            <div className="notification-actions-inline">
+              {document?.fileUrl ? (
+                <button
+                  className="table-action"
+                  type="button"
+                  onClick={() => openEmployeeDocumentFile(document.fileUrl, document.name).catch((error) => {
+                    window.alert(error instanceof Error ? error.message : "Nao foi possivel abrir o documento.");
+                  })}
+                >
+                  <Eye size={15} /> Ver
+                </button>
+              ) : null}
+
+              {type !== "completed" ? (
+                <button className="btn btn-soft" type="button" onClick={() => openCompletionModal(alert.id)}>
+                  <Check size={15} /> Concluir
+                </button>
+              ) : null}
+            </div>
           </td>
         </tr>
       );
@@ -522,14 +646,14 @@ export default function Notifications() {
     icon: ReactNode;
     type: AlertSection;
   }) {
-    const totalPages = Math.max(1, Math.ceil(alerts.length / pageSize));
+    const sectionFilters = columnFilters[type];
+    const filteredAlerts = alerts.filter((alert) => matchesColumnFilters(alert, type, sectionFilters));
+    const totalPages = Math.max(1, Math.ceil(filteredAlerts.length / pageSize));
     const currentPage = Math.min(tablePages[type], totalPages);
     const firstItem = (currentPage - 1) * pageSize;
-    const visibleAlerts = alerts.slice(firstItem, firstItem + pageSize);
-    const sectionBodyId = `${type}-alert-table`;
-    const isSectionOpen = sectionOpen[type];
-    const fromItem = alerts.length ? firstItem + 1 : 0;
-    const toItem = alerts.length ? Math.min(firstItem + visibleAlerts.length, alerts.length) : 0;
+    const visibleAlerts = filteredAlerts.slice(firstItem, firstItem + pageSize);
+    const fromItem = filteredAlerts.length ? firstItem + 1 : 0;
+    const toItem = filteredAlerts.length ? Math.min(firstItem + visibleAlerts.length, filteredAlerts.length) : 0;
 
     function goToPage(nextPage: number) {
       setTablePages((current) => ({ ...current, [type]: Math.min(Math.max(1, nextPage), totalPages) }));
@@ -537,64 +661,150 @@ export default function Notifications() {
 
     return (
       <article className="panel alert-table-section" style={{ marginTop: 16 }}>
-        <button
-          aria-controls={sectionBodyId}
-          aria-expanded={isSectionOpen}
-          className="panel-header alert-section-toggle"
-          type="button"
-          onClick={() => setSectionOpen((current) => ({ ...current, [type]: !current[type] }))}
-        >
+        <div className="panel-header alert-section-static-header">
           <span className="alert-section-title-wrap">
             <span className="panel-title">
               {icon} {title}
             </span>
             <span className="panel-subtitle">{alerts.length} alerta(s) neste filtro.</span>
           </span>
-          <span className="alert-section-caret" aria-hidden="true">
-            {isSectionOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-          </span>
-        </button>
+        </div>
 
-        {isSectionOpen ? (
-          <div className="alert-table-wrap" id={sectionBodyId}>
-            <div className="table-panel">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Alerta</th>
-                    <th>Empresa</th>
-                    <th>Funcionario</th>
-                    <th>Documento</th>
-                    <th>{type === "completed" ? "Vencimento" : "Notifica em"}</th>
-                    <th>Data de realizado</th>
-                    <th>Prioridade</th>
-                    <th>Status</th>
-                    <th>Acoes</th>
-                  </tr>
-                </thead>
-                <tbody>{renderRows(visibleAlerts, type)}</tbody>
-              </table>
-            </div>
+        <div className="alert-table-wrap">
+          <div className="table-panel">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Documento</th>
+                  <th>Funcionário</th>
+                  <th>{type === "completed" ? "Vencimento" : "Notifica em"}</th>
+                  <th>Prioridade</th>
+                  <th>Status</th>
+                  <th>Realizado</th>
+                  <th>Observações</th>
+                  <th>Acoes</th>
+                </tr>
 
-            <div className="alert-table-pagination">
-              <span>
-                Mostrando {fromItem}-{toItem} de {alerts.length}
-              </span>
-              <div>
-                <button className="btn btn-secondary" type="button" disabled={currentPage <= 1} onClick={() => goToPage(currentPage - 1)}>
-                  Anterior
-                </button>
-                <span className="module-pill">Pagina {currentPage} de {totalPages}</span>
-                <button className="btn btn-secondary" type="button" disabled={currentPage >= totalPages} onClick={() => goToPage(currentPage + 1)}>
-                  Proxima
-                </button>
-              </div>
+                <tr className="notification-filter-row">
+                  <th>
+                    <input
+                      type="text"
+                      value={sectionFilters.document}
+                      onChange={(event) => updateSectionColumnFilter(type, "document", event.target.value)}
+                      placeholder="Filtrar"
+                      aria-label="Filtrar documento"
+                    />
+                  </th>
+                  <th>
+                    <input
+                      type="text"
+                      value={sectionFilters.employee}
+                      onChange={(event) => updateSectionColumnFilter(type, "employee", event.target.value)}
+                      placeholder="Filtrar"
+                      aria-label="Filtrar funcionário"
+                    />
+                  </th>
+                  <th>
+                    <input
+                      type="date"
+                      value={sectionFilters.notifyDate}
+                      onChange={(event) => updateSectionColumnFilter(type, "notifyDate", event.target.value)}
+                      aria-label="Filtrar data"
+                    />
+                  </th>
+                  <th>
+                    <select
+                      value={sectionFilters.priority}
+                      onChange={(event) => updateSectionColumnFilter(type, "priority", event.target.value as NotificationColumnFilters["priority"])}
+                      aria-label="Filtrar prioridade"
+                    >
+                      <option value="">Todas</option>
+                      <option value="high">Alta</option>
+                      <option value="medium">Média</option>
+                      <option value="low">Baixa</option>
+                    </select>
+                  </th>
+                  <th>
+                    <select
+                      value={sectionFilters.status}
+                      onChange={(event) => updateSectionColumnFilter(type, "status", event.target.value as NotificationColumnFilters["status"])}
+                      aria-label="Filtrar status"
+                    >
+                      <option value="">Todos</option>
+                      <option value="pending">Pendente</option>
+                      <option value="renewed">Renovado</option>
+                      <option value="recurring">Recorrente</option>
+                      <option value="completed">Concluído</option>
+                    </select>
+                  </th>
+                  <th>
+                    <select
+                      value={sectionFilters.realized}
+                      onChange={(event) => updateSectionColumnFilter(type, "realized", event.target.value as RealizedValue)}
+                      aria-label="Filtrar realizado"
+                    >
+                      <option value="">Todos</option>
+                      <option value="yes">Sim</option>
+                      <option value="no">Não</option>
+                    </select>
+                  </th>
+                  <th>
+                    <input
+                      type="text"
+                      value={sectionFilters.observations}
+                      onChange={(event) => updateSectionColumnFilter(type, "observations", event.target.value)}
+                      placeholder="Filtrar"
+                      aria-label="Filtrar observações"
+                    />
+                  </th>
+                  <th>
+                    <select
+                      value={sectionFilters.actions}
+                      onChange={(event) => updateSectionColumnFilter(type, "actions", event.target.value as NotificationColumnFilters["actions"])}
+                      aria-label="Filtrar ações"
+                    >
+                      <option value="">Todas</option>
+                      <option value="with-file">Com Ver</option>
+                      <option value="without-file">Sem Ver</option>
+                      <option value="pending-completion">Com Concluir</option>
+                    </select>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>{renderRows(visibleAlerts, type)}</tbody>
+            </table>
+          </div>
+
+          <div className="alert-table-pagination">
+            <span>
+              Mostrando {fromItem}-{toItem} de {filteredAlerts.length}
+            </span>
+            <div className="alert-table-page-controls">
+              <button className="alert-table-page-button" type="button" disabled={currentPage <= 1} onClick={() => goToPage(1)} aria-label="Primeira página" title="Primeira página">
+                <ChevronsLeft size={16} />
+              </button>
+              <button className="alert-table-page-button" type="button" disabled={currentPage <= 1} onClick={() => goToPage(currentPage - 1)} aria-label="Página anterior" title="Página anterior">
+                <ChevronLeft size={16} />
+              </button>
+              <span className="alert-table-page-indicator">Pagina {currentPage} de {totalPages}</span>
+              <button className="alert-table-page-button" type="button" disabled={currentPage >= totalPages} onClick={() => goToPage(currentPage + 1)} aria-label="Próxima página" title="Próxima página">
+                <ChevronRight size={16} />
+              </button>
+              <button className="alert-table-page-button" type="button" disabled={currentPage >= totalPages} onClick={() => goToPage(totalPages)} aria-label="Última página" title="Última página">
+                <ChevronsRight size={16} />
+              </button>
             </div>
           </div>
-        ) : null}
+        </div>
       </article>
     );
   }
+
+  const sectionTabs = [
+    { key: "active" as AlertSection, title: "Proximos alertas", icon: <Bell size={16} />, count: nextAlerts.length },
+    { key: "renewed" as AlertSection, title: "Renovacoes futuras", icon: <RotateCcw size={16} />, count: programmedAlerts.length },
+    { key: "completed" as AlertSection, title: "Arquivos concluidos", icon: <CheckCircle2 size={16} />, count: completedAlerts.length },
+  ];
 
   const completionAlert = completionDraft ? data.documentAlerts.find((item) => item.id === completionDraft.alertId) : undefined;
   const completionDocument = completionAlert ? alertDocument(completionAlert) : undefined;
@@ -618,58 +828,32 @@ export default function Notifications() {
             type="button"
             onClick={() => toggleDueWindowFilter(card.key)}
           >
-            <strong>{card.value}</strong>
-            <span>{card.label}</span>
-            <small>{dueWindowFilter === card.key ? "Filtro aplicado" : "Clique para filtrar"}</small>
+            <span className="notification-due-card-icon">{card.icon}</span>
+            <span className="notification-due-card-content"><small>{card.label}</small><strong>{card.value}</strong></span>
           </button>
         ))}
       </div>
 
-      <div className="filters-panel alert-filters">
-        <Filter size={18} />
-        <MultiSelect
-          label="Empresas"
-          placeholder="Empresas"
-          value={filters.companyIds}
-          onChange={(companyIds) => setFilters({ ...filters, companyIds, employeeIds: [] })}
-          options={data.companies.map((company) => ({ value: company.id, label: company.name }))}
-        />
-        <MultiSelect
-          label="Funcionários"
-          placeholder="Funcionários"
-          value={filters.employeeIds}
-          onChange={(employeeIds) => setFilters({ ...filters, employeeIds })}
-          options={filterEmployees.map((employee) => ({ value: employee.id, label: employee.name }))}
-        />
-        <label className="alert-search-field">
-          <Search size={16} />
-          <input
-            value={filters.documentName}
-            onChange={(event) => setFilters({ ...filters, documentName: event.target.value })}
-            placeholder="Nome do documento"
-          />
-        </label>
-        <MultiSelect
-          label="Prioridade"
-          placeholder="Prioridade"
-          value={filters.priorities}
-          onChange={(priorities) => setFilters({ ...filters, priorities: priorities as AlertPriority[] })}
-          options={[
-            { value: "high", label: "Alta" },
-            { value: "medium", label: "Média" },
-            { value: "low", label: "Baixa" },
-          ]}
-        />
-        <ClearFiltersButton active={hasActiveFilters} onClear={() => {
-          setFilters(initialNotificationsFilters);
-          setDueWindowFilter("all");
-          resetTablePages();
-        }} />
+      <div className="notification-sections-tabs" role="tablist" aria-label="Seções de notificações">
+        {sectionTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeSection === tab.key}
+            className={`notification-section-tab${activeSection === tab.key ? " is-active" : ""}`}
+            onClick={() => setActiveSection(tab.key)}
+          >
+            {tab.icon}
+            <span>{tab.title}</span>
+            <strong>{tab.count}</strong>
+          </button>
+        ))}
       </div>
 
-      <AlertTableSection alerts={nextAlerts} type="active" title="Proximos alertas" icon={<Bell size={18} />} />
-      <AlertTableSection alerts={programmedAlerts} type="renewed" title="Renovacoes futuras" icon={<RotateCcw size={18} />} />
-      <AlertTableSection alerts={completedAlerts} type="completed" title="Arquivos concluidos" icon={<CheckCircle2 size={18} />} />
+      {activeSection === "active" && <AlertTableSection alerts={nextAlerts} type="active" title="Proximos alertas" icon={<Bell size={18} />} />}
+      {activeSection === "renewed" && <AlertTableSection alerts={programmedAlerts} type="renewed" title="Renovacoes futuras" icon={<RotateCcw size={18} />} />}
+      {activeSection === "completed" && <AlertTableSection alerts={completedAlerts} type="completed" title="Arquivos concluidos" icon={<CheckCircle2 size={18} />} />}
 
       {completionDraft ? (
         <div className="modal-backdrop">
@@ -677,7 +861,7 @@ export default function Notifications() {
             <div className="modal-header">
               <div>
                 <h2 id="alert-completion-title">Concluir documento</h2>
-                <p className="panel-subtitle">Confirme a data realizada e escolha se deseja substituir o anexo atual.</p>
+                <p className="panel-subtitle">Deseja substituir o documento atual antes de concluir?</p>
               </div>
               <button className="icon-button" type="button" onClick={closeCompletionModal} aria-label="Fechar">
                 <X size={18} />
@@ -700,31 +884,43 @@ export default function Notifications() {
             </label>
 
             <div className="alert-completion-replace">
-              <label className="alert-completion-check">
-                <input
-                  type="checkbox"
-                  checked={completionDraft.replaceDocument}
-                  onChange={(event) => setCompletionDraft((current) => current
-                    ? {
-                        ...current,
-                        replaceDocument: event.target.checked,
-                        file: event.target.checked ? current.file : undefined,
-                        fileName: event.target.checked ? current.fileName : "",
-                      }
-                    : current)}
-                />
-                <span>Atualizar e anexar um novo documento</span>
-              </label>
+              <span className="alert-completion-question">Deseja substituir o documento?</span>
+              <div className="alert-completion-options" role="group" aria-label="Substituir documento">
+                <button
+                  className={`btn ${!completionDraft.replaceDocument ? "btn-primary" : "btn-secondary"}`}
+                  type="button"
+                  onClick={() => setCompletionDraft((current) => current ? { ...current, replaceDocument: false, file: undefined, fileName: "" } : current)}
+                >
+                  Não, manter atual
+                </button>
+                <button
+                  className={`btn ${completionDraft.replaceDocument ? "btn-primary" : "btn-secondary"}`}
+                  type="button"
+                  onClick={() => setCompletionDraft((current) => current ? { ...current, replaceDocument: true } : current)}
+                >
+                  Sim, substituir
+                </button>
+              </div>
 
               {completionDraft.replaceDocument ? (
-                <label className="document-file-field alert-completion-file">
+                <label
+                  className={`document-file-field alert-completion-file${completionDropActive ? " is-drag-over" : ""}`}
+                  onDragEnter={(event) => { event.preventDefault(); setCompletionDropActive(true); }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragLeave={(event) => { event.preventDefault(); setCompletionDropActive(false); }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setCompletionDropActive(false);
+                    updateCompletionFile(event.dataTransfer.files?.[0]);
+                  }}
+                >
                   <input
                     type="file"
                     onChange={(event) => updateCompletionFile(event.target.files?.[0])}
                   />
                   <span>
                     <Upload size={16} />
-                    {completionDraft.fileName || "Selecionar novo documento"}
+                    {completionDraft.fileName || "Arraste o documento aqui ou clique para selecionar"}
                   </span>
                 </label>
               ) : null}
