@@ -135,7 +135,7 @@ export function dedupeStructureItems<T extends StructureItem>(items: T[]) {
 }
 
 export function employeeGroup(
-  employee: Pick<Employee, "companyId" | "groupId"> | undefined,
+  employee: (Pick<Employee, "companyId"> & { groupId?: string }) | undefined,
   groups: CompanyGroup[],
   groupCompanies: CompanyGroupCompany[],
 ) {
