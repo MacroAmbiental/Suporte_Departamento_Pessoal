@@ -1,0 +1,12 @@
+ALTERACOES REALIZADAS
+
+1. Funcionarios em aviso previo aparecem com o texto da linha em vermelho durante o periodo configurado.
+2. Funcionarios do tipo diarista aparecem com o texto da linha em azul.
+3. Quando um diarista estiver em aviso previo, o vermelho tem prioridade.
+4. Sabado e domingo sao tratados como dias de folga:
+   - carga normal = 00:00;
+   - horas normais = 00:00;
+   - faltas = 00:00;
+   - todo o tempo efetivamente trabalhado e contabilizado como hora extra;
+   - a porcentagem da hora extra continua sendo definida no Painel de Calculo.
+5. Sem marcacao aos sabados e domingos, o status padrao passa a ser Folga, e nao Falta/Pendencia.
