@@ -13,6 +13,7 @@ const legacyScreenPaths: Array<[RegExp, AppScreen]> = [
   [/^\/app\/(notifications|notificacoes)\/?$/, "notifications"],
   [/^\/app\/(monitoring|monitoramento)\/?$/, "monitoring"],
   [/^\/app\/(permissions|permissoes)\/?$/, "permissions"],
+  [/^\/app\/(vacation|ferias)\/?$/, "vacation"],
 ];
 
 export function screenFromPathname(pathname: string): AppScreen | null {

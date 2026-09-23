@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { todayISO } from "@/utils/format";
 import type { TimekeepingFilters } from "@/modules/timekeeping/types";
 import { useMonthlyTimeRecords } from "@/modules/timekeeping/hooks/useMonthlyTimeRecords";
+import { employeeProcessModalityLabel, processModalities } from "@/modules/employees/experience";
 import type {
   Employee,
   EmployeeComplement,
@@ -20,6 +21,7 @@ export const initialTimekeepingFilters: TimekeepingFilters = {
   employeeIds: [],
   cpfValues: [],
   statuses: [],
+  terminationModes: [],
   date: todayISO(),
   search: "",
 };
@@ -97,7 +99,8 @@ export function employeeEffectiveStatusForDate(
       registrationData.dismissalDate ||
       "",
   );
-  if (deactivationDate && date >= deactivationDate) return "terminated";
+  if (deactivationDate && (date > deactivationDate || (date === deactivationDate && registrationData.terminationWorkedOnDeactivationDate !== "true"))) return "terminated";
+  if (deactivationDate && date === deactivationDate && registrationData.terminationWorkedOnDeactivationDate === "true") return "active";
   if (employee.status === "terminated" && deactivationDate && date < deactivationDate)
     return "active";
 
@@ -145,18 +148,18 @@ export function useTimekeepingModel() {
     [data.timeRecords, filters.date],
   );
 
-  const filterSets = useMemo(() => ({
-    companies: new Set(filters.companyIds),
-    departments: new Set(filters.departmentIds),
-    sectors: new Set(filters.sectorIds),
-    realTeams: new Set(filters.realTeamIds),
-    dayTeams: new Set(filters.dayTeamIds),
-    employees: new Set(filters.employeeIds),
-    cpfs: new Set(filters.cpfValues),
-    statuses: new Set(filters.statuses),
-    teams: new Set([...filters.realTeamIds, ...filters.dayTeamIds]),
-    search: filters.search.trim().toLowerCase(),
-  }), [filters.companyIds, filters.departmentIds, filters.sectorIds, filters.realTeamIds, filters.dayTeamIds, filters.employeeIds, filters.cpfValues, filters.statuses, filters.search]);
+  const filterSets = useMemo(() => {
+    const terminationModeValues = new Set((filters.terminationModes || []).map((value) => {
+      const normalized = String(value || "");
+      return normalized in processModalities ? processModalities[normalized as keyof typeof processModalities] : normalized;
+    }));
+    return {
+      companies: new Set(filters.companyIds), departments: new Set(filters.departmentIds), sectors: new Set(filters.sectorIds),
+      realTeams: new Set(filters.realTeamIds), dayTeams: new Set(filters.dayTeamIds), employees: new Set(filters.employeeIds),
+      cpfs: new Set(filters.cpfValues), statuses: new Set(filters.statuses), terminationModes: terminationModeValues,
+      teams: new Set([...filters.realTeamIds, ...filters.dayTeamIds]), search: filters.search.trim().toLowerCase(),
+    };
+  }, [filters.companyIds, filters.departmentIds, filters.sectorIds, filters.realTeamIds, filters.dayTeamIds, filters.employeeIds, filters.cpfValues, filters.statuses, filters.terminationModes, filters.search]);
 
   const filteredRecords = useMemo(() => data.timeRecords.filter((record) => {
     const employee = employeeById.get(record.employeeId);
@@ -190,6 +193,7 @@ export function useTimekeepingModel() {
       && (!filterSets.departments.size || filterSets.departments.has(employee.departmentId))
       && (!filterSets.sectors.size || filterSets.sectors.has(employee.sectorId))
       && (!filterSets.statuses.size || filterSets.statuses.has(effectiveStatus))
+      && (!filterSets.terminationModes.size || filterSets.terminationModes.has(employeeProcessModalityLabel(employee, filters.date)))
       && (!filterSets.teams.size || filterSets.teams.has(employee.teamId ?? ""))
       && (!filterSets.employees.size || filterSets.employees.has(employee.id))
       && (!filterSets.cpfs.size || filterSets.cpfs.has(employee.cpf?.trim() || ""))

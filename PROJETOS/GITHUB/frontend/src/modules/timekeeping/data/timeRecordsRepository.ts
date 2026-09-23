@@ -583,6 +583,34 @@ export function removeCachedTimeRecord(id: string, date?: string) {
   rangeCache.clear();
 }
 
+export async function loadConfirmedAbsencesForEmployee(
+  employeeId: string,
+  startDate: string,
+  endDate: string,
+): Promise<TimeRecord[]> {
+  if (!firestore || !employeeId || !startDate || !endDate || startDate > endDate) {
+    return [];
+  }
+  try {
+    const snapshot = await getDocs(query(
+      collectionGroup(firestore, EMPLOYEE_POINTS_SUBCOLLECTION),
+      where("employeeId", "==", employeeId),
+      where("date", ">=", startDate),
+      where("date", "<=", endDate),
+    ));
+    return normalize(snapshot).filter((record) => record.status === "absence_confirmed");
+  } catch (error) {
+    if (!isMissingCollectionGroupIndex(error)) throw error;
+    console.warn(
+      "Índice composto (employeeId + date) ausente para faltas. Usando leitura por intervalo.",
+    );
+    const records = await loadTimeRecordsRange(startDate, endDate);
+    return records.filter(
+      (record) => record.employeeId === employeeId && record.status === "absence_confirmed",
+    );
+  }
+}
+
 export async function deleteTimeRecordTree(record: Pick<TimeRecord, "date" | "employeeId">) {
   const db = firestore;
   if (!db || !record.date || !record.employeeId) return;
