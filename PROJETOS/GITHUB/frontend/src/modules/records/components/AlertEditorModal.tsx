@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { Upload, X } from "lucide-react";
 import type { AlertPriority } from "@/types/domain";
 import type { AlertEditorForm } from "@/modules/records/types";
@@ -41,7 +42,7 @@ export default function AlertEditorModal({
     : "Selecionar arquivo";
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <ModalPortal className="modal-backdrop" role="presentation">
       <div className="confirm-modal alert-modal" role="dialog" aria-modal="true" aria-labelledby="alert-editor-title">
         <div className="modal-header">
           <h2 id="alert-editor-title">Editar alerta</h2>
@@ -134,6 +135,6 @@ export default function AlertEditorModal({
           <button className="btn btn-primary" type="button" onClick={onSave}>Salvar alerta</button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

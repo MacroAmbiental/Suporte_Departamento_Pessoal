@@ -1,0 +1,19 @@
+ROLAGEM DOS MODAIS
+
+- Sobreposições fixas à janela.
+- Página de fundo bloqueada enquanto existir um modal visível.
+- Rolagem por mouse, toque e teclado limitada ao modal superior.
+- Ao chegar ao limite interno, a rolagem não passa à página de fundo.
+- Modais aninhados e portais compartilham o mesmo bloqueio.
+- A posição e os estilos anteriores da página são restaurados quando o
+  último modal fecha.
+- Componentes que usavam bloqueio individual passam a usar o controle comum.
+
+O módulo modalScroll.ts é carregado em main.tsx e aplica o fundo uniforme,
+levemente desfocado, além do bloqueio da página. Os modais comuns devem usar
+ModalPortal.tsx para sair da escala de .app-shell e ficar centralizados na
+janela inteira. Painéis laterais continuam alinhados à direita.
+
+Validação: sintaxe TSX verificada em todos os arquivos e presença de portal
+conferida em todas as sobreposições. O pacote contém somente a pasta src,
+sem dependências ou scripts para iniciar a aplicação completa.

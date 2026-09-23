@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { Check, Plus, Upload, X } from "lucide-react";
 import type { AlertPriority, DocumentKind, Employee } from "@/types/domain";
 import type { DocumentDraft } from "@/modules/records/types";
@@ -44,7 +45,7 @@ export default function DocumentWizard({
   const selectedEmployee = employees.find((employee) => employee.id === draftEmployeeId);
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <ModalPortal className="modal-backdrop" role="presentation">
       <div
         className="modal-panel wizard-card"
         role="dialog"
@@ -358,6 +359,6 @@ export default function DocumentWizard({
           )}
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

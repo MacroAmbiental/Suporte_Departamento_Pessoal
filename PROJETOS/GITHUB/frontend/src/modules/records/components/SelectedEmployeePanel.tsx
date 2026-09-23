@@ -1,5 +1,5 @@
 import { Bell, BellOff, Plus } from "lucide-react";
-import { employeeProcessModalityLabel } from "@/modules/employees/experience";
+import { employeeProcessModalityLabel } from "@/modules/employeeProcesses/utils/experience";
 import { useRecordsContext } from "@/modules/records/context/RecordsContext";
 import { isDismissalArchivedEmployee, isDismissalInProgressEmployee } from "@/modules/records/hooks/useSelectedEmployeeDocuments";
 import { formatDateTime, todayISO } from "@/utils/format";

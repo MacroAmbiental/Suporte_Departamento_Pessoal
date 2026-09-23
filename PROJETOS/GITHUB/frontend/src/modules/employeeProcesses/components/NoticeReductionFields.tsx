@@ -1,5 +1,5 @@
-﻿import { CalendarCheck } from "lucide-react";
-import { addDays } from "../experience";
+import { CalendarCheck } from "lucide-react";
+import { addDays } from "../utils/experience";
 import { formatDate } from "@/utils/format";
 export default function NoticeReductionFields({ value, onChange, end, applies, onAppliesChange }: { applies: boolean; onAppliesChange: (value: boolean) => void; value: string; onChange: (value: string) => void; end: string }) {
   const departure = value === "days" ? addDays(end, -7) : end;

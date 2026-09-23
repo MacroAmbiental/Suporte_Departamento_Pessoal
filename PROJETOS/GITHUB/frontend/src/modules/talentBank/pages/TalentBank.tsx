@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { Briefcase, Pencil, Plus, Search, Settings2, Trash2, X } from "lucide-react";
 import { useMemo, useState, type MouseEvent } from "react";
 import useCreateShortcut from "@/hooks/useCreateShortcut";
@@ -358,7 +359,7 @@ export default function TalentBank() {
       </div>
 
       {optionsModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="confirm-modal option-modal">
             <div className="modal-header">
               <h2>Select por coluna</h2>
@@ -379,7 +380,7 @@ export default function TalentBank() {
               ))}
             </div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {contextMenu ? (

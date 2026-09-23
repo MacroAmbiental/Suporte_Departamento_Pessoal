@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Employee } from "@/types/domain";
 import { useDomainData } from "@/hooks/useDomainData";
 import { useAuth } from "@/hooks/useAuth";
-import { experienceAlerts, experienceTerminationAction } from "../experience";
+import { experienceAlerts, experienceTerminationAction } from "../utils/experience";
 import { formatDate, todayISO } from "@/utils/format";
 import { securePath } from "@/services/secureRoutes";
 export default function ExperienceTracking({ employee, today = todayISO(), compact = false }: { employee: Employee; today?: string; compact?: boolean }) {

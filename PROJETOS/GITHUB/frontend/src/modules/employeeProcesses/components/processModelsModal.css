@@ -1,5 +1,5 @@
-﻿.models-modal-backdrop { position: fixed; inset: 0; z-index: 10020; display: grid; place-items: center; padding: 24px; background: #142c4659; backdrop-filter: blur(3px); }
-.models-modal { width: min(880px, 100%); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; border-radius: 20px; background: #fff; color: #20374e; box-shadow: 0 24px 90px #10263c40; overflow: hidden; }
+﻿.models-modal-backdrop { position: fixed; inset: 0; z-index: 10020; display: flex; align-items: center; justify-content: center; width: 100vw; height: 100vh; padding: 24px; background: #142c4659; backdrop-filter: blur(3px); }
+.models-modal { width: min(880px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; border-radius: 20px; background: #fff; color: #20374e; box-shadow: 0 24px 90px #10263c40; overflow: hidden; }
 .models-modal > header { display: flex; align-items: center; gap: 16px; padding: 26px 28px; border-bottom: 1px solid #e6edf3; }
 .models-modal > header > div { flex: 1; }
 .models-modal h2 { margin: 0 0 6px; font-size: 23px; }

@@ -158,6 +158,8 @@ type DayTablesCacheEntry = {
 
 const hrRecordsRangeCache = new Map<string, RecordsCacheEntry>();
 const hrDayTablesCache = new Map<number, DayTablesCacheEntry>();
+const pendingRecordsRanges = new Map<string, Promise<TimeRecord[]>>();
+const pendingDayTables = new Map<number, Promise<TimekeepingDayTable[]>>();
 
 const microScreens: Array<{ key: HrView; label: string; icon: typeof ChartColumn }> = [
   { key: "general", label: "Geral", icon: ChartPie },
@@ -231,9 +233,16 @@ async function loadTimeRecordsRangeCached(startDate: string, endDate: string) {
   const cached = readCachedTimeRecordsRange(startDate, endDate);
   if (cached) return cached;
 
-  const records = await loadTimeRecordsRange(startDate, endDate);
-  hrRecordsRangeCache.set(key, { cachedAt: Date.now(), records });
-  return records;
+  const pending = pendingRecordsRanges.get(key);
+  if (pending) return pending;
+  const request = loadTimeRecordsRange(startDate, endDate)
+    .then((records) => {
+      hrRecordsRangeCache.set(key, { cachedAt: Date.now(), records });
+      return records;
+    })
+    .finally(() => pendingRecordsRanges.delete(key));
+  pendingRecordsRanges.set(key, request);
+  return request;
 }
 
 function readCachedDayTables(limit: number) {
@@ -250,9 +259,16 @@ async function loadTimekeepingDayTablesCached(limit: number) {
   const cached = readCachedDayTables(limit);
   if (cached) return cached;
 
-  const tables = await loadTimekeepingDayTables(limit);
-  hrDayTablesCache.set(limit, { cachedAt: Date.now(), tables });
-  return tables;
+  const pending = pendingDayTables.get(limit);
+  if (pending) return pending;
+  const request = loadTimekeepingDayTables(limit)
+    .then((tables) => {
+      hrDayTablesCache.set(limit, { cachedAt: Date.now(), tables });
+      return tables;
+    })
+    .finally(() => pendingDayTables.delete(limit));
+  pendingDayTables.set(limit, request);
+  return request;
 }
 
 function compareText(left: string, right: string) {

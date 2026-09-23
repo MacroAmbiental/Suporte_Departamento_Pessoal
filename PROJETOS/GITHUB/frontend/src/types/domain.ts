@@ -1,4 +1,4 @@
-import type { EmployeeProcessHistory } from "@/modules/employees/processHistory";
+import type { EmployeeProcessHistory } from "@/modules/employeeProcesses/utils/processHistory";
 export type AlertStatus = "active" | "overdue" | "pending" | "completed";
 export type AlertPriority = "high" | "medium" | "low";
 export type NotifyChannel = "system" | "email" | "whatsapp";

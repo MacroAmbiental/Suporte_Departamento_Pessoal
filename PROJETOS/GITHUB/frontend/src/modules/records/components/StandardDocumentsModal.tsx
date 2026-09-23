@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { AlertTriangle, CheckCircle2, X } from "lucide-react";
 import type { StandardDocumentRoleOption, StandardDocumentsScopeType } from "@/modules/records/types";
 
@@ -57,7 +58,7 @@ export default function StandardDocumentsModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <ModalPortal className="modal-backdrop" role="presentation">
       <div className="modal-panel wizard-card standard-documents-modal" role="dialog" aria-modal="true" aria-labelledby="standard-documents-title">
         <div className="modal-header">
           <div>
@@ -145,6 +146,6 @@ export default function StandardDocumentsModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

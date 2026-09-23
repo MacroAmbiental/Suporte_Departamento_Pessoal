@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import DeleteImpactModal, { type DeleteImpact } from "@/common/components/DeleteImpactModal";
 
 type ConfirmModalProps = {
@@ -38,7 +39,7 @@ export default function ConfirmModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <ModalPortal className="modal-backdrop" role="presentation">
       <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
         <h2 id="confirm-modal-title">{title}</h2>
         <p>{description}</p>
@@ -51,6 +52,6 @@ export default function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

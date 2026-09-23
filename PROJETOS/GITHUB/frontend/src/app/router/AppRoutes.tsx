@@ -16,6 +16,7 @@ const screenComponents: Record<AppScreen, LazyExoticComponent<ComponentType>> = 
   benefits: lazy(() => import("@/modules/benefits/pages/BenefitsPage")),
   timekeeping: lazy(() => import("@/modules/timekeeping/pages/TimekeepingPage")),
   hrControl: lazy(() => import("@/modules/hrControl/pages/HrControl")),
+  talentBank: lazy(() => import("@/modules/talentBank/pages/TalentBank")),
   notifications: lazy(() => import("@/modules/notifications/pages/NotificationsPage")),
   monitoring: lazy(() => import("@/modules/monitoring/pages/Monitoring")),
   permissions: lazy(() => import("@/modules/permissions/pages/Permissions")),

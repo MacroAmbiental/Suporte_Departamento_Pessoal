@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import useCreateShortcut from "@/hooks/useCreateShortcut";
@@ -4038,7 +4039,7 @@ function clearDatabaseFromScreen() {
       {companyId && activeTab === "departments" && (
         <>
           {editingKind === "department" && (
-            <div className="modal-backdrop" role="presentation">
+            <ModalPortal className="modal-backdrop" role="presentation">
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="department-form-title" onSubmit={submitDepartment}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="department-form-title">{isEditing ? "Editar departamento" : "Novo departamento"}</h2>
@@ -4078,7 +4079,7 @@ function clearDatabaseFromScreen() {
                   {isEditing ? "Salvar alterações" : "Salvar departamento"}
                 </button>
               </form>
-            </div>
+            </ModalPortal>
           )}
 
           <article className="panel">
@@ -4128,7 +4129,7 @@ function clearDatabaseFromScreen() {
       {companyId && activeTab === "sectors" && (
         <>
           {editingKind === "sector" && (
-            <div className="modal-backdrop" role="presentation">
+            <ModalPortal className="modal-backdrop" role="presentation">
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="sector-form-title" onSubmit={submitSector}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="sector-form-title">{isEditing ? "Editar setor" : "Novo setor"}</h2>
@@ -4192,11 +4193,11 @@ function clearDatabaseFromScreen() {
                   {isEditing ? "Salvar alterações" : "Salvar setor"}
                 </button>
               </form>
-            </div>
+            </ModalPortal>
           )}
 
           {editingKind === "subsector" && (
-            <div className="modal-backdrop" role="presentation">
+            <ModalPortal className="modal-backdrop" role="presentation">
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="subsector-form-title" onSubmit={submitSubsector}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="subsector-form-title">{isEditing ? "Editar subsetor" : "Novo subsetor"}</h2>
@@ -4244,7 +4245,7 @@ function clearDatabaseFromScreen() {
                   {isEditing ? "Salvar alterações" : "Salvar subsetor"}
                 </button>
               </form>
-            </div>
+            </ModalPortal>
           )}
 
           <article className="panel">
@@ -4341,7 +4342,7 @@ function clearDatabaseFromScreen() {
       {companyId && activeTab === "teams" && (
         <>
           {editingKind === "team" && (
-            <div className="modal-backdrop" role="presentation">
+            <ModalPortal className="modal-backdrop" role="presentation">
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="team-form-title" onSubmit={submitTeam}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="team-form-title">{isEditing ? "Editar equipe" : "Nova equipe"}</h2>
@@ -4365,7 +4366,7 @@ function clearDatabaseFromScreen() {
                   {isEditing ? "Salvar alterações" : "Salvar equipe"}
                 </button>
               </form>
-            </div>
+            </ModalPortal>
           )}
 
           <article className="panel">
@@ -4896,7 +4897,7 @@ function clearDatabaseFromScreen() {
         </article>
       )}
       {conflictState && (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="confirm-modal" role="dialog" aria-modal="true">
             <h2>{conflictState.title}</h2>
             <p>{conflictState.description}</p>
@@ -4906,7 +4907,7 @@ function clearDatabaseFromScreen() {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
       {deleteRequest ? (
         <DeleteImpactModal
@@ -4921,7 +4922,7 @@ function clearDatabaseFromScreen() {
         />
       ) : null}
       {companyManagerOpen && (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="confirm-modal company-manager-modal" role="dialog" aria-modal="true">
             <div className="modal-header">
               <div>
@@ -5001,11 +5002,11 @@ function clearDatabaseFromScreen() {
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {selectedGroupDetail && (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="group-detail-modal" role="dialog" aria-modal="true" aria-labelledby="group-detail-title">
             <div className="modal-header group-detail-header">
               <div>
@@ -5296,11 +5297,11 @@ function clearDatabaseFromScreen() {
               <button className="btn btn-primary" type="button" onClick={() => setGroupDetailId("")}>Fechar</button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {groupWizardOpen && (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="group-wizard-modal" role="dialog" aria-modal="true" aria-labelledby="group-wizard-title">
             <div className="modal-header group-wizard-header">
               <div>
@@ -5757,11 +5758,11 @@ function clearDatabaseFromScreen() {
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {isWizardOpen && (
-  <div className="modal-backdrop">
+  <ModalPortal className="modal-backdrop">
     <div className="wizard-modal">
       <div className="modal-header">
         <div>
@@ -6441,11 +6442,11 @@ Departamento: Qualidade e Segurança
         )}
       </div>
     </div>
-  </div>
+  </ModalPortal>
 )}
 
 {structureCompanyId && (
-  <div className="modal-backdrop">
+  <ModalPortal className="modal-backdrop">
     <div className="structure-modal">
       <div className="modal-header">
         <div>
@@ -6552,7 +6553,7 @@ Departamento: Qualidade e Segurança
         )}
       </div>
     </div>
-  </div>
+  </ModalPortal>
 )}
     </section>
   );

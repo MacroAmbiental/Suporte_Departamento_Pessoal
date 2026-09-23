@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { CalendarDays, Pencil, Plane, Search, Trash2, X } from "lucide-react";
@@ -383,7 +384,7 @@ export default function VacationManagement() {
       ) : null}
 
       {reportOpen ? (
-        <div className="modal-overlay" data-testid="vacation-report-modal" style={overlayStyle} onClick={() => setReportOpen(false)}>
+        <ModalPortal className="modal-overlay" data-testid="vacation-report-modal" style={overlayStyle} onClick={() => setReportOpen(false)}>
           <div role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()} style={{ ...dialogStyle, maxWidth: 720 }}>
             <h3 style={{ margin: "0 0 12px", fontSize: 18, color: "#0f172a" }}>Relatório de férias por período</h3>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
@@ -433,7 +434,7 @@ export default function VacationManagement() {
               <button className="btn btn-secondary" onClick={() => setReportOpen(false)}>Fechar</button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
     </section>
   );
@@ -711,7 +712,7 @@ function VacationEditorModal({
   const sorted = [...vacations].sort((left, right) => right.startDate.localeCompare(left.startDate));
 
   return (
-    <div className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle}>
+    <ModalPortal className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle}>
       <div role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()} style={{ ...dialogStyle, maxWidth: 940, maxHeight: "92vh" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: "#0f172a" }}>Férias — {employee.name}</h3>
@@ -914,6 +915,6 @@ function VacationEditorModal({
           </div>
         ) : null}
       </div>
-    </div>
+    </ModalPortal>
   );
 }

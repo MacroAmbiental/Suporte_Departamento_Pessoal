@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { noticeAdjustedMinutes, noticeWorkAdjustment } from "../utils/noticeWorkAdjustment";
 import {
   CalendarDays,
@@ -87,8 +88,8 @@ import {
   structureItemsForGroup,
 } from "@/common/utils/groupStructure";
 import { badgeClass, labelStatus, todayISO } from "@/utils/format";
-import { isInExperience, processModalities, terminationModes } from "@/modules/employees/experience";
-import { isEmployeeSuspendedOnDate } from "@/modules/employees/suspension";
+import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
+import { isEmployeeSuspendedOnDate } from "@/modules/employeeProcesses/utils/suspension";
 
 const fallbackStatuses: AttendanceStatus[] = [
   "present",
@@ -6845,8 +6846,8 @@ export default function Timekeeping() {
           ])}
         />
         <MultiSelect
-          label="Modalidade"
-          placeholder="Modalidade"
+          label="Tipo de desligamento"
+          placeholder="Tipo de desligamento"
           value={filters.terminationModes || []}
           onChange={(terminationModes) => setFilters({ ...filters, terminationModes })}
           options={sortOptions(Object.values(processModalities).map((label) => ({ value: label, label })))}
@@ -8127,7 +8128,7 @@ export default function Timekeeping() {
       </article>
 
       {secullumModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="modal-panel wizard-card" style={{ maxWidth: 1100 }}>
             <div className="modal-header">
               <h2>Importar ponto do Secullum</h2>
@@ -8280,11 +8281,11 @@ export default function Timekeeping() {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {reportModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form
             className="modal-panel wizard-card timekeeping-report-modal"
             onSubmit={(event) => {
@@ -8446,11 +8447,11 @@ export default function Timekeeping() {
               </button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {columnModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={submitColumn}>
             <div className="modal-header">
               <h2>{columnForm.id ? "Editar coluna" : "Adicionar coluna"}</h2>
@@ -8616,11 +8617,11 @@ export default function Timekeeping() {
               </button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {statusModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form
             className="modal-panel wizard-card"
             onSubmit={saveStatusCondition}
@@ -8734,7 +8735,7 @@ export default function Timekeeping() {
               </button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {pendingManualMetricEdit ? (
@@ -8815,7 +8816,7 @@ export default function Timekeeping() {
       ) : null}
 
       {teamScheduleModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div
             className="modal-panel wizard-card"
             style={{ maxWidth: 780, width: "100%" }}
@@ -9123,7 +9124,7 @@ export default function Timekeeping() {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {confirmDialog ? (

@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import {
   CalendarDays,
   CheckCircle2,
@@ -541,7 +542,7 @@ export default function Diarists() {
       </div>
 
       {diaristModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={submitDiarist}>
             <div className="modal-header">
               <h2>{editingDiaristId ? "Editar diarista" : "Nova diarista"}</h2>
@@ -565,7 +566,7 @@ export default function Diarists() {
               <button className="btn btn-primary" type="submit"><CheckCircle2 size={16} /> Salvar diarista</button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {deleteRequest ? (
@@ -581,7 +582,7 @@ export default function Diarists() {
       ) : null}
 
       {workModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={submitWorkDays}>
             <div className="modal-header">
               <h2>Lançar dia trabalhado</h2>
@@ -610,7 +611,7 @@ export default function Diarists() {
               <button className="btn btn-primary" type="submit"><CircleDollarSign size={16} /> Salvar lançamento</button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
     </>
   );

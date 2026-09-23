@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { ChevronLeft, ChevronRight, KeyRound, Layers3, Pencil, Power, Save, ShieldCheck, Trash2, UserPlus, X } from "lucide-react";
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -883,7 +884,7 @@ export default function Permissions() {
       </div>
 
       {wizardOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="modal-panel wizard-card permission-wizard" role="dialog" aria-modal="true" aria-labelledby="permission-wizard-title">
             <div className="modal-header">
               <h2 id="permission-wizard-title">{editingProfileId ? "Editar acesso" : "Cadastrar acesso"}</h2>
@@ -1020,11 +1021,11 @@ export default function Permissions() {
               )}
             </div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {adminModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="modal-panel wizard-card" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
             <div className="modal-header">
               <h2 id="admin-modal-title">{adminStep === "key" ? "Chave de acesso" : "Cadastrar Administrador"}</h2>
@@ -1075,7 +1076,7 @@ export default function Permissions() {
               )}
             </div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {confirmState ? (

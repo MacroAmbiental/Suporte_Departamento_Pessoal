@@ -1,7 +1,9 @@
-﻿import { archiveEmployeeProcess } from "@/modules/employees/processHistory";
+import ModalPortal from "@/modules/shared/ModalPortal";
+import { archiveEmployeeProcess } from "@/modules/employeeProcesses/utils/processHistory";
 import { todayISO } from "@/utils/format";
-import { processEntryDate } from "@/modules/employees/processEntryDate";
-import { isInExperience } from "@/modules/employees/experience";
+import { processEntryDate } from "@/modules/employeeProcesses/utils/processEntryDate";
+import { isInExperience } from "@/modules/employeeProcesses/utils/experience";
+import { isEmployeeTerminated } from "@/modules/employees/utils/employeeStatus";
 import { createContext, startTransition, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { where } from "firebase/firestore";
 import { useLocation } from "react-router-dom";
@@ -1876,12 +1878,15 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
   }, [buildCompanyGroupGraphPayload, data.companyGroupLeadershipAssignments, groupResponsibleRole, saveCompanyGroupGraph]);
 
   const upsertEmployeeValidated = useCallback(async (payload: UpsertPayload<Employee>) => {
-    const normalizedCpf = normalizeEmployeeCpf(payload.cpf);
+    const previous = data.employees.find((employee) => employee.id === payload.id);
+    const employee = { ...previous, ...payload } as Employee;
+    const normalizedCpf = normalizeEmployeeCpf(employee.cpf);
 
-    if (normalizedCpf) {
-      const duplicate = data.employees.find((employee) => (
-        employee.id !== payload.id
-        && normalizeEmployeeCpf(employee.cpf) === normalizedCpf
+    if (normalizedCpf && !isEmployeeTerminated(employee)) {
+      const duplicate = data.employees.find((existing) => (
+        existing.id !== payload.id
+        && !isEmployeeTerminated(existing)
+        && normalizeEmployeeCpf(existing.cpf) === normalizedCpf
       ));
 
       if (duplicate) {
@@ -1889,8 +1894,6 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const previous = data.employees.find((employee) => employee.id === payload.id);
-    const employee = { ...previous, ...payload } as Employee;
     const experience = isInExperience(employee, todayISO());
     const enteredAt = processEntryDate(employee, experience);
     const fields = employee.registrationData || {};
@@ -2084,7 +2087,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     <DomainDataContext.Provider value={value}>
       {children}
       {accessKeyRequest ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="confirm-modal" role="dialog" aria-modal="true" onSubmit={submitAccessKey}>
             <h2>{accessKeyRequest.title}</h2>
             <p>{accessKeyRequest.description}</p>
@@ -2109,7 +2112,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
               </button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
     </DomainDataContext.Provider>
   );

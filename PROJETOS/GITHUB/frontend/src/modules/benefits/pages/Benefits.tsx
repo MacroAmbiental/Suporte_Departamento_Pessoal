@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import {
   ArrowDown,
   ArrowUp,
@@ -2689,7 +2690,7 @@ export default function Benefits() {
       </div>
 
       {benefitModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={submitBenefit}>
             <div className="modal-header"><h2>Novo benefício</h2><button className="icon-button" type="button" disabled={savingBenefit} onClick={() => setBenefitModalOpen(false)} aria-label="Fechar"><X size={18} /></button></div>
             <div className="form-grid">
@@ -2699,11 +2700,11 @@ export default function Benefits() {
             </div>
             <div className="form-actions"><button className="btn btn-ghost" disabled={savingBenefit} type="button" onClick={() => setBenefitModalOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={savingBenefit} type="submit">{savingBenefit ? "Salvando..." : "Criar benefício"}</button></div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {editBenefitModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={submitEditBenefit}>
             <div className="modal-header"><h2>Editar benefício</h2><button className="icon-button" type="button" disabled={busy} onClick={() => setEditBenefitModalOpen(false)} aria-label="Fechar"><X size={18} /></button></div>
             <div className="form-grid">
@@ -2718,11 +2719,11 @@ export default function Benefits() {
             </div>
             <div className="form-actions"><button className="btn btn-ghost" disabled={busy} type="button" onClick={() => setEditBenefitModalOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={busy} type="submit"><Check size={16} /> Salvar alterações</button></div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {employeeModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card benefit-employees-modal" onSubmit={saveEmployeeSelection}>
             <div className="modal-header"><h2>Funcionários do benefício</h2><button className="icon-button" type="button" disabled={busy} onClick={() => setEmployeeModalOpen(false)} aria-label="Fechar"><X size={18} /></button></div>
             <div className="benefit-employee-modal-summary">
@@ -2770,11 +2771,11 @@ export default function Benefits() {
             ) : null}
             <div className="form-actions"><button className="btn btn-ghost" disabled={busy} type="button" onClick={() => setEmployeeModalOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={busy} type="submit"><Check size={16} /> Salvar funcionários</button></div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {newColumnModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card benefits-small-modal" onSubmit={addColumn}>
             <div className="modal-header"><h2>Nova coluna</h2><button className="icon-button" type="button" disabled={busy} onClick={() => setNewColumnModalOpen(false)} aria-label="Fechar"><X size={18} /></button></div>
             <label className="field">Nome da coluna<input autoFocus disabled={busy} value={columnForm.label} onChange={(event) => setColumnForm({ ...columnForm, label: event.target.value })} placeholder="Ex.: Total líquido" /></label>
@@ -2869,32 +2870,32 @@ export default function Benefits() {
             </div>
             <div className="form-actions"><button className="btn btn-ghost" type="button" onClick={() => setNewColumnModalOpen(false)}>Cancelar</button><button className="btn btn-primary" type="submit"><Plus size={15} /> Criar coluna</button></div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {modelEditorOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={saveModelEditor}>
             <div className="modal-header"><h2>Refazer tabela modelo</h2><button className="icon-button" type="button" disabled={busy} onClick={() => setModelEditorOpen(false)} aria-label="Fechar"><X size={18} /></button></div>
             <label className="field is-wide-field">Colunas da tabela<textarea disabled={busy} value={modelEditorText} onChange={(event) => setModelEditorText(event.target.value)} /></label>
             <p className="muted">Informe uma coluna por linha. Ao salvar, a tabela será reorganizada conforme esse modelo.</p>
             <div className="form-actions"><button className="btn btn-ghost" disabled={busy} type="button" onClick={() => setModelEditorOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={busy} type="submit">Salvar nova tabela</button></div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {rowEditor ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={submitEditRow}>
             <div className="modal-header"><h2>Editar linha</h2><button className="icon-button" type="button" disabled={busy} onClick={() => setRowEditor(null)} aria-label="Fechar"><X size={18} /></button></div>
             <div className="form-grid">{columns.map((column) => <label className="field" key={column}>{column}{formulas[column] ? " (fórmula)" : systemColumnConfigs[column] ? " (levantamento)" : ""}<input disabled={busy || Boolean(formulas[column]) || Boolean(systemColumnConfigs[column])} value={rowEditor.values[column] || ""} onChange={(event) => setRowEditor({ ...rowEditor, values: { ...rowEditor.values, [column]: event.target.value } })} /></label>)}</div>
             <div className="form-actions"><button className="btn btn-ghost" disabled={busy} type="button" onClick={() => setRowEditor(null)}>Cancelar</button><button className="btn btn-primary" disabled={busy} type="submit"><Check size={16} /> Salvar alterações</button></div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {historyPreview ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <div className="modal-panel wizard-card benefits-history-preview">
             <div className="modal-header"><div><h2>Versão de {formatDateTime(historyPreview.savedAt)}</h2><p className="muted">{historyPreview.savedByName || "Usuário não registrado"}{historyPreview.savedByUsername ? ` (@${historyPreview.savedByUsername})` : ""}</p></div><button className="icon-button" type="button" onClick={() => setHistoryPreview(null)} aria-label="Fechar"><X size={18} /></button></div>
             <p>{historyPreview.changeSummary || historyPreview.divergenceInfo}</p>
@@ -2902,7 +2903,7 @@ export default function Benefits() {
             {historyPreview.rows.length > 10 ? <p className="muted">Exibindo as primeiras 10 de {historyPreview.rows.length} linhas.</p> : null}
             <div className="form-actions"><button className="btn btn-ghost" type="button" onClick={() => setHistoryPreview(null)}>Fechar</button><button className="btn btn-primary" type="button" onClick={() => restoreSnapshot(historyPreview)}><RotateCcw size={15} /> Restaurar esta versão</button></div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {confirmDialog ? <ConfirmModal title={confirmDialog.title} description={confirmDialog.message} confirmLabel={confirmDialog.confirmLabel} destructive={confirmDialog.variant === "danger"} disabled={confirmBusy} impact={confirmDialog.impact} onCancel={() => setConfirmDialog(null)} onConfirm={executeConfirm} /> : null}

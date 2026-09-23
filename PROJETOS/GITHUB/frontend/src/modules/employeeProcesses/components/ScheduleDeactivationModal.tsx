@@ -1,7 +1,12 @@
-﻿import NoticeReductionFields from "./NoticeReductionFields";
-import { noticeSpecialty, validNoticeReduction } from "../noticeSpecialty";
+import { isContractEmployee, canUseTerminationMode, contractTerminationRestriction } from "../utils/terminationPermissions";
+import "../../shared/modalScroll";
+import NoticeEntitlementSummary from "./NoticeEntitlementSummary";
+import { terminationDates } from "../utils/terminationDates";
+import NoticeReductionFields from "./NoticeReductionFields";
+import { noticeSpecialty, validNoticeReduction } from "../utils/noticeSpecialty";
 import TerminationExitFields from "./TerminationExitFields";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   Save,
@@ -20,30 +25,30 @@ import type { Employee, EmployeeDocument } from "@/types/domain";
 import { useAuth } from "@/hooks/useAuth";
 import { useDomainData } from "@/hooks/useDomainData";
 import { todayISO, formatDate } from "@/utils/format";
-import { addDays, experienceMilestones, needsExperienceFollowup, terminationModes, type TerminationMode } from "../experience";
-import { isEmployeeSuspendedOnDate, SUSPENSION_MAX_DOCUMENTS, suspensionDays } from "../suspension";
+import { addDays, experienceMilestones, needsExperienceFollowup, terminationModes, dismissalModeOptions, dismissalVariants, dismissalInitiatives, type TerminationMode } from "../utils/experience";
+import { isEmployeeSuspendedOnDate, SUSPENSION_MAX_DOCUMENTS, suspensionDays } from "../utils/suspension";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
 
 import "./scheduleDeactivation.css";
-import { processEntryDate } from "../processEntryDate";
-import { isInExperience } from "../experience";
+import { processEntryDate } from "../utils/processEntryDate";
+import { isInExperience } from "../utils/experience";
+import { justCauseReasons, parseJustCauseReasons } from "../utils/justCauseReasons";
+import MultiSelect from "@/common/components/MultiSelect";
 
 const modeDetails = {
-  indemnified: { icon: FileText, description: "Defina a saída efetiva com aviso indenizado." },
-  employee: { icon: UserRound, description: "Informe o início do aviso e a data de saída." },
-  quick: { icon: Zap, description: "Desative hoje, após confirmar a ação." },
-  suspension: { icon: PauseCircle, description: "Afaste o funcionário por um período determinado, sem encerrar o vínculo." },
+  without_cause: { icon: FileText, description: "Escolha entre aviso indenizado ou trabalhado." },
+  for_cause: { icon: ShieldAlert, description: "Dispensa por justa causa." },
+  resignation: { icon: UserRound, description: "Escolha como será cumprido o aviso." },
+  contract_end: { icon: CalendarDays, description: "Informe se ocorreu no prazo ou antecipadamente e por iniciativa de quem." },
+  abandonment: { icon: AlertTriangle, description: "Abandono de emprego." },
+  quick: { icon: Zap, description: "Desligamento na experiência, conforme a data escolhida." },
+  suspension: { icon: PauseCircle, description: "Afaste o funcionário sem encerrar o vínculo." },
 } as const;
 
-const dismissalTypeOptions = [
-  "Demissão sem justa causa",
-  "Rescisão indireta",
-  "Demissão por justa causa",
-  "Pedido de demissão",
-  "Demissão consensual",
-] as const;
+const experienceDismissalTypes = ["Demissão sem justa causa", "Rescisão indireta", "Demissão por justa causa", "Pedido de demissão", "Demissão consensual"] as const;
 
-type DeactivationMode = TerminationMode | "suspension";
+type DeactivationMode = (typeof dismissalModeOptions)[number] | "quick";
+type FormMode = DeactivationMode | "suspension";
 
 function normalizeCoordinatorRole(value: string) {
   return value.trim().toLocaleLowerCase("pt-BR");
@@ -59,19 +64,20 @@ function documentKindForFile(file: File) {
   return file.type === "application/pdf" ? "pdf" : "file";
 }
 
-export default function ScheduleDeactivationModal({ employee, initialQuickDismissal, onClose }: { employee: Employee; initialQuickDismissal?: "quick" | "warning"; onClose: () => void }) {
+export default function ScheduleDeactivationModal({ employee, initialQuickDismissal, initialSuspension = false, onClose }: { employee: Employee; initialQuickDismissal?: "quick" | "warning"; initialSuspension?: boolean; onClose: () => void }) {
   const data = useDomainData();
   const { can, user } = useAuth();
   const today = todayISO();
-  const experienceProcessActive = needsExperienceFollowup(employee, today);
+  const contractEmployee = isContractEmployee(employee);
+  const experienceProcessActive = !contractEmployee && needsExperienceFollowup(employee, today);
   const experienceEndDate = useMemo(
     () => experienceProcessActive ? experienceMilestones(employee).find((item) => item.days === 60)?.date || "" : "",
-    [employee.admissionDate, experienceProcessActive],
+    [employee, experienceProcessActive],
   );
-  const [applyReduction, setApplyReduction] = useState(employee.registrationData?.noticeReductionApplies === "true" || employee.registrationData?.terminationMode === "employer");
+  const [applyReduction, setApplyReduction] = useState(employee.registrationData?.noticeReductionApplies === "true");
   const [reduction, setReduction] = useState(employee.registrationData?.noticeReduction || "");
   const [cltModeUnlocked, setCltModeUnlocked] = useState(false);
-  const [mode, setMode] = useState<DeactivationMode | "">(initialQuickDismissal && experienceProcessActive ? "quick" : "");
+  const [mode, setMode] = useState<FormMode | "">(initialSuspension ? "suspension" : initialQuickDismissal && contractEmployee ? "contract_end" : initialQuickDismissal && experienceProcessActive ? "quick" : "");
   const [date, setDate] = useState(employee.registrationData?.scheduledDeactivationDate || today);
   const [start, setStart] = useState(todayISO());
   const [saving, setSaving] = useState(false);
@@ -85,15 +91,20 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
   const [suspensionReason, setSuspensionReason] = useState(employee.registrationData?.suspensionReason || "");
   const [suspensionCoordinatorId, setSuspensionCoordinatorId] = useState(employee.registrationData?.suspensionCoordinatorEmployeeId || "");
   const [suspensionDocuments, setSuspensionDocuments] = useState<File[]>([]);
-  const [dismissalType, setDismissalType] = useState(employee.registrationData?.dismissalType || "");
+  const [variant, setVariant] = useState("");
+  const [initiative, setInitiative] = useState("");
+  const [justCauseReasonValues, setJustCauseReasonValues] = useState(() => parseJustCauseReasons(employee.registrationData?.dismissalJustCauseReasons));
   const [dismissalNotes, setDismissalNotes] = useState(employee.registrationData?.dismissalDescription || "");
+  const [experienceDismissalType, setExperienceDismissalType] = useState(employee.registrationData?.dismissalType || "");
   const [dismissalDocuments, setDismissalDocuments] = useState<File[]>([]);
   const promptedDateRef = useRef("");
   const settlementPaid = employee.registrationData?.terminationSettlementPaid === "true" ? "true" : "false";
   const cltModesLockedDuringExperience = Boolean(initialQuickDismissal && experienceProcessActive) && !cltModeUnlocked;
   const quickModeLocked = cltModeUnlocked;
-  const effectiveDate = date;
   const needsConfirmation = mode === "quick";
+  const { workedNotice, resignationWorked, indemnifiedNotice, effectiveDate, lastNoticeDate, calculationDate, serviceYears, additionalDays, noticeDays, indemnifiedDays, projectionEndDate: projectionEnd } = terminationDates(mode, variant, date, start, employee.admissionDate);
+  const noticeMode = workedNotice ? "employee" : "quick";
+  const needsVariant = mode === "without_cause" || mode === "resignation" || mode === "contract_end";
 
   const coordinatorOptions = useMemo(() => {
     const coordinatorIds = new Set(
@@ -180,6 +191,8 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
     const current = data.employees.find((item) => item.id === employee.id);
     if (!current || current.registrationData?.dismissalApprovedAt || current.status === "terminated") { setError("O cadastro foi alterado. Feche e abra novamente o agendamento."); return; }
 
+    if (!canUseTerminationMode(current, mode)) { setError(contractTerminationRestriction); return; }
+
     if (mode === "suspension") {
       if (!suspensionStartDate || !suspensionEndDate || suspensionEndDate < suspensionStartDate) { setError("Informe um período válido para a suspensão."); return; }
       if (suspensionStartDate < current.admissionDate) { setError("A suspensão não pode começar antes da admissão."); return; }
@@ -249,11 +262,15 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
       return;
     }
 
-    const requiresDismissalDetails = ["employee", "indemnified", "quick"].includes(mode);
+    const requiresDismissalDetails = Boolean(mode);
     if (!mode || !effectiveDate || !workedOnDate || (needsConfirmation && !riskConfirmed)) return;
-    if (requiresDismissalDetails && !dismissalType) { setError("Selecione o tipo de demissão."); return; }
-    if (effectiveDate < employee.admissionDate || (mode === "quick" && effectiveDate > today) || (["employee", "employer", "indemnified"].includes(mode) && (!start || start < employee.admissionDate || date < start))) { setError("Confira as datas: a saída não pode anteceder a admissão e a desativação rápida não pode ser futura."); return; }
-    if (!validNoticeReduction(mode, reduction, start, date)) { setError("Selecione a redução e confira se os sete dias cabem no período do aviso."); return; }
+    if (needsVariant && !variant) { setError("Selecione a opção deste desligamento."); return; }
+    if (mode === "contract_end" && !initiative) { setError("Informe se o término foi pela empresa ou pelo empregado."); return; }
+    if (mode === "without_cause" && (workedNotice || indemnifiedNotice) && !noticeDays) { setError("Confira a admissão e a data do desligamento para calcular o aviso proporcional."); return; }
+    if (mode === "for_cause" && !justCauseReasonValues.length) { setError("Selecione ao menos um motivo para a demissão por justa causa."); return; }
+    if (mode === "quick" && !experienceDismissalType) { setError("Selecione o tipo de demissão na experiência."); return; }
+    if (effectiveDate < employee.admissionDate || (mode === "quick" && effectiveDate > today) || (workedNotice && (!start || start < employee.admissionDate || effectiveDate < start))) { setError("Confira as datas: a saída não pode anteceder a admissão e a desativação rápida não pode ser futura."); return; }
+    if (!validNoticeReduction(mode === "without_cause" && workedNotice ? "employee" : "quick", reduction, start, effectiveDate)) { setError("Selecione a redução e confira se os sete dias cabem no período do aviso."); return; }
     setSaving(true); setError("");
     try {
       const now = new Date().toISOString();
@@ -312,34 +329,38 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
       const nextDismissalCreatedIds = Array.from(new Set([...previousDismissalCreatedIds, ...uploadedDismissalDocumentIds]));
       const nextDismissalSelectedIds = Array.from(new Set([...previousDismissalSelectedIds, ...uploadedDismissalDocumentIds]));
 
-      await data.upsertEmployee({ ...current, status: effectiveDate <= today ? "terminated" : current.status, registrationData: { ...current.registrationData, processStartedAt: processEntryDate(current, isInExperience(current, today)) || now, terminationMode: mode, terminationRiskConfirmedAt: needsConfirmation && riskConfirmed ? now : "", terminationRiskConfirmedBy: needsConfirmation && riskConfirmed ? user?.id || "" : "", terminationWorkedOnDeactivationDate: workedOnDate, terminationSettlementDueDate: addDays(effectiveDate, 10), terminationSettlementPaid: settlementPaid, terminationSettlementPaidAt: settlementPaid === "true" ? now : "", terminationSettlementPaidBy: settlementPaid === "true" ? user?.id || "" : "", scheduledDeactivationDate: effectiveDate, deactivationEffectiveDate: effectiveDate, deactivationScheduledAt: now, deactivationCompletedDate: effectiveDate <= today ? today : "", noticeEndDate: mode === "employee" ? date : "", noticeDate: mode === "employee" ? date : "", noticeScheduledAt: mode === "employee" ? now : "", noticeCompletedDate: "", ...noticeSpecialty(mode, reduction, start, date), noticeReductionApplies: mode === "employee" && applyReduction ? "true" : "false", dismissalType: requiresDismissalDetails ? dismissalType : "", dismissalDescription: requiresDismissalDetails ? dismissalNotes.trim() : "", dismissalCreatedDocumentIds: JSON.stringify(nextDismissalCreatedIds), dismissalSelectedDocumentIds: JSON.stringify(nextDismissalSelectedIds), dismissalCreatedDocumentNames: JSON.stringify(Array.from(new Set(uploadedDismissalDocumentNames))), scheduledReactivationDate: "", reactivationEffectiveDate: "", reactivationScheduledAt: "", reactivationCompletedDate: "" }, updatedAt: now });
+      current.registrationData = { ...current.registrationData, dismissalJustCauseReasons: mode === "for_cause" ? JSON.stringify(justCauseReasonValues) : "[]" };
+      await data.upsertEmployee({ ...current, status: effectiveDate <= today ? "terminated" : current.status, registrationData: { ...current.registrationData, processStartedAt: processEntryDate(current, isInExperience(current, today)) || now, terminationMode: mode, terminationRiskConfirmedAt: needsConfirmation && riskConfirmed ? now : "", terminationRiskConfirmedBy: needsConfirmation && riskConfirmed ? user?.id || "" : "", terminationWorkedOnDeactivationDate: workedOnDate, terminationSettlementDueDate: addDays(effectiveDate, 10), terminationSettlementCalculationDate: calculationDate, noticeProjectionEndDate: projectionEnd, noticeTotalDays: String(noticeDays), noticeAdditionalDays: String(additionalDays), noticeIndemnifiedDays: String(indemnifiedDays), noticeServiceYears: serviceYears === null ? "" : String(serviceYears), terminationSettlementPaid: settlementPaid, terminationSettlementPaidAt: settlementPaid === "true" ? now : "", terminationSettlementPaidBy: settlementPaid === "true" ? user?.id || "" : "", scheduledDeactivationDate: effectiveDate, deactivationEffectiveDate: effectiveDate, deactivationScheduledAt: now, deactivationCompletedDate: effectiveDate <= today ? today : "", noticeEndDate: workedNotice ? lastNoticeDate : "", noticeDate: workedNotice ? lastNoticeDate : "", noticeScheduledAt: workedNotice ? now : "", noticeCompletedDate: "", ...noticeSpecialty(noticeMode, mode === "without_cause" ? reduction : "", start, lastNoticeDate), noticeReductionApplies: mode === "without_cause" && workedNotice && applyReduction ? "true" : "false", dismissalType: mode === "quick" ? experienceDismissalType : terminationModes[mode as TerminationMode] || "", dismissalVariant: needsVariant ? variant : "", dismissalInitiative: mode === "contract_end" ? initiative : "", dismissalDescription: requiresDismissalDetails ? dismissalNotes.trim() : "", dismissalCreatedDocumentIds: JSON.stringify(nextDismissalCreatedIds), dismissalSelectedDocumentIds: JSON.stringify(nextDismissalSelectedIds), dismissalCreatedDocumentNames: JSON.stringify(Array.from(new Set(uploadedDismissalDocumentNames))), scheduledReactivationDate: "", reactivationEffectiveDate: "", reactivationScheduledAt: "", reactivationCompletedDate: "" }, updatedAt: now });
       onClose();
     } catch { setError("Não foi possível concluir o agendamento. Os anexos já salvos foram preservados; tente novamente."); }
     finally { setSaving(false); }
   }
 
-  const optionEntries: Array<[DeactivationMode, string]> = [
-    ...(Object.entries(terminationModes) as Array<[TerminationMode, string]>),
+  const optionEntries: Array<[FormMode, string]> = [
+    ...dismissalModeOptions.map((key) => [key, terminationModes[key]] as [FormMode, string]),
+    ...(experienceProcessActive && !quickModeLocked ? [["quick", terminationModes.quick] as [FormMode, string]] : []),
     ["suspension", "Suspensão"],
   ];
 
   const isSuspension = mode === "suspension";
-  const requiresDismissalDetails = mode === "employee" || mode === "indemnified" || mode === "quick";
+  const requiresDismissalDetails = Boolean(mode) && mode !== "suspension";
 
-  return <div className="modal-backdrop deactivation-backdrop">
-    <form className="modal-panel deactivation-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-deactivation-title" onSubmit={save}>
+  return createPortal(<div className="modal-backdrop deactivation-backdrop employee-schedule-backdrop">
+    <form className="modal-panel deactivation-modal employee-schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-deactivation-title" onSubmit={save}>
       <div className="modal-header"><span className="deactivation-heading-icon"><CalendarClock size={24} /></span><div><h2 id="schedule-deactivation-title">{isSuspension ? "Registrar suspensão do Funcionário" : "Agendar desligamento do Funcionário"}</h2><p>{employee.name}</p><small>{isSuspension ? "Defina o período, o motivo e os responsáveis pelo afastamento." : "Escolha como deseja encerrar o vínculo."}</small></div><button type="button" className="icon-button" disabled={saving} onClick={onClose} aria-label="Fechar"><X size={18} /></button></div>
       <fieldset disabled={saving} className="deactivation-body">
         <div>
-          <h3 className="deactivation-section-title">Modalidade de desativação</h3>
-          <div className="deactivation-options" role="radiogroup" aria-label="Modalidade de desativação">
+          <h3 className="deactivation-section-title">Tipo de desligamento</h3>
+          {contractEmployee && <p className="muted">{contractTerminationRestriction}</p>}
+          <div className="deactivation-options" role="radiogroup" aria-label="Tipo de desligamento">
             {optionEntries.map(([value, label]) => {
-              const detail = modeDetails[value];
+              const detail = modeDetails[value as keyof typeof modeDetails];
               const Icon = detail.icon;
-              const locked = value === "quick" ? quickModeLocked : value === "suspension" ? false : cltModesLockedDuringExperience;
+              const contractBlocked = !canUseTerminationMode(employee, value);
+              const locked = contractBlocked || (value === "quick" ? quickModeLocked : value === "suspension" || (contractEmployee && value === "contract_end") ? false : cltModesLockedDuringExperience);
               return <label key={value} className={`deactivation-option${mode === value ? " is-selected" : ""}${value === "quick" ? " is-quick" : ""}${value === "suspension" ? " is-suspension" : ""}${locked ? " is-locked" : ""}`} aria-disabled={locked}>
-                <input type="radio" name="termination-mode" value={value} checked={mode === value} required disabled={locked} onChange={() => { if (locked) return; setMode(value); setRiskConfirmed(false); setError(""); }} />
-                <Icon size={21} /><span><strong>{label}</strong><small>{detail.description}</small>{locked && value === "quick" && cltModeUnlocked && <small className="deactivation-option-lock-note">Bloqueado para desligamentos após a experiência.</small>}</span>
+                <input type="radio" name="termination-mode" value={value} checked={mode === value} required disabled={locked} onChange={() => { if (locked) return; setMode(value); setVariant(""); setInitiative(""); setRiskConfirmed(false); setError(""); }} />
+                <Icon size={21} /><span><strong>{label}</strong><small>{detail.description}</small>{contractBlocked && <small className="deactivation-option-lock-note">Bloqueado para funcionário de contrato.</small>}{locked && value === "quick" && cltModeUnlocked && <small className="deactivation-option-lock-note">Bloqueado para desligamentos após a experiência.</small>}</span>
               </label>;
             })}
           </div>
@@ -370,39 +391,45 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
           </>
         ) : (
           <>
-            <div className={`deactivation-date-layout${mode ? " has-side-details" : ""}`}>
+            {mode && <div className="deactivation-date-layout has-side-details">
               <div className="deactivation-date-section">
                 <div className="deactivation-date-heading"><div><h3 className="deactivation-section-title">Data do desligamento</h3><p className="muted">Selecione a data efetiva.{experienceProcessActive ? " O marco final da experiência aparece no aviso ao lado." : ""}</p></div><CalendarDays size={22} /></div>
                 <div className={`deactivation-calendar-card${experienceProcessActive ? "" : " is-inline-card"}`}>
                   <div className="deactivation-calendar-topline is-compact">
-                    <label className="field deactivation-native-date"><span>Data selecionada</span><input type="date" required min={employee.admissionDate} max={mode === "quick" ? today : undefined} value={date} onChange={(event) => handleNativeDateChange(event.target.value)} /></label>
+                    <label className="field deactivation-native-date"><span>{workedNotice ? "Último dia do aviso / desligamento" : "Data selecionada"}</span><input type="date" required min={employee.admissionDate} max={mode === "quick" ? today : undefined} value={effectiveDate} readOnly={workedNotice} onChange={(event) => handleNativeDateChange(event.target.value)} /></label>
                     {experienceProcessActive && <div className="deactivation-experience-marker"><AlertTriangle size={17} /><div><strong>Fim da experiência</strong><span>{formatDate(experienceEndDate)}</span></div></div>}
                   </div>
                 </div>
                 {selectedDateBeforeEnd && <div className="deactivation-date-alert is-warning"><AlertTriangle size={18} /><div><strong>Antes do fim da experiência</strong><p>A rescisão antecipada de contrato por prazo determinado pode gerar indenização nos termos do art. 479 da CLT e outros efeitos rescisórios conforme a hipótese.</p></div></div>}
                 {selectedDateAtEnd && <div className="deactivation-date-alert is-success"><ShieldAlert size={18} /><div><strong>Data de término da experiência</strong><p>No término regular do contrato de experiência, o MTE informa que não há aviso prévio nem multa de 40% sobre o FGTS; são devidas as verbas proporcionais cabíveis.</p></div></div>}
-                {experienceProcessActive && selectedDateAfterEnd && cltModeUnlocked && <div className="deactivation-date-alert is-clt"><ShieldAlert size={18} /><div><strong>Desligamento após a experiência</strong><p>Como o vínculo continuou após o fim da experiência, o contrato passa a ser por prazo indeterminado. Siga uma das modalidades de desligamento CLT abaixo.</p></div></div>}
+                {experienceProcessActive && selectedDateAfterEnd && cltModeUnlocked && <div className="deactivation-date-alert is-clt"><ShieldAlert size={18} /><div><strong>Desligamento após a experiência</strong><p>Como o vínculo continuou após o fim da experiência, o contrato passa a ser por prazo indeterminado. Siga uma das tipos de desligamento CLT abaixo.</p></div></div>}
               </div>
-              {mode && <TerminationExitFields date={effectiveDate} workedOnDate={workedOnDate} onWorkedOnDateChange={setWorkedOnDate} compact />}
-            </div>
+              <TerminationExitFields calculationDate={needsVariant && !variant ? undefined : calculationDate} date={effectiveDate} workedOnDate={workedOnDate} onWorkedOnDateChange={setWorkedOnDate} compact />
+            </div>}
 
-            {mode && mode !== "quick" && <label className="field">Início do aviso<input type="date" required min={employee.admissionDate} value={start} onChange={(event) => setStart(event.target.value)} /></label>}
-            {mode === "employee" && <NoticeReductionFields value={reduction} onChange={setReduction} end={date} applies={applyReduction} onAppliesChange={setApplyReduction} />}
+            {needsVariant && <label className="field"><span>{mode === "contract_end" ? "Situação do contrato" : "Tipo de aviso"}</span><select required value={variant} onChange={(event) => setVariant(event.target.value)}><option value="">Selecione</option>{dismissalVariants[mode as keyof typeof dismissalVariants].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
+            {mode === "contract_end" && <label className="field"><span>Iniciativa</span><select required value={initiative} onChange={(event) => setInitiative(event.target.value)}><option value="">Selecione</option>{dismissalInitiatives.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
+            {mode === "for_cause" && <div className="field is-wide-field"><span>Motivos da justa causa</span><MultiSelect label="Motivos da justa causa" options={[...justCauseReasons]} value={justCauseReasonValues} onChange={setJustCauseReasonValues} placeholder="Selecione um ou mais motivos" searchPlaceholder="Buscar motivo" /><small className="muted">A desídia pode incluir violações de normas trabalhistas, como o respeito ao intervalo intrajornada.</small></div>}
+            {workedNotice && <label className="field">Primeiro dia do aviso<input type="date" required min={employee.admissionDate} value={start} onChange={(event) => setStart(event.target.value)} /></label>}
+            {resignationWorked && <p className="muted">Aviso de 30 dias corridos, incluindo o primeiro dia informado. Último dia: <strong>{formatDate(lastNoticeDate)}</strong>.</p>}
+            {mode === "resignation" && variant && !workedNotice && <p className="muted">Cumprimento dispensado pela empresa. Informe a data do desligamento; não haverá período de aviso trabalhado.</p>}
+            {mode === "without_cause" && (workedNotice || indemnifiedNotice) && <NoticeEntitlementSummary years={serviceYears} total={noticeDays} additional={additionalDays} indemnified={indemnifiedDays} projection={projectionEnd} worked={workedNotice} />}
+            {mode === "without_cause" && workedNotice && <NoticeReductionFields value={reduction} onChange={setReduction} end={effectiveDate} applies={applyReduction} onAppliesChange={setApplyReduction} />}
             {requiresDismissalDetails && <div className="suspension-documents-card">
-              <div><h3 className="deactivation-section-title">Dados da demissão</h3><p className="muted">Informe o tipo de demissão, observações e anexe documentos comprobatórios.</p></div>
-              <label className="field"><span>Tipo de demissão</span><select required value={dismissalType} onChange={(event) => setDismissalType(event.target.value)}><option value="">Selecione</option>{dismissalTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+              <div><h3 className="deactivation-section-title">Dados da demissão</h3><p className="muted">Inclua observações e documentos, se necessário.</p></div>
+              {mode === "quick" && <label className="field"><span>Tipo de demissão na experiência</span><select required value={experienceDismissalType} onChange={(event) => setExperienceDismissalType(event.target.value)}><option value="">Selecione</option>{experienceDismissalTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
               <label className="field is-wide-field"><span>Observações da demissão</span><textarea rows={4} maxLength={2000} placeholder="Descreva o contexto da demissão, ocorrências relevantes e referências úteis." value={dismissalNotes} onChange={(event) => setDismissalNotes(event.target.value)} /></label>
               <label className="suspension-upload-button"><Upload size={17} /><span>Anexar documento</span><input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg" multiple onChange={handleDismissalFiles} /></label>
               {dismissalDocuments.length ? <div className="suspension-document-list">{dismissalDocuments.map((file, index) => <div className="suspension-document-item" key={`${file.name}-${file.lastModified}-${index}`}><FileText size={17} /><div><strong>{file.name}</strong><small>{formatFileSize(file.size)}</small></div><button type="button" className="icon-button" aria-label={`Remover ${file.name}`} onClick={() => setDismissalDocuments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button></div>)}</div> : <p className="suspension-no-documents">Nenhum documento anexado.</p>}
             </div>}
             {mode === "quick" && <div className="deactivation-quick-summary"><ShieldAlert size={22} /><div><strong>Desativação rápida em {formatDate(effectiveDate)}</strong><p>{experienceProcessActive && initialQuickDismissal === "warning" ? "A data escolhida é anterior ao fim do contrato de experiência e pode gerar indenização pela rescisão antecipada, conforme o art. 479 da CLT." : "Ao confirmar, o funcionário ficará inativo e deixará de aparecer no controle de ponto a partir da data informada. Esta ação substitui qualquer agendamento anterior."}</p><label className="deactivation-confirmation"><input type="checkbox" checked={riskConfirmed} onChange={(event) => setRiskConfirmed(event.target.checked)} />Confirmo a desativação de {employee.name} e estou ciente dos efeitos rescisórios aplicáveis à data escolhida.</label></div></div>}
-            {mode === "indemnified" && <p className="muted">O aviso indenizado não possui período trabalhado nem redução de jornada.</p>}
-            {!mode && cltModeUnlocked && <div className="deactivation-clt-next-step"><strong>Experiência encerrada</strong><p>Selecione uma modalidade CLT para continuar o processo de desligamento.</p></div>}
+            {mode === "without_cause" && variant === "Aviso prévio indenizado" && <p className="muted">O aviso indenizado não possui período trabalhado nem redução de jornada.</p>}
+            {!mode && cltModeUnlocked && <div className="deactivation-clt-next-step"><strong>Experiência encerrada</strong><p>Selecione um tipo de desligamento CLT para continuar o processo de desligamento.</p></div>}
           </>
         )}
         {error && <p role="alert">{error}</p>}
       </fieldset>
-      <div className="modal-footer"><button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>Cancelar</button><button type="submit" className={`btn btn-primary${mode === "quick" ? " deactivation-submit-quick" : isSuspension ? " deactivation-submit-suspension" : ""}`} disabled={saving || (isSuspension ? !suspensionStartDate || !suspensionEndDate || !suspensionReason.trim() || !suspensionCoordinatorId || suspensionEndDate < suspensionStartDate : !mode || !effectiveDate || !workedOnDate || (needsConfirmation && !riskConfirmed) || (requiresDismissalDetails && !dismissalType))}><Save size={16} />{saving ? "Salvando..." : isSuspension ? "Confirmar suspensão" : mode === "quick" ? "Desativar agora" : "Confirmar agendamento"}</button></div>
+      <div className="modal-footer"><button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>Cancelar</button><button type="submit" className={`btn btn-primary${mode === "quick" ? " deactivation-submit-quick" : isSuspension ? " deactivation-submit-suspension" : ""}`} disabled={saving || (isSuspension ? !suspensionStartDate || !suspensionEndDate || !suspensionReason.trim() || !suspensionCoordinatorId || suspensionEndDate < suspensionStartDate : !mode || !effectiveDate || !workedOnDate || (needsConfirmation && !riskConfirmed) || (needsVariant && !variant) || (mode === "contract_end" && !initiative) || (mode === "quick" && !experienceDismissalType) || (indemnifiedNotice && (!projectionEnd || projectionEnd < effectiveDate)))}><Save size={16} />{saving ? "Salvando..." : isSuspension ? "Confirmar suspensão" : mode === "quick" ? "Desativar agora" : "Confirmar agendamento"}</button></div>
 
       {experienceProcessActive && cltConfirmationOpen && !isSuspension && <div className="experience-clt-confirmation-backdrop">
         <div className="experience-clt-confirmation" role="dialog" aria-modal="true" aria-labelledby="experience-clt-confirmation-title">
@@ -410,10 +437,10 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
           <h2 id="experience-clt-confirmation-title">Desligar funcionário após experiencia?</h2>
           <p>A data selecionada ({formatDate(candidateDate)}) é posterior ao fim da experiência ({formatDate(experienceEndDate)}).</p>
           <p>Como o funcionário permaneceu após o prazo, o vínculo passa a ser por prazo indeterminado e o desligamento deve seguir as regras do contrato CLT.</p>
-          <div className="experience-clt-confirmation-note">Ao confirmar, a <strong>Desativação rápida</strong> será bloqueada e as demais modalidades ficarão disponíveis.</div>
+          <div className="experience-clt-confirmation-note">Ao confirmar, a <strong>Desativação rápida</strong> será bloqueada e as demais tipos de desligamento ficarão disponíveis.</div>
           <div className="experience-clt-confirmation-actions"><button type="button" className="btn btn-secondary" onClick={cancelAfterExperience}>Não</button><button type="button" className="btn btn-primary" onClick={confirmAfterExperience}>Sim, seguir como CLT</button></div>
         </div>
       </div>}
     </form>
-  </div>;
+  </div>, document.body);
 }

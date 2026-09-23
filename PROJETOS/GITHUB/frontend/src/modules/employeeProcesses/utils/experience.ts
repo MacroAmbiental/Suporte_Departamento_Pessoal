@@ -1,5 +1,27 @@
 import type { Employee } from "@/types/domain";
-export const terminationModes = { indemnified: "Aviso prévio indenizado", employee: "Aviso prévio do empregado", quick: "Desativação rápida" } as const;
+export const terminationModes = {
+  without_cause: "Dispensa sem justa causa pela empresa",
+  for_cause: "Dispensa por justa causa",
+  resignation: "Pedido de demissão",
+  contract_end: "Término de contrato de trabalho",
+  abandonment: "Abandono de emprego",
+  quick: "Desativação rápida",
+  // Registros antigos continuam legíveis até que sejam alterados.
+  indemnified: "Dispensa sem justa causa pela empresa",
+  employee: "Pedido de demissão",
+  employer: "Dispensa sem justa causa pela empresa",
+} as const;
+export const dismissalModeOptions = ["without_cause", "for_cause", "resignation", "contract_end", "abandonment"] as const;
+export const resignationNoticeOptions = {
+  worked: "Cumprir aviso prévio (30 dias)",
+  waived: "Dispensar cumprimento do aviso",
+} as const;
+export const dismissalVariants = {
+  without_cause: ["Aviso prévio indenizado", "Aviso prévio trabalhado"],
+  resignation: [resignationNoticeOptions.worked, resignationNoticeOptions.waived],
+  contract_end: ["Término no fim do contrato", "Antecipação do término do contrato"],
+} as const;
+export const dismissalInitiatives = ["Pela empresa", "Pelo empregado"] as const;
 export const processModalities = {
   ...terminationModes,
   suspension: "Suspensão",

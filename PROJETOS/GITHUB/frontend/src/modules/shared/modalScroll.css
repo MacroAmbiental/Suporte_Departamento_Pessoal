@@ -1,0 +1,54 @@
+/* Every dialog covers the real viewport, even while the app shell uses zoom. */
+:is(.modal-backdrop, .modal-overlay, .models-modal-backdrop, .deactivation-backdrop) {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: clamp(12px, 2.5vw, 24px) !important;
+  background: rgba(15, 32, 44, 0.42) !important;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+:is(.modal-backdrop, .modal-overlay) {
+  z-index: 10000 !important;
+}
+
+:is(.process-drawer-backdrop, .experience-clt-confirmation-backdrop) {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  overscroll-behavior: contain;
+}
+
+:is(.modal-backdrop, .modal-overlay, .models-modal-backdrop) > :is(.modal-panel, .confirm-modal, .wizard-modal, .structure-modal, .entity-form-modal, .group-detail-modal, .group-wizard-modal, .models-modal, [role="dialog"]) {
+  max-width: 100% !important;
+  max-height: calc(100dvh - 48px) !important;
+  border: 1px solid #dbe5ee;
+  border-radius: 16px !important;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(9, 32, 48, 0.24);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+:is(.modal-backdrop, .models-modal-backdrop) > :is(.deactivation-modal, .wizard-modal, .structure-modal, .group-wizard-modal, .models-modal) {
+  overflow: hidden;
+}
+
+:is(.modal-body, .deactivation-body, .process-drawer-body, .models-modal-body, .wizard-body) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 600px) {
+  :is(.modal-backdrop, .modal-overlay, .models-modal-backdrop) > :is(.modal-panel, .confirm-modal, .wizard-modal, .structure-modal, .entity-form-modal, .group-detail-modal, .group-wizard-modal, .models-modal, [role="dialog"]) {
+    max-height: calc(100dvh - 24px) !important;
+  }
+}

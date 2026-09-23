@@ -1,0 +1,13 @@
+FUNCIONÁRIOS DE CONTRATO
+
+No agendamento e na alteração do processo, somente Suspensão e Término de
+contrato ficam disponíveis. As demais modalidades aparecem desabilitadas.
+A validação de salvamento consulta novamente o funcionário atual.
+A suspensão pode ser aberta também pelo seletor de alteração do processo.
+
+A classificação segue a listagem existente: employeeKind company e diarist
+mantêm suas opções; contract e cadastros legados sem tipo são contrato.
+Não há migração automática de processos antigos nem alteração de permissões
+no servidor, cujo código não foi fornecido neste pacote.
+
+Validação: três testes aprovados; componentes modificados sem erros de sintaxe.

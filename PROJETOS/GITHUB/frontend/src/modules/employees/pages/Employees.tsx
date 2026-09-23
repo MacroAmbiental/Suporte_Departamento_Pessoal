@@ -1,4 +1,5 @@
-import { EXPERIENCE_DURATION_DAYS } from "../experience";
+import ModalPortal from "@/modules/shared/ModalPortal";
+import { EXPERIENCE_DURATION_DAYS } from "@/modules/employeeProcesses/utils/experience";
 import {
   Check,
   ChevronLeft,
@@ -32,7 +33,8 @@ import {
   structureScopePayload,
 } from "@/common/utils/groupStructure";
 import EmployeesPagination from "../components/EmployeesPagination";
-import ScheduleDeactivationModal from "../components/ScheduleDeactivationModal";
+import ScheduleDeactivationModal from "@/modules/employeeProcesses/components/ScheduleDeactivationModal";
+import { isEmployeeTerminated } from "@/modules/employees/utils/employeeStatus";
 import MultiSelect from "../../../common/components/MultiSelect";
 import { employeeStandardDocumentNames } from "@/modules/records/utils/recordsDocuments";
 import { createUsernameFromName, hashPassword, normalizeUsername, systemScreens } from "@/services/accessControl";
@@ -56,11 +58,10 @@ import type {
 } from "@/types/domain";
 import { badgeClass, formatCurrency, formatDate, labelStatus, todayISO } from "@/utils/format";
 import { parseEmployeePdf } from "@/utils/pdfEmployeeImport";
-import { isInExperience, processModalities, terminationModes } from "../experience";
+import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
 
 type UndoState = { message: string; undo: () => Promise<void> } | null;
 type EmployeeKind = "contract" | "company" | "diarist";
-type StatusScheduleAction = "deactivate" | "reactivate";
 type BirthdayFilterMode = "month" | "year" | "full";
 
 interface EmployeeWizardForm extends Partial<Employee> {
@@ -592,7 +593,7 @@ function suggestUsername(name: string) {
   return createUsernameFromName(name);
 }
 
-export default function Employees({ initialEmployeeId = "", initialModal, initialQuickDismissal }: { initialEmployeeId?: string; initialModal?: "deactivate" | "reactivate"; initialQuickDismissal?: "quick" | "warning" }) {
+export default function Employees({ initialEmployeeId = "", initialModal, initialQuickDismissal }: { initialEmployeeId?: string; initialModal?: "deactivate"; initialQuickDismissal?: "quick" | "warning" }) {
   const data = useDomainData();
   const { can, user } = useAuth();
   const canCreateEmployees = can("employees", "create");
@@ -652,12 +653,6 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
   const [exportPasswordError, setExportPasswordError] = useState("");
   const [exportChecking, setExportChecking] = useState(false);
   const [deactivationEmployee, setDeactivationEmployee] = useState<Employee | null>(null);
-  const [statusScheduleEmployee, setStatusScheduleEmployee] =
-    useState<Employee | null>(null);
-  const [statusScheduleAction, setStatusScheduleAction] =
-    useState<StatusScheduleAction>("deactivate");
-  const [statusScheduleDate, setStatusScheduleDate] = useState("");
-  const [statusScheduleSaving, setStatusScheduleSaving] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const automaticGroupSyncRef = useRef(false);
   const noticeTerminationSyncRef = useRef(false);
@@ -917,7 +912,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
     const today = todayISO();
     const noticeStartDate = registrationData.noticeStartDate || "";
     const noticeEndDate = registrationData.noticeEndDate || registrationData.noticeDate || "";
-    if (employee.status === "terminated") return null;
+    if (isEmployeeTerminated(employee, today)) return null;
     if (registrationData.terminationMode && terminationModes[registrationData.terminationMode as keyof typeof terminationModes]) {
       return { label: terminationModes[registrationData.terminationMode as keyof typeof terminationModes], tone: "warning" };
     }
@@ -932,26 +927,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
 
   function getEmployeeDisplayStatus(employee: Employee) {
     const today = todayISO();
-    const scheduledReactivationDate =
-      employee.registrationData?.scheduledReactivationDate ||
-      employee.registrationData?.reactivationEffectiveDate ||
-      "";
-    if (
-      employee.status === "terminated" &&
-      scheduledReactivationDate &&
-      today >= scheduledReactivationDate
-    ) {
-      return "active";
-    }
-
-    const scheduledDeactivationDate =
-      employee.registrationData?.scheduledDeactivationDate ||
-      employee.registrationData?.deactivationEffectiveDate ||
-      "";
-    if (scheduledDeactivationDate && today >= scheduledDeactivationDate)
-      return "terminated";
-
-    if (employee.status === "terminated") return "terminated";
+    if (isEmployeeTerminated(employee, today)) return "terminated";
     const noticeStartDate = employee.registrationData?.noticeStartDate || "";
     const noticeEndDate = employee.registrationData?.noticeEndDate || employee.registrationData?.noticeDate || "";
     if (noticeStartDate && noticeEndDate && today >= noticeStartDate && today < noticeEndDate) return "notice";
@@ -961,14 +937,6 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
   function employeeStatusScheduleText(employee: Employee) {
     const registrationData = employee.registrationData || {};
     const today = todayISO();
-    const reactivationDate =
-      registrationData.scheduledReactivationDate ||
-      registrationData.reactivationEffectiveDate ||
-      "";
-    if (employee.status === "terminated" && reactivationDate && today < reactivationDate) {
-      return `Volta ao ponto em: ${formatDate(reactivationDate)}`;
-    }
-
     const deactivationDate =
       registrationData.scheduledDeactivationDate ||
       registrationData.deactivationEffectiveDate ||
@@ -1014,7 +982,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
       )
       && (!filters.search || search.includes(filters.search.toLowerCase()))
     );
-  }), [data.employees, employeeTeamFilterOption, filters, systemUserByEmployeeId]);
+  }).sort((left, right) => Number(isEmployeeTerminated(left)) - Number(isEmployeeTerminated(right))), [data.employees, employeeTeamFilterOption, filters, systemUserByEmployeeId]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
   const paginatedEmployees = useMemo(() => {
@@ -1078,14 +1046,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
         "";
       return employee.status !== "terminated" && Boolean(deactivationDate) && deactivationDate <= today;
     });
-    const dueReactivations = data.employees.filter((employee) => {
-      const reactivationDate =
-        employee.registrationData?.scheduledReactivationDate ||
-        employee.registrationData?.reactivationEffectiveDate ||
-        "";
-      return employee.status === "terminated" && Boolean(reactivationDate) && reactivationDate <= today;
-    });
-    if (!dueDeactivations.length && !dueReactivations.length) return;
+    if (!dueDeactivations.length) return;
 
     noticeTerminationSyncRef.current = true;
     void (async () => {
@@ -1103,28 +1064,6 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
         });
       }
 
-      for (const employee of dueReactivations) {
-        await data.upsertEmployee({
-          ...employee,
-          status: "active",
-          registrationData: {
-            ...(employee.registrationData || {}),
-            scheduledReactivationDate: "",
-            reactivationEffectiveDate: "",
-            reactivationCompletedDate: today,
-            processStartedAt: "",
-            processNotes: "",
-            terminationMode: "",
-            terminationRiskConfirmedAt: "",
-            noticeDate: "",
-            noticeStartDate: "",
-            noticeEndDate: "",
-            noticeScheduledAt: "",
-            noticeCompletedDate: "",
-          },
-          updatedAt: new Date().toISOString(),
-        });
-      }
     })()
       .catch((error) => console.error("Não foi possível concluir automaticamente os avisos vencidos.", error))
       .finally(() => {
@@ -1560,6 +1499,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
     const report: Array<{ index: number; status: string; message: string }> = [];
     const seenCpfs = new Set(
       data.employees
+        .filter((employee) => !isEmployeeTerminated(employee))
         .map((employee) => normalizeCpf(employee.cpf))
         .filter(Boolean),
     );
@@ -1972,9 +1912,11 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
 
   function findCpfDuplicate(cpf?: string) {
     const normalizedCpf = normalizeCpf(cpf);
-    if (!normalizedCpf) return undefined;
+    const editingEmployee = data.employees.find((employee) => employee.id === editingEmployeeId);
+    if (!normalizedCpf || form.status === "terminated" || (editingEmployee && isEmployeeTerminated(editingEmployee))) return undefined;
     return data.employees.find((employee) => (
       employee.id !== editingEmployeeId
+      && !isEmployeeTerminated(employee)
       && normalizeCpf(employee.cpf) === normalizedCpf
     ));
   }
@@ -2267,119 +2209,6 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
     });
   }
 
-  function openStatusScheduleModal(
-    employee: Employee,
-    action: StatusScheduleAction,
-  ) {
-    if (!canEditEmployees) return;
-    const registrationData = employee.registrationData || {};
-    const savedDate =
-      action === "deactivate"
-        ? registrationData.scheduledDeactivationDate ||
-          registrationData.deactivationEffectiveDate ||
-          registrationData.noticeEndDate ||
-          registrationData.noticeDate ||
-          todayISO()
-        : registrationData.scheduledReactivationDate ||
-          registrationData.reactivationEffectiveDate ||
-          todayISO();
-
-    setStatusScheduleEmployee(employee);
-    setStatusScheduleAction(action);
-    setStatusScheduleDate(savedDate);
-  }
-
-  function closeStatusScheduleModal() {
-    if (statusScheduleSaving) return;
-    setStatusScheduleEmployee(null);
-    setStatusScheduleDate("");
-  }
-
-  async function saveStatusSchedule(event: FormEvent) {
-    event.preventDefault();
-    if (!statusScheduleEmployee || !statusScheduleDate || statusScheduleSaving) return;
-
-    setStatusScheduleSaving(true);
-    try {
-      const today = todayISO();
-      const now = new Date().toISOString();
-      const isDueNow = statusScheduleDate <= today;
-      const previousEmployee = statusScheduleEmployee;
-
-      if (statusScheduleAction === "reactivate") {
-        await data.upsertEmployee({
-          ...statusScheduleEmployee,
-          status: isDueNow ? "active" : "terminated",
-          registrationData: {
-            ...(statusScheduleEmployee.registrationData || {}),
-            processStartedAt: "",
-            processNotes: "",
-            terminationMode: "",
-            terminationRiskConfirmedAt: "",
-            noticeDate: "",
-            noticeStartDate: "",
-            noticeEndDate: "",
-            noticeScheduledAt: "",
-            noticeCompletedDate: "",
-            scheduledDeactivationDate: "",
-            deactivationEffectiveDate: "",
-            deactivationScheduledAt: "",
-            deactivationCompletedDate: "",
-            scheduledReactivationDate: isDueNow ? "" : statusScheduleDate,
-            reactivationEffectiveDate: isDueNow ? "" : statusScheduleDate,
-            reactivationScheduledAt: now,
-            reactivationCompletedDate: isDueNow ? today : "",
-          },
-          updatedAt: new Date().toISOString(),
-        });
-
-        showUndo(
-          isDueNow ? "Funcionário reativado." : "Reativação agendada.",
-          async () => {
-            await data.upsertEmployee(previousEmployee);
-          },
-        );
-        closeStatusScheduleModal();
-        return;
-      }
-
-      await data.upsertEmployee({
-        ...statusScheduleEmployee,
-        status: isDueNow
-          ? "terminated"
-          : statusScheduleEmployee.status === "terminated"
-            ? "active"
-            : statusScheduleEmployee.status,
-        registrationData: {
-          ...(statusScheduleEmployee.registrationData || {}),
-          scheduledDeactivationDate: statusScheduleDate,
-          deactivationEffectiveDate: statusScheduleDate,
-          deactivationScheduledAt: now,
-          deactivationCompletedDate: isDueNow ? today : "",
-          scheduledReactivationDate: "",
-          reactivationEffectiveDate: "",
-          reactivationScheduledAt: "",
-          reactivationCompletedDate: "",
-        },
-        updatedAt: new Date().toISOString(),
-      });
-
-      showUndo(
-        isDueNow ? "Funcionário desativado." : "Desativação agendada.",
-        async () => {
-          await data.upsertEmployee(previousEmployee);
-        },
-      );
-      closeStatusScheduleModal();
-    } finally {
-      setStatusScheduleSaving(false);
-    }
-  }
-
-  function reactivateEmployee(employee: Employee) {
-    openStatusScheduleModal(employee, "reactivate");
-  }
-
   function hasActiveNoticeProcess(employee: Employee) {
     const registrationData = employee.registrationData || {};
     const hasNoticeMode = ["employee", "employer", "indemnified"].includes(String(registrationData.terminationMode || ""));
@@ -2627,8 +2456,8 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
           ]}
         />
         <MultiSelect
-          label="Modalidade"
-          placeholder="Modalidade"
+          label="Tipo de desligamento"
+          placeholder="Tipo de desligamento"
           value={filters.terminationModes || []}
           onChange={(terminationModes) => setFilters({ ...filters, terminationModes })}
           options={Object.values(processModalities).map((label) => ({ value: label, label }))}
@@ -2704,7 +2533,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
       </div>
 
       <div className="table-panel">
-        <table className="data-table">
+        <table className="data-table employee-table">
           <thead>
             <tr>
               <th>Funcionário</th>
@@ -2731,7 +2560,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
               const groupTeamName = groupUnitNameForEmployee(employee, "team");
 
               return (
-                <tr key={employee.id} style={displayStatus === "terminated" ? { background: "rgba(220, 38, 38, 0.09)" } : undefined}>
+                <tr key={employee.id} data-employee-terminated={displayStatus === "terminated" ? "true" : undefined} style={displayStatus === "terminated" ? { background: "rgba(220, 38, 38, 0.09)" } : undefined}>
                   <td>
                     <div className="employee-name-cell">
                       {processBadge ? <div className={`employee-process-badge is-${processBadge.tone}`}>{processBadge.label}</div> : null}
@@ -2764,17 +2593,15 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
                         <>
                           <button type="button" title="Editar funcionário" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startEdit(employee)}><Pencil size={14} /></button>
                           <button type="button" title="Registrar alteração de cargo" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startPromotion(employee)}><Plus size={14} /></button>
-                          <button
-                            type="button"
-                            title={
-                              displayStatus === "terminated"
-                                ? "Agendar reativação do funcionário"
-                                : "Agendar desativação"
-                            }
-                            aria-label={displayStatus === "terminated" ? "Agendar reativação" : "Agendar desativação"}
-                            disabled={confirmingAction || isDismissalApproved || (!displayStatus || displayStatus === "terminated" ? false : hasActiveNoticeProcess(employee))}
-                            onClick={() => displayStatus === "terminated" ? reactivateEmployee(employee) : deactivateEmployee(employee)}
-                          ><Power size={16} /></button>
+                          {displayStatus !== "terminated" ? (
+                            <button
+                              type="button"
+                              title="Agendar desativação"
+                              aria-label="Agendar desativação"
+                              disabled={confirmingAction || isDismissalApproved || hasActiveNoticeProcess(employee)}
+                              onClick={() => deactivateEmployee(employee)}
+                            ><Power size={16} /></button>
+                          ) : null}
                         </>
                       ) : null}
                       {canDeleteEmployees ? (
@@ -2841,7 +2668,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
       </div>
 
       {exportModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="confirm-modal protected-password-modal" role="dialog" aria-modal="true" aria-labelledby="export-employees-title" onSubmit={submitExportWithSalary}>
             <div className="modal-header">
               <h2 id="export-employees-title">Exportar funcionarios</h2>
@@ -2872,11 +2699,11 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
               <button className="btn btn-primary" type="submit" disabled={exportChecking}>{exportChecking ? "Conferindo..." : "Exportar com salario"}</button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {sensitivePasswordModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="confirm-modal protected-password-modal" role="dialog" aria-modal="true" aria-labelledby="protected-password-title" onSubmit={submitSensitivePassword}>
             <div className="modal-header">
               <h2 id="protected-password-title">Confirmar senha</h2>
@@ -2902,93 +2729,13 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
               <button className="btn btn-primary" type="submit" disabled={sensitivePasswordChecking}>{sensitivePasswordChecking ? "Conferindo..." : "Confirmar"}</button>
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
       {deactivationEmployee ? <ScheduleDeactivationModal employee={deactivationEmployee} initialQuickDismissal={initialQuickDismissal} onClose={() => setDeactivationEmployee(null)} /> : null}
 
-      {statusScheduleEmployee ? (
-        <div className="modal-backdrop" role="presentation" style={{ zIndex: 10000, padding: 24, overflowY: "auto" }}>
-          <form
-            className="modal-panel notice-period-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="employee-status-schedule-title"
-            onSubmit={saveStatusSchedule}
-            style={{ width: "min(620px, calc(100vw - 48px))", maxHeight: "none", overflow: "visible", margin: "40px auto", background: "#fff" }}
-          >
-            <div className="modal-header" style={{ padding: "24px 28px" }}>
-              <div>
-                <h2 id="employee-status-schedule-title">
-                  {statusScheduleAction === "deactivate"
-                    ? "Agendar desativação"
-                    : "Agendar reativação"}
-                </h2>
-                <p className="muted" style={{ marginTop: 4 }}>
-                  {statusScheduleEmployee.name}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="icon-button"
-                disabled={statusScheduleSaving}
-                onClick={closeStatusScheduleModal}
-                aria-label="Fechar"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "28px", overflow: "visible" }}>
-              <label className="field">
-                {statusScheduleAction === "deactivate"
-                  ? "Data de vencimento / saída do controle de ponto"
-                  : "Data de reativação / retorno ao controle de ponto"}
-                <input
-                  type="date"
-                  value={statusScheduleDate}
-                  onChange={(event) => setStatusScheduleDate(event.target.value)}
-                  required
-                />
-              </label>
-              <div style={{ marginTop: 20, padding: 16, borderRadius: 12, background: "#f4f7fb", lineHeight: 1.5 }}>
-                {statusScheduleAction === "deactivate" ? (
-                  <>
-                    O funcionário continua aparecendo no controle de ponto até
-                    essa data. A partir dela, ele sai da tabela do ponto e fica
-                    desativado.
-                  </>
-                ) : (
-                  <>
-                    O funcionário volta a aparecer no controle de ponto a partir
-                    dessa data. Se a data for hoje ou anterior, a reativação é
-                    aplicada agora.
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "20px 28px", display: "flex", justifyContent: "flex-end", gap: 12 }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={statusScheduleSaving}
-                onClick={closeStatusScheduleModal}
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={statusScheduleSaving || !statusScheduleDate}
-              >
-                <Save size={16} /> {statusScheduleSaving ? "Salvando..." : "Confirmar data"}
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
-
       {wizardOpen ? (
-        <div className="modal-backdrop" role="presentation">
+        <ModalPortal className="modal-backdrop" role="presentation">
           <form className="modal-panel wizard-card" onSubmit={submitEmployee}>
             <div className="modal-header">
               <h2>{promotionMode ? "Promover funcionário" : editingEmployeeId ? "Editar funcionário" : "Novo funcionário"}</h2>
@@ -3173,7 +2920,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
               {step < finalWizardStep ? <button className="btn btn-primary" type="button" disabled={wizardSaving || draftSaving || pdfImporting} onClick={handleAdvanceStep}>Avançar <ChevronRight size={16} /></button> : <button className="btn btn-primary" type="submit" disabled={wizardSaving || draftSaving || pdfImporting}><Check size={16} /> {wizardSaving ? "Finalizando..." : form.employeeKind === "diarist" ? "Salvar diarista" : promotionMode ? "Finalizar promoção" : "Finalizar"}</button>}
             </div>
           </form>
-        </div>
+        </ModalPortal>
       ) : null}
 
 
@@ -3199,6 +2946,3 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
     </section>
   );
 }
-
-
-

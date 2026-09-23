@@ -40,13 +40,13 @@ const navItems: {
     { to: "/app", label: "Painel", icon: LayoutDashboard, screen: "dashboard", end: true },
     { to: "/app/companies", label: "Empresas", icon: Building2, screen: "companies" },
     { to: "/app/records", label: "Registros", icon: Files, screen: "records" },
+    { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications", subpage: "notificacoes" },
     { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
     { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },
-    { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits" },
-    { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping" },
-    { to: "/app/ferias", label: "Férias", icon: Plane, screen: "vacation" },
+    { to: "/app/ferias", label: "Férias", icon: Plane, screen: "vacation", subpage: "ferias" },
+    { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits", subpage: "beneficios" },
+    { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping", subpage: "controle-ponto" },
     { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
-    { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications" },
     { to: "/app/monitoring", label: "Monitoramento", icon: Activity, screen: "monitoring" },
     { to: "/app/permissions", label: "Permissões do sistema", icon: ShieldCheck, screen: "permissions" },
   ];
@@ -83,9 +83,9 @@ function sortNativeSelectOptions(select: HTMLSelectElement) {
   const selectedValues = new Set(Array.from(select.selectedOptions).map((option) => option.value));
   const pinnedOptions = options.filter(isPinnedSelectOption);
   const sortedOptions = options
-    .map((option, index) => ({ option, index }))
+    .map((option, index) => ({ option, index, label: optionLabel(option) }))
     .filter(({ option }) => !isPinnedSelectOption(option))
-    .sort((left, right) => compareText(optionLabel(left.option), optionLabel(right.option)) || left.index - right.index)
+    .sort((left, right) => compareText(left.label, right.label) || left.index - right.index)
     .map(({ option }) => option);
   const orderedOptions = [...pinnedOptions, ...sortedOptions];
 
@@ -106,7 +106,9 @@ function sortNativeSelectOptions(select: HTMLSelectElement) {
 }
 
 function alphabetizeNativeSelects(root: ParentNode) {
-  root.querySelectorAll<HTMLSelectElement>("select").forEach(sortNativeSelectOptions);
+  root.querySelectorAll<HTMLSelectElement>("select").forEach((select) => {
+    if (select !== document.activeElement) sortNativeSelectOptions(select);
+  });
 }
 
 function markSortableTableHeaders(root: ParentNode) {
@@ -178,6 +180,10 @@ function sortTableByHeader(header: HTMLTableCellElement) {
     const staticRows = rows.filter((row) => !sortableRowSet.has(row));
 
     sortableRows.sort((left, right) => {
+      if (table.classList.contains("employee-table")) {
+        const statusOrder = Number(left.row.dataset.employeeTerminated === "true") - Number(right.row.dataset.employeeTerminated === "true");
+        if (statusOrder) return statusOrder;
+      }
       const result = compareText(cellSortValue(left.cell), cellSortValue(right.cell)) * directionMultiplier;
       return result || left.index - right.index;
     });
@@ -205,8 +211,17 @@ export default function Layout() {
     const employee = domain.employees.find((item) => item.id === alert.employeeId);
     return alert.status !== "completed" && employee?.status !== "terminated" && (alert.notifyDate || alert.dueDate) <= today;
   }).length;
-  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view")), [can]);
+  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "benefits", "timekeeping"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && can("notifications", "view"))), [can]);
   const currentScreen = useMemo(() => screenFromPathname(location.pathname), [location.pathname]);
+  const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "benefits", "timekeeping"].includes(item.screen)), [visibleNavItems]);
+  const recordSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && item.screen === "notifications"), [visibleNavItems]);
+  const isEmployeeProcessActive = currentScreen === "employees" && new URLSearchParams(location.search).get("tab") === "processos";
+  const [employeesMenuOpen, setEmployeesMenuOpen] = useState(false);
+  const [recordsMenuOpen, setRecordsMenuOpen] = useState(false);
+  const isEmployeesGroupActive = ["employees", "vacation", "benefits", "timekeeping"].includes(currentScreen || "");
+  const isRecordsGroupActive = currentScreen === "records" || currentScreen === "notifications";
+  const isEmployeesMenuOpen = employeesMenuOpen || isEmployeesGroupActive;
+  const isRecordsMenuOpen = recordsMenuOpen || isRecordsGroupActive;
   const isWideWorkspace = currentScreen
     ? ["records", "employees", "permissions", "talentBank", "benefits", "timekeeping", "hrControl"].includes(currentScreen)
     : ["records", "employees", "permissions", "talent-bank", "benefits"].some((path) => location.pathname.includes(path));
@@ -252,10 +267,16 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
-    function prepareSortableUi() {
-      alphabetizeNativeSelects(document);
-      markSortableTableHeaders(document);
-    }
+    const workspace = document.querySelector(".workspace");
+    if (workspace) markSortableTableHeaders(workspace);
+    // Sorting every native select synchronously delayed navigation on data-heavy pages.
+    const idleWindow = window as Window & { requestIdleCallback?: (callback: () => void) => number; cancelIdleCallback?: (id: number) => void };
+    const idleId = idleWindow.requestIdleCallback?.(() => {
+      if (workspace) alphabetizeNativeSelects(workspace);
+    });
+    const timerId = idleId === undefined ? window.setTimeout(() => {
+      if (workspace) alphabetizeNativeSelects(workspace);
+    }, 0) : undefined;
 
     function handleSortableHeaderClick(event: MouseEvent) {
       const target = event.target;
@@ -281,11 +302,12 @@ export default function Layout() {
       sortTableByHeader(header);
     }
 
-    prepareSortableUi();
     window.addEventListener("click", handleSortableHeaderClick);
     window.addEventListener("keydown", handleSortableHeaderKeydown);
 
     return () => {
+      if (idleId !== undefined) idleWindow.cancelIdleCallback?.(idleId);
+      if (timerId !== undefined) window.clearTimeout(timerId);
       window.removeEventListener("click", handleSortableHeaderClick);
       window.removeEventListener("keydown", handleSortableHeaderKeydown);
     };
@@ -315,30 +337,96 @@ export default function Layout() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Navegação principal">
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon;
-            const isNotification = item.screen === "notifications";
+          {visibleNavItems
+            .filter((item) => !item.subpage)
+            .map((item) => {
+              const Icon = item.icon;
 
-            return (
-              <NavLink
-                key={item.to}
-                to={`${securePath(item.screen)}${item.subpage ? `?tab=${item.subpage}` : ""}`}
-                end={item.end}
-                className={({ isActive }) => [item.subpage ? "sidebar-subpage" : "", isActive && (item.screen !== "employees" || (new URLSearchParams(location.search).get("tab") === "processos") === Boolean(item.subpage)) ? "is-active" : ""].filter(Boolean).join(" ")}
-                onClick={(event) => {
-                  if (!canNavigateAway()) {
-                    event.preventDefault();
-                    return;
-                  }
-                  setMenuOpen(false);
-                }}
-              >
-                <Icon size={17} />
-                <span>{item.label}</span>
-                {isNotification && activeAlerts > 0 ? <span className="nav-count">{activeAlerts > 9 ? "9+" : activeAlerts}</span> : null}
-              </NavLink>
-            );
-          })}
+              if (item.screen === "employees" || item.screen === "records") {
+                const isEmployeeGroup = item.screen === "employees";
+                const subItems = isEmployeeGroup ? employeeSubItems : recordSubItems;
+                const isGroupActive = isEmployeeGroup ? isEmployeesGroupActive : isRecordsGroupActive;
+                const isGroupOpen = isEmployeeGroup ? isEmployeesMenuOpen : isRecordsMenuOpen;
+                const setGroupOpen = isEmployeeGroup ? setEmployeesMenuOpen : setRecordsMenuOpen;
+                const parentScreen: AppScreen = isEmployeeGroup
+                  ? (can("employees", "view") ? "employees" : subItems[0]?.screen || "employees")
+                  : (can("records", "view") ? "records" : subItems[0]?.screen || "records");
+                return (
+                  <div
+                    key={item.to}
+                    className={`sidebar-nav-group${isGroupOpen ? " is-open" : ""}${isGroupActive ? " is-active-group" : ""}`}
+                    onMouseEnter={() => setGroupOpen(true)}
+                    onMouseLeave={() => setGroupOpen(false)}
+                    onFocusCapture={() => setGroupOpen(true)}
+                    onBlurCapture={() => setGroupOpen(false)}
+                  >
+                    <NavLink
+                      to={securePath(parentScreen)}
+                      end={item.end}
+                      className={() => ["sidebar-parent", isGroupActive ? "is-active" : ""].filter(Boolean).join(" ")}
+                      onClick={(event) => {
+                        if (!canNavigateAway()) {
+                          event.preventDefault();
+                          return;
+                        }
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <Icon size={17} />
+                      <span>{item.label}</span>
+                      <span className={`sidebar-caret${isGroupOpen ? " is-rotated" : ""}`} aria-hidden="true">›</span>
+                    </NavLink>
+
+                    {subItems.length > 0 ? (
+                      <div className={`sidebar-submenu${isGroupOpen ? " is-open" : ""}`}>
+                        <div className="sidebar-submenu-inner">
+                          {subItems.map((subItem) => {
+                            const SubIcon = subItem.icon;
+                            const isSubItemActive = currentScreen === subItem.screen && (subItem.screen !== "employees" || isEmployeeProcessActive);
+                            return <NavLink
+                            key={subItem.to}
+                            to={`${securePath(subItem.screen)}${subItem.screen === "employees" ? `?tab=${subItem.subpage}` : ""}`}
+                            className={() => ["sidebar-subpage", isSubItemActive ? "is-active" : ""].filter(Boolean).join(" ")}
+                            onClick={(event) => {
+                              if (!canNavigateAway()) {
+                                event.preventDefault();
+                                return;
+                              }
+                              setMenuOpen(false);
+                              setGroupOpen(true);
+                            }}
+                          >
+                            <SubIcon size={15} />
+                            <span>{subItem.label}</span>
+                            {subItem.screen === "notifications" && activeAlerts > 0 ? <span className="nav-count">{activeAlerts > 9 ? "9+" : activeAlerts}</span> : null}
+                          </NavLink>;
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
+
+              return (
+                <NavLink
+                  key={item.to}
+                  to={`${securePath(item.screen)}${item.subpage ? `?tab=${item.subpage}` : ""}`}
+                  end={item.end}
+                  className={({ isActive }) => [item.subpage ? "sidebar-subpage" : "", isActive && (item.screen !== "employees" || (new URLSearchParams(location.search).get("tab") === "processos") === Boolean(item.subpage)) ? "is-active" : ""].filter(Boolean).join(" ")}
+                  onClick={(event) => {
+                    if (!canNavigateAway()) {
+                      event.preventDefault();
+                      return;
+                    }
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Icon size={17} />
+                  <span>{item.label}</span>
+                </NavLink>
+              );
+            })}
         </nav>
 
         <div className="sidebar-footer">

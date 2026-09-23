@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import { AlertTriangle, Link2, ShieldAlert, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -52,7 +53,7 @@ export default function DeleteImpactModal({
   }, [impact, title]);
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <ModalPortal className="modal-backdrop" role="presentation">
       <div className="confirm-modal delete-impact-modal" role="dialog" aria-modal="true" aria-labelledby="delete-impact-title">
         <div className="delete-impact-heading">
           <span className="delete-impact-icon" aria-hidden="true"><Trash2 size={20} /></span>
@@ -135,6 +136,6 @@ export default function DeleteImpactModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

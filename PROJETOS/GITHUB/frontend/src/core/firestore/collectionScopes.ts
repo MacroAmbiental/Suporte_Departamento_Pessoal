@@ -123,6 +123,16 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "permissionProfiles",
     "accessKeys",
   ],
+  vacation: [
+    "companies",
+    "companyGroups",
+    "companyGroupCompanies",
+    "departments",
+    "sectors",
+    "subsectors",
+    "teams",
+    "employees",
+  ],
 };
 
 /**

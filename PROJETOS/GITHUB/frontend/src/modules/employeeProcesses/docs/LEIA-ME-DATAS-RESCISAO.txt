@@ -1,0 +1,48 @@
+ATUALIZAÇÃO — DATA-BASE E AVISO PRÉVIO PROPORCIONAL
+
+1. Data-base da rescisão
+   É o próprio dia do desligamento efetivo, sem acrescentar um dia.
+   O campo de data-base permanece separado da projeção do aviso e do prazo
+   de pagamento. Não há cálculo monetário de verbas neste módulo.
+
+2. Dispensa sem justa causa pela empresa
+   Anos completos = aniversários de admissão já completados na data do
+   desligamento efetivo. Não se divide o número de dias por 365.
+   Aviso total = mínimo entre 90 e (30 + 3 x anos completos).
+   Menos de 1 ano: 30 dias; 1 ano: 33 dias; 2 anos: 36 dias.
+   Aviso indenizado: todos os dias são indenizados; a projeção parte da
+   data efetiva de desligamento.
+   Aviso trabalhado: período de 30 dias, sujeito à redução escolhida;
+   os dias proporcionais adicionais são separados como indenizados.
+   O campo Primeiro dia do aviso é o dia 1; o dia 30 é início + 29 dias.
+   A projeção considera os dias adicionais após o último dia desse período.
+
+3. Pedido de demissão
+   Mantidas as duas opções: cumprir aviso de 30 dias ou dispensar cumprimento.
+   O acréscimo proporcional não é exigido do empregado que pede demissão.
+   Sem cumprimento, usa-se a data efetiva de desligamento informada.
+
+4. Persistência
+   terminationSettlementCalculationDate: data-base do desligamento.
+   noticeTotalDays: total de dias de aviso.
+   noticeAdditionalDays: dias proporcionais adicionais (máximo de 60).
+   noticeIndemnifiedDays: dias indenizados.
+   noticeServiceYears: anos completos na data-base.
+   noticeEndDate: último dia do período trabalhado.
+   noticeProjectionEndDate: fim da projeção, incluindo dias indenizados.
+   Novos agendamentos e alterações salvas gravam os campos atualizados.
+   Registros antigos não são regravados automaticamente.
+   As regras e os prazos do acompanhamento de experiência foram preservados.
+
+5. Aplicação e verificação
+   Substitua a pasta modules pela pasta modules deste ZIP.
+   18 testes aprovados (11 das novas regras, 4 de redução e 3 de ponto).
+   109 arquivos TS/TSX analisados sem erros de sintaxe.
+   O build integral depende dos demais arquivos do projeto não enviados.
+   A falha preexistente em experience.test.mjs permanece fora desta alteração:
+   o teste espera antecipação para uma data posterior ao término do marco.
+
+Referências:
+https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2011/lei/l12506.htm
+https://www.tst.jus.br/-/acrescimo-de-tres-dias-no-aviso-previo-e-devido-a-partir-do-primeiro-ano-de-servico
+https://www.tst.jus.br/-/tst-decide-que-aviso-previo-proporcional-e-obrigacao-limitada-ao-empregador

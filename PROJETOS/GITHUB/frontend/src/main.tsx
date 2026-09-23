@@ -7,6 +7,7 @@ import AppRoutes from "@/app/router/AppRoutes";
 import "@/assets/styles/index.css";
 import "@/assets/styles/app.css";
 import "@/assets/styles/multi-select.css";
+import "@/modules/shared/modalScroll";
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>

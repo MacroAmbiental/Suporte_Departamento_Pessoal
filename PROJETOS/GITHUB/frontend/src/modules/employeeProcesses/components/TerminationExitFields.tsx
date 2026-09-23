@@ -1,9 +1,9 @@
 import { AlertTriangle } from "lucide-react";
-import { addDays } from "../experience";
+import { addDays } from "../utils/experience";
 import { formatDate } from "@/utils/format";
 
-export default function TerminationExitFields({ date, workedOnDate, onWorkedOnDateChange, compact = false }: {
-  date: string; workedOnDate: string; onWorkedOnDateChange: (value: string) => void; compact?: boolean;
+export default function TerminationExitFields({ date, workedOnDate, onWorkedOnDateChange, compact = false, calculationDate }: {
+  date: string; workedOnDate: string; onWorkedOnDateChange: (value: string) => void; compact?: boolean; calculationDate?: string;
 }) {
   const dueDate = date ? addDays(date, 10) : "";
   const presentOnDismissalDate = workedOnDate === "true";
@@ -43,6 +43,11 @@ export default function TerminationExitFields({ date, workedOnDate, onWorkedOnDa
         </button>
       </label>
     </div>
+    {calculationDate !== undefined && <div role="status" style={{ display: "grid", gap: 8, padding: 12, border: "1px solid #9acdbd", borderRadius: 10, background: "#eefaf5", color: "#185942" }}>
+      <strong>Data-base da rescisão</strong>
+      <span>{calculationDate ? formatDate(calculationDate) : "Informe a data do desligamento."}</span>
+      <small>A rescisão tem como data-base o dia do desligamento efetivo do funcionário.</small>
+    </div>}
     <div role="alert" style={{ display: "grid", gap: 8, padding: compact ? 12 : 14, border: "1px solid #f1c56a", borderRadius: 10, background: "#fff8e8", color: "#76510c" }}>
       <strong style={{ display: "flex", alignItems: "center", gap: 8 }}><AlertTriangle size={20} />Pagamento das verbas rescisórias</strong>
       <span>{dueDate ? <>O prazo é de 10 dias corridos após o desligamento: <strong>até {formatDate(dueDate)}</strong>.</> : "Informe a data de desligamento para calcular o prazo de 10 dias corridos."}</span>

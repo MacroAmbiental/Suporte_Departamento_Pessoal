@@ -1,3 +1,4 @@
+import ModalPortal from "@/modules/shared/ModalPortal";
 import {
   Bell,
   CalendarClock,
@@ -671,7 +672,7 @@ export default function Notifications() {
       <AlertTableSection alerts={completedAlerts} type="completed" title="Arquivos concluidos" icon={<CheckCircle2 size={18} />} />
 
       {completionDraft ? (
-        <div className="modal-backdrop">
+        <ModalPortal className="modal-backdrop">
           <div className="modal-panel alert-completion-modal" role="dialog" aria-modal="true" aria-labelledby="alert-completion-title">
             <div className="modal-header">
               <div>
@@ -738,7 +739,7 @@ export default function Notifications() {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       ) : null}
     </section>
   );

@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { employeeProcessModalityLabel } from "@/modules/employees/experience";
+import { employeeProcessModalityLabel } from "@/modules/employeeProcesses/utils/experience";
 import { useRecordsContext } from "@/modules/records/context/RecordsContext";
 import { todayISO } from "@/utils/format";
 
@@ -76,8 +76,6 @@ export default function CompanyFolderSidebar() {
                     const isArchivedDismissal = Boolean(employee.registrationData?.dismissalApprovedAt);
                     const processModalityLabel = employeeProcessModalityLabel(employee, todayISO());
                     const modalityBadgeClass = processModalityLabel === "Aviso prévio"
-                      || processModalityLabel === "Aviso prévio indenizado"
-                      || processModalityLabel === "Aviso prévio do empregado"
                       ? "is-warning"
                       : processModalityLabel === "Contrato de experiência"
                         ? "is-info"

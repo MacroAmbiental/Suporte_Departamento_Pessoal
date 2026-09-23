@@ -1,3 +1,4 @@
+import "../../shared/modalScroll";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -7,7 +8,7 @@ export default function ProcessDrawer({ name, onClose, children, subtitle = "Pro
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     panel.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    return () => previous?.focus();
+    return () => previous?.focus({ preventScroll: true });
   }, []);
   return createPortal(<div className="process-drawer-backdrop">
     <div className="process-drawer" ref={panel} role="dialog" aria-modal="true" aria-labelledby="process-drawer-title" onKeyDown={(event) => {

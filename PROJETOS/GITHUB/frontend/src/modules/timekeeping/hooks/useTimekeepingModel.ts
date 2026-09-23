@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { todayISO } from "@/utils/format";
 import type { TimekeepingFilters } from "@/modules/timekeeping/types";
 import { useMonthlyTimeRecords } from "@/modules/timekeeping/hooks/useMonthlyTimeRecords";
-import { employeeProcessModalityLabel, processModalities } from "@/modules/employees/experience";
+import { employeeProcessModalityLabel, processModalities } from "@/modules/employeeProcesses/utils/experience";
 import type {
   Employee,
   EmployeeComplement,

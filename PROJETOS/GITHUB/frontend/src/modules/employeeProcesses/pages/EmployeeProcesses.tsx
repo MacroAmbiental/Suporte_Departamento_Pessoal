@@ -1,7 +1,7 @@
-﻿import ProcessModalityEditor from "../components/ProcessModalityEditor";
+import ProcessModalityEditor from "../components/ProcessModalityEditor";
 import ProcessModelsModal from "../components/ProcessModelsModal";
 import ProcessHistoryCard from "../components/ProcessHistoryCard";
-import { archiveEmployeeProcess, historyId, processCompletion } from "../processHistory";
+import { archiveEmployeeProcess, historyId, processCompletion } from "../utils/processHistory";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, RotateCcw } from "lucide-react";
@@ -10,13 +10,13 @@ import { securePath } from "@/services/secureRoutes";
 import { formatDate, todayISO } from "@/utils/format";
 import ExperienceTracking from "../components/ExperienceTracking";
 import TerminationSettlementAlert from "../components/TerminationSettlementAlert";
-import { experienceAlerts, experienceEndingToday, needsExperienceFollowup, isInExperience, terminationModes, type TerminationMode } from "../experience";
+import { experienceAlerts, experienceEndingToday, needsExperienceFollowup, isInExperience, terminationModes, type TerminationMode } from "../utils/experience";
 import { openEmployeeDocumentFile, uploadEmployeeDocumentFile } from "@/services/documentStorage";
-import EmployeesPagination from "../components/EmployeesPagination";
+import EmployeesPagination from "@/modules/employees/components/EmployeesPagination";
 import "./employeeProcesses.css";
 import { useAuth } from "@/hooks/useAuth";
 import ProcessDrawer from "../components/ProcessDrawer";
-import { processEntryDate } from "../processEntryDate";
+import { processEntryDate } from "../utils/processEntryDate";
 import type { Employee } from "@/types/domain";
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
@@ -75,8 +75,6 @@ export default function EmployeeProcesses() {
     const savedMode = registration.terminationMode as TerminationMode | undefined;
     const hasNotice = Boolean(start || noticeEnd || registration.noticeScheduledAt);
     if (!experience && !hasNotice && !end && !registration.deactivationScheduledAt && !registration.deactivationCompletedDate) return [];
-    const reactivation = registration.scheduledReactivationDate || registration.reactivationEffectiveDate || "";
-    if (reactivation && reactivation <= today && (!end || reactivation >= end)) return [];
     const settlementPending = Boolean(registration.terminationSettlementDueDate) && registration.terminationSettlementPaid !== "true";
     const completed = employee.status === "terminated" || Boolean(end && end <= today);
     if (completed) return [];
@@ -161,7 +159,7 @@ export default function EmployeeProcesses() {
       const fields = process.employee.registrationData || {};
       const due = fields.terminationSettlementDueDate || "";
       const remaining = due ? Math.round((Date.parse(`${due}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) : Number.NaN;
-      if (!["indemnified", "employee"].includes(fields.terminationMode || "") || fields.terminationSettlementPaid === "true" || !due) return false;
+      if (!["indemnified", "employee", "employer", "without_cause", "resignation"].includes(fields.terminationMode || "") || fields.terminationSettlementPaid === "true" || !due) return false;
       return settlementFilter === "all" || (settlementFilter === "today" && remaining === 0) || (settlementFilter === "upcoming" && remaining >= 1 && remaining <= 3) || (settlementFilter === "overdue" && remaining < 0);
     })())
     && normalize(`${process.employee.name} ${process.employee.cpf} ${process.employee.registration} ${process.company}`).includes(normalize(search.trim()))), [processes, modality, status, search, experienceFilter, settlementFilter, today]);
@@ -193,7 +191,7 @@ export default function EmployeeProcesses() {
       <div className="employee-process-summary">
         {summaries.map((summary) => <article key={summary.label} className="employee-process-card"><span><i className={summary.tone} />{summary.label}</span><strong>{loading ? "—" : summary.count}</strong></article>)}
       </div>
-      <p className="muted">Admissões recentes entram automaticamente no acompanhamento de 60 dias. Confira a modalidade e o prazo do contrato. Os marcos de 30 e 60 dias são lembretes, não renovações nem garantia de isenção de multa.</p>
+      <p className="muted">Admissões recentes entram automaticamente no acompanhamento de 60 dias. Confira o tipo de desligamento e o prazo do contrato. Os marcos de 30 e 60 dias são lembretes, não renovações nem garantia de isenção de multa.</p>
       {noteMessage && <p role="status">{noteMessage}</p>}
       {attachmentError && <p role="alert">{attachmentError}</p>}
       <div className="employee-process-list">
@@ -202,7 +200,7 @@ export default function EmployeeProcesses() {
         </div>
         <div className="employee-process-filters">
           <input aria-label="Pesquisar funcionário, CPF, matrícula ou empresa" placeholder="Pesquisar funcionário, CPF ou empresa..." value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
-          <select aria-label="Modalidade" value={modality} onChange={(event) => { setModality(event.target.value); setPage(1); }}><option value="">Todas as modalidades</option><option>Aviso prévio</option><option>Contrato de experiência</option>{Object.values(terminationModes).map((label) => <option key={label}>{label}</option>)}</select>
+          <select aria-label="Tipo de desligamento" value={modality} onChange={(event) => { setModality(event.target.value); setPage(1); }}><option value="">Todos os tipos de desligamento</option><option>Aviso prévio</option><option>Contrato de experiência</option>{Array.from(new Set(Object.values(terminationModes).filter((label) => label !== "Desativação rápida"))).map((label) => <option key={label}>{label}</option>)}</select>
           <select aria-label="Status do processo" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">Todos os status</option><option>Em andamento</option></select>
           <button type="button" className="btn btn-secondary" onClick={() => { setSearch(""); setModality(""); setStatus(""); setExperienceFilter(""); setSettlementFilter(""); setPage(1); }}><RotateCcw size={14} /> Limpar filtros</button>
         </div>
@@ -216,13 +214,13 @@ export default function EmployeeProcesses() {
         </div>
         <div className="employee-process-table-wrap" tabIndex={0} role="region" aria-label="Processos de funcionários; role horizontalmente para visualizar todas as colunas">
           <table className="data-table">
-            <thead><tr><th>Funcionário</th><th>Empresa</th><th>Modalidade</th><th>Status</th><th>Inicio do processo</th><th>Desativação</th><th>Alerta / Continuidade</th><th>Tipo de Demissão</th><th>Observações</th></tr></thead>
+            <thead><tr><th>Funcionário</th><th>Empresa</th><th>Tipo de desligamento</th><th>Status</th><th>Inicio do processo</th><th>Desativação</th><th>Alerta / Continuidade</th><th>Detalhe do desligamento</th><th>Observações</th></tr></thead>
             <tbody>
               {!loading && visibleProcesses.map((process) => <tr key={process.employee.id} onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest("button, textarea, input, select, a")) { event.stopPropagation(); setSelectedId(process.employee.id); } }}>
                 <td><div className="employee-process-person"><span className="employee-process-avatar">{process.employee.name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("")}</span><div><button type="button" className="process-open-button" onClick={() => setSelectedId(process.employee.id)}>{process.employee.name}</button><small className="muted">{process.employee.cpf || "CPF não informado"}</small></div></div></td>
                 <td>{process.company}</td><td><span className={`badge ${process.modality === "Contrato de experiência" ? "badge-experience" : process.modality === "Aviso prévio" ? "badge-warning" : "badge-danger"}`}>{process.modality}</span></td>
                 <td><span className={`badge ${process.status === "Concluído" ? "badge-success" : "badge-info"}`}>{process.status}</span></td>
-                <td>{process.enteredAt ? formatDate(process.enteredAt.slice(0, 10)) : "—"}</td><td>{process.end ? formatDate(process.end) : "—"}</td><td className="experience-action-cell">{process.experience ? <ExperienceTracking key={`${process.employee.id}-${process.employee.registrationData?.experienceAlertDays || 7}`} employee={process.employee} today={today} compact /> : <TerminationSettlementAlert employee={process.employee} today={today} />}</td><td>{process.employee.registrationData?.dismissalType || "—"}</td><td>{notesEditor(process.employee)}</td>
+                <td>{process.enteredAt ? formatDate(process.enteredAt.slice(0, 10)) : "—"}</td><td>{process.end ? formatDate(process.end) : "—"}</td><td className="experience-action-cell">{process.experience ? <ExperienceTracking key={`${process.employee.id}-${process.employee.registrationData?.experienceAlertDays || 7}`} employee={process.employee} today={today} compact /> : <TerminationSettlementAlert employee={process.employee} today={today} />}</td><td>{[process.employee.registrationData?.dismissalVariant, process.employee.registrationData?.dismissalInitiative].filter(Boolean).join(" · ") || process.employee.registrationData?.dismissalType || "—"}</td><td>{notesEditor(process.employee)}</td>
               </tr>)}
               {(loading || !filtered.length) && <tr><td colSpan={9} className="employee-process-empty"><CalendarClock size={28} /><p>{loading ? "Carregando processos..." : processes.length ? "Nenhum processo corresponde aos filtros selecionados." : "Nenhum funcionário com aviso prévio ou desativação registrada."}</p></td></tr>}
             </tbody>
@@ -238,7 +236,7 @@ export default function EmployeeProcesses() {
 
       {selected && <ProcessDrawer name={selected.employee.name} onClose={() => setSelectedId(null)}>
         <dl className="process-details-grid">
-          {[["Empresa", selected.company], ["CPF", selected.employee.cpf], ["Modalidade", selected.modality], ["Status", selected.status], ["Inicio do processo", selected.enteredAt ? formatDate(selected.enteredAt.slice(0, 10)) : "Não registrado"], ["Admissão", formatDate(selected.employee.admissionDate)], ["Inicio do aviso", selected.start ? formatDate(selected.start) : "-"], ["Desativação", selected.end ? formatDate(selected.end) : "-"]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "-"}</dd></div>)}
+          {[["Empresa", selected.company], ["CPF", selected.employee.cpf], ["Tipo de desligamento", selected.modality], ["Status", selected.status], ["Inicio do processo", selected.enteredAt ? formatDate(selected.enteredAt.slice(0, 10)) : "Não registrado"], ["Admissão", formatDate(selected.employee.admissionDate)], ["Último dia do aviso", formatDate(selected.employee.registrationData?.noticeEndDate || selected.employee.registrationData?.noticeProjectionEndDate || "")], ["Data-base da rescisão", formatDate(selected.employee.registrationData?.terminationSettlementCalculationDate || "")], ["Total de dias de aviso", selected.employee.registrationData?.noticeTotalDays || "—"], ["Fim da projeção do aviso", formatDate(selected.employee.registrationData?.noticeProjectionEndDate || "")], ["Inicio do aviso", selected.start ? formatDate(selected.start) : "-"], ["Desativação", selected.end ? formatDate(selected.end) : "-"]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "-"}</dd></div>)}
         </dl>
         {selected.experience && <section><h3>Acompanhamento da experiência</h3><ExperienceTracking key={`${selected.employee.id}-${selected.employee.registrationData?.experienceAlertDays || 7}`} employee={selected.employee} today={today} /></section>}
         {selected.employee.registrationData?.noticeReduction && <section><h3>Redução do aviso</h3><p>{selected.employee.registrationData.noticeReduction === "hours" ? "2 horas diárias" : "7 dias corridos finais"}</p>{selected.employee.registrationData.noticeLeaveStartDate && <p>Dispensa: {formatDate(selected.employee.registrationData.noticeLeaveStartDate)} a {formatDate(selected.employee.registrationData.noticeLeaveEndDate || "")}</p>}</section>}
@@ -256,8 +254,6 @@ export default function EmployeeProcesses() {
     </section>
   );
 }
-
-
 
 
 

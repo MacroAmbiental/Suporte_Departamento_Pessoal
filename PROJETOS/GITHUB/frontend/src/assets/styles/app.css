@@ -2377,11 +2377,12 @@ button:disabled:hover {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  width: var(--app-density-viewport-width);
-  height: var(--app-density-viewport-height);
   z-index: 60;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
   padding: 24px;
   background: rgba(15, 32, 44, 0.38);
 }
@@ -2389,7 +2390,7 @@ button:disabled:hover {
 .modal-panel,
 .confirm-modal {
   width: min(100%, 980px);
-  max-height: calc(var(--app-density-viewport-height) - 48px);
+  max-height: calc(100vh - 48px);
   overflow: auto;
   border: 1px solid #d8e4ee;
   border-radius: 8px;
