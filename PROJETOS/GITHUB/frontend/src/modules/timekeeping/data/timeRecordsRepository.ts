@@ -569,6 +569,7 @@ export function patchCachedTimeRecords(records: TimeRecord[]) {
   });
 
   rangeCache.clear();
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("timekeeping-data-updated"));
 }
 
 export function removeCachedTimeRecord(id: string, date?: string) {
@@ -581,6 +582,7 @@ export function removeCachedTimeRecord(id: string, date?: string) {
     entry.subscribers.forEach((subscriber) => subscriber.onChange(entry.records));
   });
   rangeCache.clear();
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("timekeeping-data-updated"));
 }
 
 export async function loadConfirmedAbsencesForEmployee(

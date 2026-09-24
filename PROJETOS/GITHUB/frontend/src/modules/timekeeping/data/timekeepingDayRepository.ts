@@ -36,6 +36,7 @@ export async function saveTimekeepingDayTable(table: TimekeepingDayTable) {
     saveTimeRecordDayManifest(table.date, table as unknown as Record<string, unknown>),
   ]);
   dayTableCache = null;
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("timekeeping-data-updated"));
 }
 
 export async function loadTimekeepingDayTables(maxResults = 730) {

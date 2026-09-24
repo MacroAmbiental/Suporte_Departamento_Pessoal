@@ -1,6 +1,8 @@
 import {
   AlertTriangle,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   ChartColumn,
   ChartPie,
   Clock,
@@ -11,7 +13,7 @@ import {
   Stethoscope,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import ClearFiltersButton from "@/common/components/ClearFiltersButton";
 import MultiSelect from "@/common/components/MultiSelect";
 import {
@@ -27,7 +29,7 @@ import { employeeEffectiveStatusForDate } from "@/modules/timekeeping/hooks/useT
 import { loadTimekeepingDayTables } from "@/modules/timekeeping/data/timekeepingDayRepository";
 import { loadTimeRecordsRange } from "@/modules/timekeeping/data/timeRecordsRepository";
 import type { CompanyGroup, Employee, TimekeepingColumn, TimekeepingDayTable, TimeRecord, WorkScheduleDay } from "@/types/domain";
-import { formatDate, todayISO } from "@/utils/format";
+import { formatDate } from "@/utils/format";
 
 const absenceStatuses = new Set(["absence_confirmed"]);
 const settingsColumnKey = "__timekeeping_calculation_settings";
@@ -129,6 +131,7 @@ type HrControlFiltersCache = {
   activeView: HrView;
   startDate: string;
   endDate: string;
+  periodMode: "currentMonth" | "custom";
   analysisScope: HrAnalysisScope;
   selectedGroupId: string;
   companyIds: string[];
@@ -307,8 +310,12 @@ function toISODate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function yearStartISO(value: string) {
-  return `${value.slice(0, 4)}-01-01`;
+function localTodayISO() {
+  return toISODate(new Date());
+}
+
+function monthStartISO(value: string) {
+  return `${value.slice(0, 7)}-01`;
 }
 
 function addDays(date: Date, days: number) {
@@ -1007,12 +1014,17 @@ function MonthlyPercentChart({ rows }: { rows: MonthChartRow[] }) {
 
 export default function HrControl() {
   const data = useDomainData();
-  const today = todayISO();
-  const defaultStartDate = yearStartISO(today);
+  const today = localTodayISO();
+  const defaultStartDate = monthStartISO(today);
   const [cachedFilters] = useState(() => readHrControlFiltersCache());
+  // Existing v1 filters have no mode. Migrate their old January default to the current month.
+  const [periodMode, setPeriodMode] = useState<"currentMonth" | "custom">(() =>
+    cachedFilters.periodMode === "custom" ||
+    (cachedFilters.periodMode !== "currentMonth" && isIsoDate(cachedFilters.startDate) && cachedFilters.startDate !== `${cachedFilters.startDate.slice(0, 4)}-01-01`)
+      ? "custom" : "currentMonth");
   const [activeView, setActiveView] = useState<HrView>(() => isHrView(cachedFilters.activeView) ? cachedFilters.activeView : "general");
-  const [startDate, setStartDate] = useState(() => isIsoDate(cachedFilters.startDate) ? cachedFilters.startDate : defaultStartDate);
-  const [endDate, setEndDate] = useState(() => isIsoDate(cachedFilters.endDate) ? cachedFilters.endDate : today);
+  const [startDate, setStartDate] = useState(() => periodMode === "custom" && isIsoDate(cachedFilters.startDate) ? cachedFilters.startDate : defaultStartDate);
+  const [endDate, setEndDate] = useState(() => periodMode === "custom" && isIsoDate(cachedFilters.endDate) ? cachedFilters.endDate : today);
   const [analysisScope, setAnalysisScope] = useState<HrAnalysisScope>(() => isHrAnalysisScope(cachedFilters.analysisScope) ? cachedFilters.analysisScope : "group");
   const [selectedGroupId, setSelectedGroupId] = useState(() => String(cachedFilters.selectedGroupId || ""));
   const [companyIds, setCompanyIds] = useState<string[]>(() => asStringArray(cachedFilters.companyIds));
@@ -1033,7 +1045,93 @@ export default function HrControl() {
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [savedDayTables, setSavedDayTables] = useState<TimekeepingDayTable[]>([]);
   const [savedDaysLoading, setSavedDaysLoading] = useState(false);
+  const [dataRevision, setDataRevision] = useState(0);
+  const [startCalendarOpen, setStartCalendarOpen] = useState(false);
+  const [endCalendarOpen, setEndCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => monthStartISO(startDate || today));
+  const startCalendarRef = useRef<HTMLDivElement>(null);
+  const endCalendarRef = useRef<HTMLDivElement>(null);
   const invalidRange = Boolean(startDate && endDate && startDate > endDate);
+
+  useEffect(() => {
+    if (!startCalendarOpen) return undefined;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!startCalendarRef.current?.contains(event.target as Node)) setStartCalendarOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setStartCalendarOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [startCalendarOpen]);
+
+  useEffect(() => {
+    if (!endCalendarOpen) return undefined;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!endCalendarRef.current?.contains(event.target as Node)) setEndCalendarOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEndCalendarOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [endCalendarOpen]);
+
+  const calendarDays = useMemo(() => {
+    const first = parseLocalDate(calendarMonth);
+    const firstVisible = addDays(first, -first.getDay());
+    return Array.from({ length: 42 }, (_, index) => toISODate(addDays(firstVisible, index)));
+  }, [calendarMonth]);
+
+  useEffect(() => {
+    const onTimekeepingUpdate = () => {
+      hrRecordsRangeCache.clear();
+      hrDayTablesCache.clear();
+      setDataRevision((revision) => revision + 1);
+    };
+    window.addEventListener("timekeeping-data-updated", onTimekeepingUpdate);
+    return () => window.removeEventListener("timekeeping-data-updated", onTimekeepingUpdate);
+  }, []);
+
+  useEffect(() => {
+    const refreshIfExpired = () => {
+      if (document.visibilityState === "hidden") return;
+      const range = hrRecordsRangeCache.get(`${startDate}:${endDate}`);
+      const days = hrDayTablesCache.get(1000);
+      if ((range && !cacheIsFresh(range.cachedAt)) || (days && !cacheIsFresh(days.cachedAt))) {
+        setDataRevision((revision) => revision + 1);
+      }
+    };
+    window.addEventListener("focus", refreshIfExpired);
+    document.addEventListener("visibilitychange", refreshIfExpired);
+    return () => {
+      window.removeEventListener("focus", refreshIfExpired);
+      document.removeEventListener("visibilitychange", refreshIfExpired);
+    };
+  }, [endDate, startDate]);
+
+  useEffect(() => {
+    if (periodMode !== "currentMonth") return undefined;
+    const updateCurrentMonth = () => {
+      const current = localTodayISO();
+      setStartDate((previous) => previous === monthStartISO(current) ? previous : monthStartISO(current));
+      setEndDate((previous) => previous === current ? previous : current);
+    };
+    window.addEventListener("focus", updateCurrentMonth);
+    document.addEventListener("visibilitychange", updateCurrentMonth);
+    return () => {
+      window.removeEventListener("focus", updateCurrentMonth);
+      document.removeEventListener("visibilitychange", updateCurrentMonth);
+    };
+  }, [periodMode]);
 
   const teamById = useMemo(
     () => new Map(data.teams.map((team) => [team.id, team])),
@@ -1291,7 +1389,7 @@ export default function HrControl() {
     weekKey !== "all" ||
     absenceTypeFilters.length ||
     cidCategoryFilters.length ||
-    startDate !== yearStartISO(today) ||
+    startDate !== monthStartISO(today) ||
     endDate !== today,
   );
 
@@ -1361,6 +1459,7 @@ export default function HrControl() {
       activeView,
       startDate,
       endDate,
+      periodMode,
       analysisScope,
       selectedGroupId,
       companyIds,
@@ -1389,6 +1488,7 @@ export default function HrControl() {
     endDate,
     functionKeys,
     monitoringPage,
+    periodMode,
     sectorIds,
     selectedCidLabel,
     selectedGroupId,
@@ -1429,7 +1529,7 @@ export default function HrControl() {
     return () => {
       active = false;
     };
-  }, [endDate, invalidRange, startDate]);
+  }, [dataRevision, endDate, invalidRange, startDate]);
 
   useEffect(() => {
     if (invalidRange) {
@@ -1462,7 +1562,7 @@ export default function HrControl() {
     return () => {
       active = false;
     };
-  }, [invalidRange]);
+  }, [dataRevision, invalidRange]);
 
   const baseFilteredRecords = useMemo(
     () =>
@@ -2032,10 +2132,44 @@ export default function HrControl() {
     setWeekKey("all");
     setAbsenceTypeFilters([]);
     setCidCategoryFilters([]);
-    setStartDate(yearStartISO(today));
+    setPeriodMode("currentMonth");
+    setStartDate(monthStartISO(today));
     setEndDate(today);
     setMonitoringPage(1);
     setMonitoringRiskFilter("all");
+  }
+
+  function selectPeriod(period: "currentMonth" | "previousMonth" | "currentWeek") {
+    const current = parseLocalDate(localTodayISO());
+    const currentISO = toISODate(current);
+    if (period === "currentMonth") {
+      setPeriodMode("currentMonth");
+      setStartDate(monthStartISO(currentISO));
+      setEndDate(currentISO);
+    } else if (period === "previousMonth") {
+      setPeriodMode("custom");
+      setStartDate(toISODate(new Date(current.getFullYear(), current.getMonth() - 1, 1)));
+      setEndDate(toISODate(new Date(current.getFullYear(), current.getMonth(), 0)));
+    } else {
+      setPeriodMode("custom");
+      setStartDate(weekStartISO(currentISO));
+      setEndDate(currentISO);
+    }
+    setWeekKey("all");
+    setMonitoringPage(1);
+  }
+
+  function selectEndPeriod(period: "currentMonth" | "previousMonth" | "currentWeek") {
+    const current = parseLocalDate(localTodayISO());
+    const currentISO = toISODate(current);
+    const nextEnd = period === "previousMonth"
+      ? toISODate(new Date(current.getFullYear(), current.getMonth(), 0))
+      : currentISO;
+    setPeriodMode(period === "currentMonth" && startDate === monthStartISO(currentISO) ? "currentMonth" : "custom");
+    setEndDate(nextEnd);
+    setWeekKey("all");
+    setMonitoringPage(1);
+    setEndCalendarOpen(false);
   }
 
   const periodText = `${formatDate(startDate)} até ${formatDate(endDate)}`;
@@ -2126,14 +2260,101 @@ export default function HrControl() {
 
       <div className="filters-panel hr-control-filters">
         <Search size={18} />
-        <label className="field">
-          Data inicial
-          <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-        </label>
-        <label className="field">
-          Data final
-          <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
-        </label>
+        <div className="hr-date-picker" ref={startCalendarRef}>
+          <span className="hr-date-label" id="hr-start-date-label">Data inicial</span>
+          <button
+            className="hr-date-trigger"
+            type="button"
+            aria-labelledby="hr-start-date-label"
+            aria-expanded={startCalendarOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setCalendarMonth(monthStartISO(startDate || localTodayISO()));
+              setEndCalendarOpen(false);
+              setStartCalendarOpen((open) => !open);
+            }}
+          >
+            <span>{startDate ? formatDate(startDate) : "Selecione a data"}</span>
+            <CalendarDays size={16} />
+          </button>
+          {startCalendarOpen && (
+            <div className="hr-calendar-popover" role="dialog" aria-label="Selecionar data inicial">
+              <div className="hr-calendar-header">
+                <button type="button" aria-label="Mês anterior" onClick={() => setCalendarMonth(toISODate(new Date(parseLocalDate(calendarMonth).getFullYear(), parseLocalDate(calendarMonth).getMonth() - 1, 1)))}><ChevronLeft size={18} /></button>
+                <strong>{parseLocalDate(calendarMonth).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</strong>
+                <button type="button" aria-label="Próximo mês" onClick={() => setCalendarMonth(toISODate(new Date(parseLocalDate(calendarMonth).getFullYear(), parseLocalDate(calendarMonth).getMonth() + 1, 1)))}><ChevronRight size={18} /></button>
+              </div>
+              <div className="hr-calendar-grid" role="grid" aria-label="Dias do mês">
+                {["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => <span key={index} className="hr-calendar-weekday">{day}</span>)}
+                {calendarDays.map((day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    className={`${day.slice(0, 7) !== calendarMonth.slice(0, 7) ? "is-outside" : ""} ${day === startDate ? "is-selected" : ""}`}
+                    aria-label={formatDate(day)}
+                    aria-pressed={day === startDate}
+                    onClick={() => { setPeriodMode("custom"); setStartDate(day); setStartCalendarOpen(false); }}
+                  >{Number(day.slice(-2))}</button>
+                ))}
+              </div>
+              <div className="hr-calendar-actions" aria-label="Atalhos de data inicial">
+                <button type="button" onClick={() => { setPeriodMode("custom"); setStartDate(""); setStartCalendarOpen(false); }}>Limpar</button>
+                <button type="button" onClick={() => { const current = localTodayISO(); setPeriodMode("custom"); setStartDate(current); setEndDate(current); setStartCalendarOpen(false); }}>Hoje</button>
+                <button type="button" onClick={() => { selectPeriod("currentMonth"); setStartCalendarOpen(false); }}>Este Mês</button>
+                <button type="button" onClick={() => { selectPeriod("previousMonth"); setStartCalendarOpen(false); }}>Mês passado</button>
+                <button type="button" onClick={() => { selectPeriod("currentWeek"); setStartCalendarOpen(false); }}>Esta semana</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="hr-date-picker" ref={endCalendarRef}>
+          <span className="hr-date-label" id="hr-end-date-label">Data final</span>
+          <button
+            className="hr-date-trigger"
+            type="button"
+            aria-labelledby="hr-end-date-label"
+            aria-expanded={endCalendarOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setCalendarMonth(monthStartISO(endDate || localTodayISO()));
+              setStartCalendarOpen(false);
+              setEndCalendarOpen((open) => !open);
+            }}
+          >
+            <span>{endDate ? formatDate(endDate) : "Selecione a data"}</span>
+            <CalendarDays size={16} />
+          </button>
+          {endCalendarOpen && (
+            <div className="hr-calendar-popover" role="dialog" aria-label="Selecionar data final">
+              <div className="hr-calendar-header">
+                <button type="button" aria-label="Mês anterior" onClick={() => setCalendarMonth(toISODate(new Date(parseLocalDate(calendarMonth).getFullYear(), parseLocalDate(calendarMonth).getMonth() - 1, 1)))}><ChevronLeft size={18} /></button>
+                <strong>{parseLocalDate(calendarMonth).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</strong>
+                <button type="button" aria-label="Próximo mês" disabled={calendarMonth >= monthStartISO(localTodayISO())} onClick={() => setCalendarMonth(toISODate(new Date(parseLocalDate(calendarMonth).getFullYear(), parseLocalDate(calendarMonth).getMonth() + 1, 1)))}><ChevronRight size={18} /></button>
+              </div>
+              <div className="hr-calendar-grid" role="grid" aria-label="Dias do mês">
+                {["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => <span key={index} className="hr-calendar-weekday">{day}</span>)}
+                {calendarDays.map((day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    className={`${day.slice(0, 7) !== calendarMonth.slice(0, 7) ? "is-outside" : ""} ${day === endDate ? "is-selected" : ""}`}
+                    aria-label={formatDate(day)}
+                    aria-pressed={day === endDate}
+                    disabled={day > localTodayISO()}
+                    onClick={() => { setPeriodMode("custom"); setEndDate(day); setEndCalendarOpen(false); }}
+                  >{Number(day.slice(-2))}</button>
+                ))}
+              </div>
+              <div className="hr-calendar-actions" aria-label="Atalhos de data final">
+                <button type="button" onClick={() => { setPeriodMode("custom"); setEndDate(""); setEndCalendarOpen(false); }}>Limpar</button>
+                <button type="button" onClick={() => { setPeriodMode("custom"); setEndDate(localTodayISO()); setEndCalendarOpen(false); }}>Hoje</button>
+                <button type="button" onClick={() => selectEndPeriod("currentMonth")}>Este Mês</button>
+                <button type="button" onClick={() => selectEndPeriod("previousMonth")}>Mês passado</button>
+                <button type="button" onClick={() => selectEndPeriod("currentWeek")}>Esta semana</button>
+              </div>
+            </div>
+          )}
+        </div>
         <label className="field">
           Semana
           <select value={weekKey} onChange={(event) => setWeekKey(event.target.value)}>

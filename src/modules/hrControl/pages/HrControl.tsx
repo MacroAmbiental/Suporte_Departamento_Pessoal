@@ -992,11 +992,17 @@ function MonthlyPercentChart({ rows }: { rows: MonthChartRow[] }) {
 export default function HrControl() {
   const data = useDomainData();
   const today = todayISO();
-  const defaultStartDate = yearStartISO(today);
+  const defaultStartDate = today;
   const [cachedFilters] = useState(() => readHrControlFiltersCache());
+  const legacyDefaultStartDate = yearStartISO(today);
+  const cachedStartDate = isIsoDate(cachedFilters.startDate) ? cachedFilters.startDate : "";
+  const cachedEndDate = isIsoDate(cachedFilters.endDate) ? cachedFilters.endDate : "";
+  const hasLegacyDefaultRange = cachedStartDate === legacyDefaultStartDate && cachedEndDate === today;
+  const initialStartDate = hasLegacyDefaultRange ? today : cachedStartDate || defaultStartDate;
+  const initialEndDate = hasLegacyDefaultRange ? today : cachedEndDate || today;
   const [activeView, setActiveView] = useState<HrView>(() => isHrView(cachedFilters.activeView) ? cachedFilters.activeView : "general");
-  const [startDate, setStartDate] = useState(() => isIsoDate(cachedFilters.startDate) ? cachedFilters.startDate : defaultStartDate);
-  const [endDate, setEndDate] = useState(() => isIsoDate(cachedFilters.endDate) ? cachedFilters.endDate : today);
+  const [startDate, setStartDate] = useState(() => initialStartDate);
+  const [endDate, setEndDate] = useState(() => initialEndDate);
   const [analysisScope, setAnalysisScope] = useState<HrAnalysisScope>(() => isHrAnalysisScope(cachedFilters.analysisScope) ? cachedFilters.analysisScope : "group");
   const [selectedGroupId, setSelectedGroupId] = useState(() => String(cachedFilters.selectedGroupId || ""));
   const [companyIds, setCompanyIds] = useState<string[]>(() => asStringArray(cachedFilters.companyIds));
@@ -1275,7 +1281,7 @@ export default function HrControl() {
     weekKey !== "all" ||
     absenceTypeFilters.length ||
     cidCategoryFilters.length ||
-    startDate !== yearStartISO(today) ||
+    startDate !== today ||
     endDate !== today,
   );
 
@@ -2016,7 +2022,7 @@ export default function HrControl() {
     setWeekKey("all");
     setAbsenceTypeFilters([]);
     setCidCategoryFilters([]);
-    setStartDate(yearStartISO(today));
+    setStartDate(today);
     setEndDate(today);
     setMonitoringPage(1);
     setMonitoringRiskFilter("all");
