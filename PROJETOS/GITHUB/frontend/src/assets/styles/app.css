@@ -7135,3 +7135,28 @@ button:disabled:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Controle RH: card configuration */
+.hr-metric-card.is-customizable { position: relative; cursor: pointer; transition: box-shadow .16s, transform .16s; }
+.hr-metric-card.is-customizable:hover, .hr-metric-card.is-customizable:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(31, 149, 237, .15); transform: translateY(-1px); }
+.hr-metric-card .hr-card-settings-icon { position: absolute; right: 12px; top: 11px; grid-row: auto; opacity: .6; }
+.hr-card-modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 18px; background: rgba(12, 31, 51, .58); }
+.hr-card-modal { position: relative; width: min(530px, 100%); max-height: min(86vh, 760px); overflow-y: auto; padding: 28px; border-radius: 14px; background: #fff; box-shadow: 0 24px 65px rgba(10, 29, 48, .27); color: #142844; }
+.hr-card-modal h2 { margin: 0 32px 5px 0; font-size: 21px; }
+.hr-card-modal > p { margin: 0 0 18px; color: #526782; }
+.hr-card-modal-close { position: absolute; right: 19px; top: 19px; border: 0; background: none; cursor: pointer; color: #344b69; }
+.hr-card-modal-sections { display: grid; gap: 10px; border-block: 1px solid #d8e3ee; padding: 15px 0; }
+.hr-card-choice-group { border: 1px solid #dbe6f1; border-radius: 9px; }
+.hr-card-choice-group summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 14px; font-weight: 700; cursor: pointer; }
+.hr-card-choice-group summary span { color: #667c91; font-size: 12px; font-weight: 500; }
+.hr-card-choice-list { display: grid; gap: 9px; max-height: 220px; overflow-y: auto; padding: 12px 14px 15px; border-top: 1px solid #e6eef5; }
+.hr-card-choice-list label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.35; }
+.hr-card-choice-list input { width: 17px; height: 17px; flex: none; accent-color: #1554d0; }
+.hr-card-modal-preview { display: flex; flex-wrap: wrap; gap: 8px; padding: 13px; margin: 13px 0; border-radius: 9px; background: #eaf5ff; color: #16406a; }
+.hr-card-modal-error { color: #a2212a !important; margin: 8px 0 !important; }
+.hr-card-modal-actions { display: flex; flex-wrap: wrap; gap: 9px; justify-content: flex-end; margin-top: 17px; }
+.hr-card-modal-actions button { padding: 10px 14px; border: 1px solid #bfd3eb; border-radius: 8px; background: #fff; color: #124787; font: inherit; font-weight: 700; cursor: pointer; }
+.hr-card-modal-actions button:disabled { opacity: .6; cursor: wait; }
+.hr-card-modal-actions .hr-card-default-button { margin-right: auto; }
+.hr-card-modal-actions .hr-card-apply-button { border-color: #1554d0; background: #1554d0; color: #fff; }
+.hr-card-modal small { display: block; margin-top: 14px; color: #667c91; line-height: 1.4; }

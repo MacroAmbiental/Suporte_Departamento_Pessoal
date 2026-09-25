@@ -8,11 +8,15 @@ import {
   Clock,
   DollarSign,
   FileText,
+  Settings2,
+  X,
   HeartPulse,
   Search,
   Stethoscope,
   Users,
 } from "lucide-react";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { firestore } from "@/services/firebase";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import ClearFiltersButton from "@/common/components/ClearFiltersButton";
 import MultiSelect from "@/common/components/MultiSelect";
@@ -51,10 +55,86 @@ const absenceTypeColors = {
   confirmed: "#d94f5c",
 } as const;
 const cidPieColors = ["#1f95ed", "#099164", "#ec6b35", "#7d5ab6", "#d94f5c", "#16899a", "#d59a22", "#718497"];
-const manualStatusSelectedField = "__manual_status_selected";
 const hrControlFiltersStorageKey = "hr-control-filters-v1";
 const hrControlDataCacheTtlMs = 5 * 60 * 1000;
 const monitoringPageSize = 10;
+// Card preferences stay in component state. Only the explicit shared default is persisted.
+type CardId = "employees" | "absences" | "certificates" | "combined" | "dayOffs" | "planned" | "absenteeism" | "loss";
+type CardPreferences = {
+  kinds: string[];
+  statuses: string[];
+  types: string[];
+  leaveReasons: string[];
+  licenses: string[];
+  dayOffDays: string[];
+};
+type CardSettings = Record<CardId, CardPreferences>;
+const cardIds: CardId[] = ["employees", "absences", "certificates", "combined", "dayOffs", "planned", "absenteeism", "loss"];
+const leaveReasons = [
+  "Incapacidade Temporária", "Incapacidade Temporária acidentário", "Afastamento por invalidez",
+];
+const licenseReasons = [
+  "Licença-maternidade", "Licença-paternidade", "Licença-gala (casamento)", "Licença-luto (nojo)",
+  "Licença para doação de sangue", "Licença para alistamento eleitoral", "Licença para serviço militar",
+  "Licença para convocação judicial (jurado / mesário)", "Licença para acompanhamento médico de filho (até 6 anos)",
+  "Licença para acompanhamento médico de esposa/companheira gestante",
+  "Licença para realização de exames preventivos de câncer",
+  "Licença por incapacidade temporária (doença ou acidente de trabalho - primeiros 15 dias)",
+  "Licença por aborto não criminoso",
+];
+const absenceLabels: Record<string, string> = {
+  leave: "Afastado", certificate: "Atestado", confirmed: "Falta", vacation: "Férias", dayOff: "Folga", license: "Licença",
+};
+const weekdayOptions = [
+  { value: "1", label: "Segunda-feira" }, { value: "2", label: "Terça-feira" },
+  { value: "3", label: "Quarta-feira" }, { value: "4", label: "Quinta-feira" },
+  { value: "5", label: "Sexta-feira" }, { value: "6", label: "Sábado" },
+  { value: "0", label: "Domingo" },
+];
+const defaultCardSettings: CardSettings = Object.fromEntries(cardIds.map((id) => [id, {
+  kinds: ["contract", "company", "diarist"], statuses: ["active", "leave", "terminated"],
+  types: id === "absences" ? ["confirmed"] : id === "certificates" ? ["certificate"]
+    : id === "dayOffs" ? ["dayOff"] : ["confirmed", "certificate"],
+  leaveReasons: [...leaveReasons, "Não especificado"], licenses: [...licenseReasons, "Não especificado"],
+  dayOffDays: ["1", "2", "3", "4", "5"],
+}])) as CardSettings;
+function sanitizeCardSettings(value: unknown): CardSettings {
+  const source = value && typeof value === "object" ? value as Partial<CardSettings> : {};
+  return Object.fromEntries(cardIds.map((id) => {
+    const item = source[id];
+    const defaults = defaultCardSettings[id];
+    return [id, Object.fromEntries((Object.keys(defaults) as Array<keyof CardPreferences>).map((key) => [
+      key, Array.isArray(item?.[key]) ? item[key].filter((entry): entry is string => typeof entry === "string") : [...defaults[key]],
+    ]))];
+  })) as CardSettings;
+}
+function recordSubtype(record: TimeRecord) {
+  const fields = record.customFields || {};
+  return String(fields.absenceSubtype || fields.leaveType || fields.licenseType || fields.absenceReason || fields.reason || "").trim();
+}
+function cardRecordType(record: TimeRecord): string | null {
+  if (record.status === "medical_certificate") return "certificate";
+  if (record.status === "absence_confirmed") return "confirmed";
+  if (record.status === "vacation") return "vacation";
+  if (record.status === "day_off") return "dayOff";
+  if (record.status === "leave") {
+    const detail = recordSubtype(record).toLocaleLowerCase("pt-BR");
+    return detail.includes("licen") ? "license" : "leave";
+  }
+  return null;
+}
+function matchesCardRecord(record: TimeRecord, settings: CardPreferences) {
+  const type = cardRecordType(record);
+  if (!type || !settings.types.includes(type)) return false;
+  if (type === "dayOff" && !settings.dayOffDays.includes(String(parseLocalDate(record.date).getDay()))) return false;
+  if (type === "leave" || type === "license") {
+    const subtype = recordSubtype(record);
+    const choices = type === "leave" ? settings.leaveReasons : settings.licenses;
+    return choices.includes(subtype || "Não especificado");
+  }
+  return true;
+}
+
 
 type HrView = "general" | "overtime" | "absenceTypes" | "absenceMonitoring" | "cids";
 type HrAnalysisScope = "group" | "company";
@@ -341,10 +421,7 @@ function weekStartISO(value: string) {
   return toISODate(date);
 }
 
-function isWeekendISODate(value: string) {
-  const weekday = parseLocalDate(value).getDay();
-  return weekday === 0 || weekday === 6;
-}
+
 
 function dateToWeekdayIndex(value: string) {
   return parseLocalDate(value).getDay();
@@ -571,15 +648,6 @@ function overtimeHours(record: TimeRecord) {
 
 function isAbsenceRecord(record: TimeRecord) {
   return absenceStatuses.has(record.status);
-}
-
-function isPointDayOffRecord(record: TimeRecord) {
-  const statusLabel = normalizeSearch(String(record.customFields?.statusLabel || ""));
-  const isDayOffStatus = record.status === "day_off" || statusLabel === "folga";
-  if (!isDayOffStatus) return false;
-  if (record.customFields?.[manualStatusSelectedField] === "true") return true;
-
-  return !isWeekendISODate(record.date);
 }
 
 function classifyAbsence(record: TimeRecord): ClassifiedAbsence | null {
@@ -1012,6 +1080,20 @@ function MonthlyPercentChart({ rows }: { rows: MonthChartRow[] }) {
   );
 }
 
+function CardChoices({ title, field, value, onChange, options }: {
+  title: string; field: keyof CardPreferences; value: CardPreferences;
+  onChange: (next: CardPreferences) => void; options: Array<{ value: string; label: string }>;
+}) {
+  return <details className="hr-card-choice-group">
+    <summary>{title}<span>{value[field].length} selecionado(s)</span></summary>
+    <div className="hr-card-choice-list">{options.map((option) =>
+      <label key={option.value}><input type="checkbox" checked={value[field].includes(option.value)} onChange={() =>
+        onChange({ ...value, [field]: value[field].includes(option.value) ? value[field].filter((item) => item !== option.value) : [...value[field], option.value] })
+      } />{option.label}</label>
+    )}</div>
+  </details>;
+}
+
 export default function HrControl() {
   const data = useDomainData();
   const today = localTodayISO();
@@ -1041,6 +1123,23 @@ export default function HrControl() {
   const [selectedCidLabel, setSelectedCidLabel] = useState(() => String(cachedFilters.selectedCidLabel || ""));
   const [monitoringPage, setMonitoringPage] = useState<number>(() => Math.max(1, Number(cachedFilters.monitoringPage) || 1));
   const [monitoringRiskFilter, setMonitoringRiskFilter] = useState<MonitoringRiskFilter>("all");
+  const [sharedCardSettings, setSharedCardSettings] = useState<CardSettings>(() => sanitizeCardSettings(null));
+  const [cardSettings, setCardSettings] = useState<CardSettings>(() => sanitizeCardSettings(null));
+  const [editingCard, setEditingCard] = useState<CardId | null>(null);
+  const [draftCard, setDraftCard] = useState<CardPreferences | null>(null);
+  const [savingShared, setSavingShared] = useState(false);
+  const [sharedMessage, setSharedMessage] = useState("");
+  const sharedLoaded = useRef(false);
+  useEffect(() => {
+    if (!firestore) return undefined;
+    return onSnapshot(doc(firestore, "hrControlSettings", "sharedCards"), (snapshot) => {
+      const next = sanitizeCardSettings(snapshot.data()?.cards);
+      setSharedCardSettings(next);
+      // Do not replace a temporary view when another user edits the shared default.
+      if (!sharedLoaded.current) { setCardSettings(next); sharedLoaded.current = true; }
+    }, (error) => { console.warn("Não foi possível carregar a visualização padrão.", error); });
+  }, []);
+
   const [records, setRecords] = useState<TimeRecord[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [savedDayTables, setSavedDayTables] = useState<TimekeepingDayTable[]>([]);
@@ -1789,49 +1888,6 @@ export default function HrControl() {
     setMonitoringPage(1);
   }
 
-  const metrics = useMemo(() => {
-    let absences = 0;
-    let certificates = 0;
-    let dayOffs = 0;
-    let loss = 0;
-
-    baseFilteredRecords.forEach((record) => {
-      const employee = employeeById.get(record.employeeId);
-      const classification = classifyAbsence(record);
-
-      if (classification?.type === "certificate") {
-        certificates += 1;
-        loss += absenceLossValue(record, employee);
-        return;
-      }
-
-      if (classification) {
-        if (classification.type === "confirmed" && absenteeismExcludedAbsenceKeys.has(`${record.employeeId}:${record.date}`)) return;
-        absences += 1;
-        loss += absenceLossValue(record, employee);
-        return;
-      }
-
-      if (isPointDayOffRecord(record)) dayOffs += 1;
-    });
-
-    const totalAbsencesAndCertificates = absences + certificates;
-    const plannedDays = expectedWorkDays.total;
-    const savedUsefulDays = expectedWorkDays.savedUsefulDateCount;
-
-    return {
-      employees: baseEmployees.length,
-      absences,
-      certificates,
-      absencesAndCertificates: totalAbsencesAndCertificates,
-      dayOffs,
-      workedDays: plannedDays,
-      savedUsefulDays,
-      absenteeism: plannedDays ? (totalAbsencesAndCertificates / plannedDays) * 100 : 0,
-      loss,
-    };
-  }, [absenteeismExcludedAbsenceKeys, baseEmployees.length, baseFilteredRecords, employeeById, expectedWorkDays]);
-
   const overtimeByTeam = useMemo<ChartRow[]>(() => {
     const totals = new Map<string, number>();
 
@@ -2107,16 +2163,74 @@ export default function HrControl() {
     return sortOptions(Array.from(categories).map((category) => ({ value: category, label: category })));
   }, [baseFilteredRecords]);
 
-  const metricCards = [
-    { label: "Total de Funcionários", value: formatCompact(metrics.employees), icon: Users, tone: "blue" },
-    { label: "Total de Faltas", value: formatCompact(metrics.absences), icon: FileText, tone: "red" },
-    { label: "Total de Atestados", value: formatCompact(metrics.certificates), icon: Stethoscope, tone: "green" },
-    { label: "Faltas + Atestados", value: formatCompact(metrics.absencesAndCertificates), icon: HeartPulse, tone: "yellow" },
-    { label: "Folgas", value: formatCompact(metrics.dayOffs), icon: CalendarDays, tone: "gray" },
-    { label: "Dias Previstos", value: formatCompact(metrics.workedDays), icon: Clock, tone: "teal" },
-    { label: "% Absenteísmo", value: formatPercent(metrics.absenteeism), icon: ChartPie, tone: "purple" },
-    { label: "Perda $", value: formatCurrencyCompact(metrics.loss), icon: DollarSign, tone: "blue" },
+  const cardMetrics = (() => {
+    const countEmployees = (settings: CardPreferences) => baseEmployees.filter((employee) =>
+      settings.kinds.includes(employee.registrationData?.employeeKind || "contract") &&
+      settings.statuses.includes(employeeEffectiveStatusForDate(employee, endDate)),
+    ).length;
+    const countRecords = (settings: CardPreferences) => baseFilteredRecords.filter((record) =>
+      matchesCardRecord(record, settings) &&
+      !(record.status === "absence_confirmed" && absenteeismExcludedAbsenceKeys.has(`${record.employeeId}:${record.date}`)),
+    ).length;
+    const selectedPlanned = baseEmployees.reduce((sum, employee) => {
+      if (!cardSettings.planned.kinds.includes(employee.registrationData?.employeeKind || "contract") ||
+          !cardSettings.planned.statuses.includes(employeeEffectiveStatusForDate(employee, endDate))) return sum;
+      return sum + activeDates.filter((date) => {
+        if (employee.admissionDate && employee.admissionDate > date) return false;
+        if (!isUsefulSavedWorkday(employee, date, timekeepingSettingsByCompanyId)) return false;
+        const record = recordByEmployeeDate.get(`${employee.id}:${date}`);
+        return !selectedTeamIds.size || selectedTeamIds.has(record ? recordDayTeamId(record, employee) : employee.teamId || "");
+      }).length;
+    }, 0);
+    const selectedLoss = baseFilteredRecords.reduce((sum, record) =>
+      matchesCardRecord(record, cardSettings.loss) ? sum + absenceLossValue(record, employeeById.get(record.employeeId)) : sum, 0);
+    const selectedAbsences = countRecords(cardSettings.absenteeism);
+    return {
+      employees: countEmployees(cardSettings.employees), absences: countRecords(cardSettings.absences),
+      certificates: countRecords(cardSettings.certificates), combined: countRecords(cardSettings.combined),
+      dayOffs: countRecords(cardSettings.dayOffs),
+      planned: selectedPlanned, absenteeism: expectedWorkDays.total ? selectedAbsences / expectedWorkDays.total * 100 : 0,
+      loss: selectedLoss,
+    };
+  })();
+  const metricCards: Array<{ id: CardId; label: string; value: string; icon: typeof Users; tone: string }> = [
+    { id: "employees", label: "Total de Funcionários", value: formatCompact(cardMetrics.employees), icon: Users, tone: "blue" },
+    { id: "absences", label: "Total de Faltas", value: formatCompact(cardMetrics.absences), icon: FileText, tone: "red" },
+    { id: "certificates", label: "Total de Atestados", value: formatCompact(cardMetrics.certificates), icon: Stethoscope, tone: "green" },
+    { id: "combined", label: "Faltas + Atestados", value: formatCompact(cardMetrics.combined), icon: HeartPulse, tone: "yellow" },
+    { id: "dayOffs", label: "Folgas", value: formatCompact(cardMetrics.dayOffs), icon: CalendarDays, tone: "gray" },
+    { id: "planned", label: "Dias Previstos", value: formatCompact(cardMetrics.planned), icon: Clock, tone: "teal" },
+    { id: "absenteeism", label: "% Absenteísmo", value: formatPercent(cardMetrics.absenteeism), icon: ChartPie, tone: "purple" },
+    { id: "loss", label: "Perda $", value: formatCurrencyCompact(cardMetrics.loss), icon: DollarSign, tone: "blue" },
   ];
+  const selectedMetric = metricCards.find((card) => card.id === editingCard);
+  function openCardSettings(id: CardId) {
+    setDraftCard({ ...cardSettings[id], kinds: [...cardSettings[id].kinds], statuses: [...cardSettings[id].statuses],
+      types: [...cardSettings[id].types], leaveReasons: [...cardSettings[id].leaveReasons],
+      licenses: [...cardSettings[id].licenses], dayOffDays: [...cardSettings[id].dayOffDays] });
+    setEditingCard(id);
+    setSharedMessage("");
+  }
+  function applyCardSettings() {
+    if (!editingCard || !draftCard) return;
+    setCardSettings((previous) => ({ ...previous, [editingCard]: draftCard }));
+    setEditingCard(null);
+  }
+  async function saveSharedCardSettings() {
+    if (!editingCard || !draftCard || !firestore) { setSharedMessage("Conexão indisponível para salvar o padrão."); return; }
+    const next = { ...sharedCardSettings, [editingCard]: draftCard };
+    setSavingShared(true);
+    setSharedMessage("");
+    try {
+      await setDoc(doc(firestore, "hrControlSettings", "sharedCards"), { cards: { [editingCard]: draftCard }, updatedAt: new Date().toISOString() }, { merge: true });
+      setSharedCardSettings(next);
+      setCardSettings((previous) => ({ ...previous, [editingCard]: draftCard }));
+      setEditingCard(null);
+    } catch (error) {
+      console.error("Falha ao salvar visualização padrão.", error);
+      setSharedMessage("Não foi possível salvar para todos. Verifique a permissão da coleção hrControlSettings.");
+    } finally { setSavingShared(false); }
+  }
 
   function clearFilters() {
     setAnalysisScope("group");
@@ -2448,16 +2562,55 @@ export default function HrControl() {
         </div>
       ) : null}
 
+      {editingCard && draftCard && selectedMetric ? (
+        <div className="hr-card-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingCard(null); }}>
+          <section className="hr-card-modal" role="dialog" aria-modal="true" aria-labelledby="hr-card-modal-title" onKeyDown={(event) => { if (event.key === "Escape") setEditingCard(null); }}>
+            <button className="hr-card-modal-close" type="button" aria-label="Fechar" onClick={() => setEditingCard(null)}><X size={20} /></button>
+            <h2 id="hr-card-modal-title">Personalizar: {selectedMetric.label.toLocaleLowerCase("pt-BR")}</h2>
+            <p>Escolha quais registros entram neste indicador.</p>
+            <div className="hr-card-modal-sections">
+              {(editingCard === "employees" || editingCard === "planned") ? <>
+                <CardChoices title="Tipo de vínculo" field="kinds" value={draftCard} onChange={setDraftCard} options={[
+                  { value: "contract", label: "CLT · contrato" }, { value: "company", label: "CLT · empresa" },
+                  { value: "diarist", label: "Diaristas" },
+                ]} />
+                <CardChoices title="Situação" field="statuses" value={draftCard} onChange={setDraftCard} options={[
+                  { value: "active", label: "Ativos" }, { value: "leave", label: "Afastados" },
+                  { value: "terminated", label: "Desligados" },
+                ]} />
+              </> : <>
+                <CardChoices title="Tipos de falta" field="types" value={draftCard} onChange={setDraftCard}
+                  options={Object.entries(absenceLabels).map(([value, label]) => ({ value, label }))} />
+                {draftCard.types.includes("leave") ? <CardChoices title="Afastado · motivo" field="leaveReasons" value={draftCard} onChange={setDraftCard}
+                  options={[...leaveReasons, "Não especificado"].map((label) => ({ value: label, label }))} /> : null}
+                {draftCard.types.includes("license") ? <CardChoices title="Licença · modalidade" field="licenses" value={draftCard} onChange={setDraftCard}
+                  options={[...licenseReasons, "Não especificado"].map((label) => ({ value: label, label }))} /> : null}
+                {draftCard.types.includes("dayOff") ? <CardChoices title="Folga · dias da semana" field="dayOffDays" value={draftCard} onChange={setDraftCard} options={weekdayOptions} /> : null}
+              </>}
+            </div>
+            <div className="hr-card-modal-preview">{editingCard === "employees" ? "Funcionários selecionados" : "Critérios selecionados"}: <strong>{editingCard === "employees" ? `${draftCard.kinds.length} vínculo(s) · ${draftCard.statuses.length} situação(ões)` : `${draftCard.types.map((type) => absenceLabels[type]).join(" + ") || "Nenhum tipo"}`}</strong></div>
+            {sharedMessage ? <p className="hr-card-modal-error" role="alert">{sharedMessage}</p> : null}
+            <div className="hr-card-modal-actions">
+              <button type="button" className="hr-card-default-button" disabled={savingShared} onClick={saveSharedCardSettings}>Visualização Padrão</button>
+              <button type="button" onClick={() => setEditingCard(null)}>Cancelar</button>
+              <button type="button" className="hr-card-apply-button" onClick={applyCardSettings}>Aplicar filtros</button>
+            </div>
+            <small>Aplicar filtros dura até sair do Controle RH. Visualização Padrão salva esta configuração para todos.</small>
+          </section>
+        </div>
+      ) : null}
+
       {activeView === "general" ? (
         <>
           <div className="hr-metric-grid" aria-label="Resumo de Controle RH">
             {metricCards.map((metric) => {
               const Icon = metric.icon;
               return (
-                <article className={`hr-metric-card is-${metric.tone}`} key={metric.label}>
+                <article className={`hr-metric-card is-${metric.tone} is-customizable`} key={metric.id} onDoubleClick={() => openCardSettings(metric.id)} title="Dê dois cliques para personalizar" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter") openCardSettings(metric.id); }}>
                   <Icon size={20} />
                   <span>{metric.label}</span>
                   <strong>{metric.value}</strong>
+                  <Settings2 className="hr-card-settings-icon" size={16} aria-label="Personalizar" />
                 </article>
               );
             })}
