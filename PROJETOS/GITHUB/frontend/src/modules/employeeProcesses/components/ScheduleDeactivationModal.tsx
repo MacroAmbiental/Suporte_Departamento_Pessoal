@@ -360,7 +360,7 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
               const locked = contractBlocked || (value === "quick" ? quickModeLocked : value === "suspension" || (contractEmployee && value === "contract_end") ? false : cltModesLockedDuringExperience);
               return <label key={value} className={`deactivation-option${mode === value ? " is-selected" : ""}${value === "quick" ? " is-quick" : ""}${value === "suspension" ? " is-suspension" : ""}${locked ? " is-locked" : ""}`} aria-disabled={locked}>
                 <input type="radio" name="termination-mode" value={value} checked={mode === value} required disabled={locked} onChange={() => { if (locked) return; setMode(value); setVariant(""); setInitiative(""); setRiskConfirmed(false); setError(""); }} />
-                <Icon size={21} /><span><strong>{label}</strong><small>{detail.description}</small>{contractBlocked && <small className="deactivation-option-lock-note">Bloqueado para funcionário de contrato.</small>}{locked && value === "quick" && cltModeUnlocked && <small className="deactivation-option-lock-note">Bloqueado para desligamentos após a experiência.</small>}</span>
+                <Icon size={21} /><span><strong>{label}</strong><small>{detail.description}</small>{contractBlocked && <small className="deactivation-option-lock-note">Bloqueado para Funcionário - Contrato.</small>}{locked && value === "quick" && cltModeUnlocked && <small className="deactivation-option-lock-note">Bloqueado para desligamentos após a experiência.</small>}</span>
               </label>;
             })}
           </div>

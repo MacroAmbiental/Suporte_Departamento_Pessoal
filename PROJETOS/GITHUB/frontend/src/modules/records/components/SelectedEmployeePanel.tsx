@@ -1,4 +1,5 @@
 import { Bell, BellOff, Plus } from "lucide-react";
+import { employeeKindOf, employeeKindLabels } from "@/common/utils/employeeKind";
 import { employeeProcessModalityLabel } from "@/modules/employeeProcesses/utils/experience";
 import { useRecordsContext } from "@/modules/records/context/RecordsContext";
 import { isDismissalArchivedEmployee, isDismissalInProgressEmployee } from "@/modules/records/hooks/useSelectedEmployeeDocuments";
@@ -19,12 +20,7 @@ export default function SelectedEmployeePanel() {
     selectedEmployee,
   } = useRecordsContext();
 
-  const contractTypeLabel = (() => {
-    const kind = selectedEmployee?.registrationData?.employeeKind;
-    if (kind === "company") return "Funcionário da empresa";
-    if (kind === "diarist") return "Diarista";
-    return "Funcionário de contrato";
-  })();
+  const contractTypeLabel = selectedEmployee ? employeeKindLabels[employeeKindOf(selectedEmployee)] : "-";
 
   const activeAlertDocumentIds = new Set(
     data.documentAlerts

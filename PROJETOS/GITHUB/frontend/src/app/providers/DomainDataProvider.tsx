@@ -29,6 +29,8 @@ import {
   type EntityBatchMutation,
 } from "@/services/domainRepository";
 import { collectionsForScreen, realtimeCollectionsForScreen } from "@/core/firestore/collectionScopes";
+import { clearHrSessions } from "@/modules/hrControl/utils/hrSessionCache";
+import { clearHrPointMemory } from "@/modules/hrControl/utils/hrPointCache";
 import { changeAction, changedFieldNames, entityDisplayName, writeAuditLog } from "@/modules/monitoring/data/auditLogRepository";
 import { deleteTimeRecordTree, saveTimeRecordsTree, timeRecordDocumentId } from "@/modules/timekeeping/data/timeRecordsRepository";
 import { screenFromPathname } from "@/core/routing/currentScreen";
@@ -192,6 +194,7 @@ const emptySnapshot: DomainSnapshot = {
   employeeBenefits: [],
   employeeProcessHistory: [],
   employees: [],
+  dismissedEmployees: [],
   employeePromotions: [],
   employeeDrafts: [],
   appDrafts: [],
@@ -252,6 +255,7 @@ const structureCascadeCollectionNames: CollectionName[] = Array.from(new Set([
 
 const FILTER_QUERY_CHUNK_SIZE = 30;
 const retainedAcrossScreens = new Set<CollectionName>([
+  "employees",
   "accessKeys",
   "companies",
   "companyGroups",
@@ -493,6 +497,16 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
   const realtimeCollectionsKey = useMemo(() => realtimeCollections.join("|"), [realtimeCollections]);
   const [data, setData] = useState<DomainSnapshot>(emptySnapshot);
   const [loading, setLoading] = useState(Boolean(user));
+  // Keep a warm screen visible while its subscriptions check for new changes.
+  const warmedCollections = useRef(new Set<CollectionName>());
+  const warmedUserId = useRef(user?.id);
+  useEffect(() => {
+    if (warmedUserId.current === user?.id) return;
+    warmedUserId.current = user?.id;
+    warmedCollections.current.clear();
+    clearHrSessions();
+    clearHrPointMemory();
+  }, [user?.id]);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [accessKeyRequest, setAccessKeyRequest] = useState<AccessKeyRequest | null>(null);
   const [accessKeyInput, setAccessKeyInput] = useState("");
@@ -555,7 +569,15 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     }
 
     let alive = true;
-    setLoading(true);
+    if (!activeCollections.every((name) => warmedCollections.current.has(name))) setLoading(true);
+    let oneTimeReady = false;
+    let realtimeReady = false;
+    const finishLoading = () => {
+      if (alive && oneTimeReady && realtimeReady) {
+        activeCollections.forEach((name) => warmedCollections.current.add(name));
+        startTransition(() => setLoading(false));
+      }
+    };
 
     // Carregamento único e cacheado para coleções da tela. Isso evita abrir
     // listeners para centenas de documentos que quase nunca mudam.
@@ -574,8 +596,10 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
           });
         });
       })
+      .catch((error) => console.warn("Não foi possível carregar os dados da tela.", error))
       .finally(() => {
-        if (alive) setLoading(false);
+        oneTimeReady = true;
+        finishLoading();
       });
 
     const unsubscribe = subscribeDomainCollections(
@@ -590,8 +614,11 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
           });
         });
       },
+      () => {
+        realtimeReady = true;
+        finishLoading();
+      },
       undefined,
-      () => undefined,
     );
 
     return () => {
@@ -1276,11 +1303,22 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     const snapshot = await loadEmployeeDeletionSnapshot([employeeId]);
     for (const employee of snapshot.employees) await archiveEmployeeProcess(employee);
     mergeDeletionSnapshot(snapshot);
-    return deleteMany({
+    const removed = await deleteMany({
       ...collectEmployeeLinkedIds([employeeId], snapshot),
       employees: [employeeId],
     });
-  }, [collectEmployeeLinkedIds, deleteMany, mergeDeletionSnapshot]);
+    if (removed) {
+      const dismissed = data.dismissedEmployees.find((employee) => employee.id === employeeId);
+      if (dismissed) {
+        setData((current) => ({
+          ...current,
+          dismissedEmployees: current.dismissedEmployees.filter((employee) => employee.id !== employeeId),
+        }));
+        await deleteEntity("dismissedEmployees", employeeId);
+      }
+    }
+    return removed;
+  }, [collectEmployeeLinkedIds, data.dismissedEmployees, deleteEntity, deleteMany, mergeDeletionSnapshot]);
 
   const deleteCompany = useCallback(async (companyId: string) => {
     const snapshot = await loadCompanyDeletionSnapshot(companyId);
@@ -1877,6 +1915,24 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     return true;
   }, [buildCompanyGroupGraphPayload, data.companyGroupLeadershipAssignments, groupResponsibleRole, saveCompanyGroupGraph]);
 
+  const syncDismissedEmployee = useCallback(async (employee: Employee) => {
+    const shouldKeepDismissed = employee.status === "terminated" || Boolean(employee.registrationData?.dismissalApprovedAt);
+    const previousDismissed = data.dismissedEmployees.find((item) => item.id === employee.id);
+
+    if (shouldKeepDismissed) {
+      await updateCollection<Employee>("dismissedEmployees", { ...employee, updatedAt: employee.updatedAt || new Date().toISOString() });
+      return;
+    }
+
+    if (!previousDismissed) return;
+
+    setData((current) => ({
+      ...current,
+      dismissedEmployees: current.dismissedEmployees.filter((item) => item.id !== employee.id),
+    }));
+    await deleteEntity("dismissedEmployees", employee.id);
+  }, [data.dismissedEmployees, deleteEntity, updateCollection]);
+
   const upsertEmployeeValidated = useCallback(async (payload: UpsertPayload<Employee>) => {
     const previous = data.employees.find((employee) => employee.id === payload.id);
     const employee = { ...previous, ...payload } as Employee;
@@ -1907,8 +1963,9 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       },
     });
     await archiveEmployeeProcess(savedEmployee);
+    await syncDismissedEmployee(savedEmployee);
     return savedEmployee;
-  }, [data.employees, upsert]);
+  }, [data.employees, syncDismissedEmployee, upsert]);
 
   const deleteOrganizationalNode = useCallback(async (id: string) => {
     const nodeIds = descendantNodeIds(id);

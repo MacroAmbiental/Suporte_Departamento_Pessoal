@@ -6175,8 +6175,11 @@ button:disabled:hover {
   box-shadow: 0 12px 32px rgba(19, 36, 52, .18);
 }
 
-.hr-calendar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; text-transform: capitalize; }
+.hr-calendar-header { display: grid; grid-template-columns: 30px minmax(0, 1fr) 78px 30px; align-items: center; gap: 4px; margin-bottom: 10px; }
 .hr-calendar-header button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #155a8d; cursor: pointer; }
+.hr-calendar-header select { min-width: 0; min-height: 32px; width: 100%; height: 32px; padding: 0 5px; border: 1px solid #d6e0eb; border-radius: 6px; background: #fff; color: #1f3347; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.hr-calendar-header select:first-of-type { text-transform: capitalize; }
+.hr-calendar-header select:focus-visible { outline: 2px solid #189bdd; outline-offset: 1px; }
 .hr-calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .hr-calendar-weekday { padding: 6px 0; color: #607386; font-size: 11px; text-align: center; }
 .hr-calendar-grid button { width: 100%; height: 32px; border: 0; border-radius: 6px; background: transparent; color: #1f3347; font: inherit; cursor: pointer; }
@@ -6191,7 +6194,7 @@ button:disabled:hover {
 
 .hr-metric-grid {
   display: grid;
-  grid-template-columns: repeat(8, minmax(125px, 1fr));
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -6657,17 +6660,22 @@ button:disabled:hover {
 }
 
 .hr-month-chart {
-  display: grid;
-  min-height: 270px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .hr-month-columns {
   display: grid;
-  grid-auto-columns: minmax(92px, 1fr);
+  grid-auto-columns: minmax(40px, 1fr);
   grid-auto-flow: column;
-  gap: 18px;
+  gap: 4px;
   align-items: end;
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 4px 2px 0;
 }
 
@@ -6675,7 +6683,7 @@ button:disabled:hover {
   display: grid;
   gap: 8px;
   justify-items: center;
-  min-width: 92px;
+  min-width: 40px;
   transition: transform 0.18s ease;
 }
 
@@ -6690,9 +6698,10 @@ button:disabled:hover {
   display: flex;
   align-items: end;
   justify-content: center;
-  gap: 8px;
-  width: 72px;
-  height: 190px;
+  gap: 3px;
+  width: 100%;
+  max-width: 84px;
+  height: 220px;
   padding-top: 18px;
   border-bottom: 1px solid #c8d7e6;
 }
@@ -6701,10 +6710,11 @@ button:disabled:hover {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  width: 28px;
+  flex: 1;
+  width: auto;
+  max-width: 26px;
   height: var(--hr-target-height, 0%);
-  min-height: 4px;
-  padding-top: 4px;
+  min-width: 0;
   border-radius: 6px 6px 0 0;
   color: #ffffff;
   font-size: 10px;
@@ -6759,43 +6769,53 @@ button:disabled:hover {
 
 .hr-month-percent-chart {
   display: grid;
-  grid-auto-columns: minmax(120px, 1fr);
+  grid-auto-columns: minmax(40px, 1fr);
   grid-auto-flow: column;
-  gap: 24px;
+  gap: 4px;
   align-items: end;
-  min-height: 270px;
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
-  padding: 12px 4px 0;
+  overflow-y: hidden;
+  padding: 8px 2px 0;
+}
+
+.hr-column-chart {
+  align-items: stretch;
+  padding-top: 12px;
 }
 
 .hr-month-percent-column {
   display: grid;
-  gap: 8px;
+  grid-template-rows: 22px minmax(0, 1fr) 25px;
+  gap: 5px;
   justify-items: center;
-  min-width: 120px;
-  height: 238px;
+  min-width: 40px;
+  height: 260px;
   transition: transform 0.18s ease;
 }
 
-.hr-month-percent-column span {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
+.hr-column-column {
+  min-width: 52px;
+}
+
+.hr-month-percent-column b { color: #245071; font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.hr-month-percent-column .hr-month-percent-bar {
+  display: block;
   align-self: end;
-  width: 78px;
+  width: min(36px, 75%);
   height: var(--hr-target-height, 0%);
-  min-height: 18px;
-  padding-top: 8px;
   border-radius: 6px 6px 0 0;
   background: #1f95ed;
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 900;
-  writing-mode: vertical-rl;
   animation: hrGrowHeight 0.78s cubic-bezier(0.2, 0.72, 0.18, 1) both;
-  transform: rotate(180deg);
   transform-origin: bottom;
   transition: filter 0.18s ease;
+}
+
+.hr-column-bar {
+  width: min(52px, 80%);
+  border-radius: 8px 8px 0 0;
 }
 
 @keyframes hrGrowWidth {
@@ -7148,7 +7168,7 @@ button:disabled:hover {
 .hr-card-modal-sections { display: grid; gap: 10px; border-block: 1px solid #d8e3ee; padding: 15px 0; }
 .hr-card-choice-group { border: 1px solid #dbe6f1; border-radius: 9px; }
 .hr-card-choice-group summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 14px; font-weight: 700; cursor: pointer; }
-.hr-card-choice-group summary span { color: #667c91; font-size: 12px; font-weight: 500; }
+.hr-card-choice-group summary span { color: #667c91; font-size: 12px; font-weight: 500; text-align: right; }
 .hr-card-choice-list { display: grid; gap: 9px; max-height: 220px; overflow-y: auto; padding: 12px 14px 15px; border-top: 1px solid #e6eef5; }
 .hr-card-choice-list label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.35; }
 .hr-card-choice-list input { width: 17px; height: 17px; flex: none; accent-color: #1554d0; }
@@ -7160,3 +7180,322 @@ button:disabled:hover {
 .hr-card-modal-actions .hr-card-default-button { margin-right: auto; }
 .hr-card-modal-actions .hr-card-apply-button { border-color: #1554d0; background: #1554d0; color: #fff; }
 .hr-card-modal small { display: block; margin-top: 14px; color: #667c91; line-height: 1.4; }
+.hr-planned-year-label { display: flex !important; align-items: center !important; gap: 12px !important; }
+.hr-planned-year-label input { width: 110px; padding: 7px 9px; border: 1px solid #c5d6e9; border-radius: 7px; font: inherit; }
+.hr-metric-card.is-teal strong { font-size: clamp(19px, 1.5vw, 26px); overflow-wrap: anywhere; }
+.hr-metric-card .hr-card-year { grid-column: 2; color: #61758a; font-size: 10px; line-height: 1.2; }
+
+/* Controle RH: quatro gráficos do resumo com dimensões consistentes. */
+.hr-dashboard-grid.hr-general-dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hr-general-dashboard .hr-chart-panel { display: flex; flex-direction: column; height: 420px; overflow: hidden; }
+.hr-general-dashboard .hr-chart-header { flex: none; align-items: center; }
+.hr-general-dashboard .hr-chart-header > div { min-width: 0; }
+.hr-general-dashboard .hr-bar-chart { min-height: 0; overflow-y: auto; padding-right: 8px; }
+.hr-general-dashboard .hr-chart-legend { flex-wrap: wrap; }
+.hr-general-dashboard .hr-month-chart,
+.hr-general-dashboard .hr-month-percent-chart { min-height: 0; }
+.hr-chart-settings-button { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 7px 9px; border: 1px solid #d6e3ef; border-radius: 7px; background: #f7fbff; color: #155a8d; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.hr-chart-settings-button:hover,
+.hr-chart-settings-button:focus-visible { border-color: #1f95ed; background: #edf6fd; outline: none; }
+
+/* Cartões dos gráficos: cinza carvão com tipografia clara, como no painel de referência. */
+.hr-control-page .hr-metric-grid.hr-summary-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.hr-control-page .hr-summary-metrics .hr-metric-card {
+  --accent: #58b2ff;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 105px;
+  padding: 17px 16px;
+  border: 1px solid #56636e;
+  border-top: 3px solid var(--accent);
+  background: linear-gradient(120deg, #35414b, #46535e);
+  color: #f7fafc;
+  box-shadow: 0 8px 18px rgba(19, 33, 45, .15);
+}
+.hr-control-page .hr-summary-metrics .is-red { --accent: #ff6679; }
+.hr-control-page .hr-summary-metrics .is-green { --accent: #36dbab; }
+.hr-control-page .hr-summary-metrics .is-yellow { --accent: #ffc043; }
+.hr-control-page .hr-summary-metrics .is-gray { --accent: #a7d3ff; }
+.hr-control-page .hr-summary-metrics .is-teal { --accent: #43dde0; }
+.hr-control-page .hr-summary-metrics .is-purple { --accent: #c887fc; }
+.hr-control-page .hr-summary-metrics .hr-metric-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.hr-control-page .hr-summary-metrics .hr-metric-icon svg {
+  grid-row: auto;
+  color: var(--accent);
+}
+.hr-control-page .hr-summary-metrics .hr-metric-copy { min-width: 0; }
+.hr-control-page .hr-summary-metrics .hr-metric-copy > span {
+  display: block;
+  padding-right: 13px;
+  color: #f5f8fb;
+  font-size: 11px;
+  white-space: normal;
+}
+.hr-control-page .hr-summary-metrics .hr-metric-value-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 7px;
+}
+.hr-control-page .hr-summary-metrics .hr-metric-copy strong,
+.hr-control-page .hr-summary-metrics .is-teal strong {
+  color: #fff;
+  font-size: clamp(22px, 1.55vw, 27px);
+  line-height: 1.12;
+}
+.hr-control-page .hr-summary-metrics .hr-metric-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hr-control-page .hr-summary-metrics .hr-metric-trend b { font-size: 13px; color: #f4f8fb; }
+.hr-control-page .hr-summary-metrics .hr-metric-trend.is-good b { color: #4aefac; }
+.hr-control-page .hr-summary-metrics .hr-metric-trend.is-bad b { color: #ff6e7c; }
+.hr-control-page .hr-summary-metrics .hr-metric-trend small,
+.hr-control-page .hr-summary-metrics .hr-card-year {
+  color: #d5e0e9;
+  font-size: 10px;
+  line-height: 1.25;
+}
+.hr-control-page .hr-summary-metrics .hr-card-year { display: block; margin-top: 5px; }
+.hr-control-page .hr-summary-metrics .hr-card-settings-icon {
+  color: #f5f8fb;
+  opacity: .8;
+}
+@media (max-width: 1500px) {
+  .hr-control-page .hr-metric-grid.hr-summary-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1050px) {
+  .hr-control-page .hr-metric-grid.hr-summary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 570px) {
+  .hr-control-page .hr-metric-grid.hr-summary-metrics { grid-template-columns: minmax(0, 1fr); }
+}
+.hr-control-page .hr-chart-panel {
+  border-color: #46535d;
+  background: linear-gradient(115deg, #1b2229 0%, #283139 58%, #34404a 100%);
+  box-shadow: 0 10px 24px rgba(16, 27, 36, .18);
+  color: #f5f8fb;
+}
+.hr-control-page .hr-chart-panel .hr-chart-header h2,
+.hr-control-page .hr-chart-panel .hr-chart-header h2 svg,
+.hr-control-page .hr-chart-panel .hr-bar-label,
+.hr-control-page .hr-chart-panel .hr-bar-value,
+.hr-control-page .hr-chart-panel .hr-dual-row > strong,
+.hr-control-page .hr-chart-panel .hr-pie-legend p,
+.hr-control-page .hr-chart-panel .hr-pie-legend strong,
+.hr-control-page .hr-chart-panel .hr-week-column strong,
+.hr-control-page .hr-chart-panel .hr-month-percent-column b,
+.hr-control-page .hr-chart-panel .hr-cid-pie-legend strong,
+.hr-control-page .hr-chart-panel .hr-cid-group header strong,
+.hr-control-page .hr-chart-panel .hr-cid-group header span,
+.hr-control-page .hr-chart-panel .hr-cid-group p strong,
+.hr-control-page .hr-chart-panel .hr-cid-selection-panel header strong,
+.hr-control-page .hr-chart-panel .hr-cid-employee-list strong,
+.hr-control-page .hr-chart-panel .hr-monitoring-list strong,
+.hr-control-page .hr-chart-panel .hr-monitoring-list b { color: #f5f8fb; }
+.hr-control-page .hr-chart-panel .hr-chart-header span,
+.hr-control-page .hr-chart-panel .hr-chart-legend,
+.hr-control-page .hr-chart-panel .hr-bar-detail,
+.hr-control-page .hr-chart-panel .hr-month-group strong,
+.hr-control-page .hr-chart-panel .hr-month-percent-column strong,
+.hr-control-page .hr-chart-panel .hr-week-column span,
+.hr-control-page .hr-chart-panel .hr-cid-pie-legend button,
+.hr-control-page .hr-chart-panel .hr-cid-selection-panel header span,
+.hr-control-page .hr-chart-panel .hr-cid-selection-panel header small,
+.hr-control-page .hr-chart-panel .hr-cid-employee-list span,
+.hr-control-page .hr-chart-panel .hr-cid-employee-list small,
+.hr-control-page .hr-chart-panel .hr-cid-group p span { color: #d5e0e8; }
+.hr-control-page .hr-chart-panel .hr-bar-track,
+.hr-control-page .hr-chart-panel .hr-week-stack { background: #4a5660; }
+.hr-control-page .hr-chart-panel .hr-month-bars { border-bottom-color: #66717b; }
+.hr-control-page .hr-chart-panel .hr-empty-chart {
+  border-color: #66717b;
+  color: #d5e0e8;
+}
+.hr-control-page .hr-chart-panel .hr-bar-row:hover,
+.hr-control-page .hr-chart-panel .hr-bar-row:focus-visible,
+.hr-control-page .hr-chart-panel .hr-dual-row:hover,
+.hr-control-page .hr-chart-panel .hr-dual-row:focus-visible,
+.hr-control-page .hr-chart-panel .hr-pie-legend p:hover,
+.hr-control-page .hr-chart-panel .hr-pie-legend p:focus-visible { background: rgba(255, 255, 255, .08); }
+.hr-control-page .hr-chart-panel .hr-chart-settings-button {
+  border-color: #697986;
+  background: #34434d;
+  color: #f5f8fb;
+}
+.hr-control-page .hr-chart-panel .hr-chart-settings-button:hover,
+.hr-control-page .hr-chart-panel .hr-chart-settings-button:focus-visible {
+  border-color: #69c6ff;
+  background: #43535f;
+}
+.hr-control-page .hr-chart-panel .hr-line-chart {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.hr-control-page .hr-chart-panel .hr-line-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.hr-control-page .hr-chart-panel .hr-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.hr-control-page .hr-chart-panel .hr-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d5e0e8;
+}
+.hr-control-page .hr-chart-panel .hr-line-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.hr-control-page .hr-chart-panel .hr-line-admitted { background: #71d5ff; }
+.hr-control-page .hr-chart-panel .hr-line-dismissed { background: #ff8d7a; }
+.hr-control-page .hr-chart-panel .hr-line-total { background: #f9d96d; }
+.hr-control-page .hr-chart-panel .hr-line-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #d5e0e8;
+  font-size: 12px;
+}
+.hr-control-page .hr-chart-panel .hr-line-select select {
+  min-width: 160px;
+  padding: 8px 10px;
+  border: 1px solid #697986;
+  border-radius: 8px;
+  background: #1d262d;
+  color: #f5f8fb;
+}
+.hr-control-page .hr-chart-panel .hr-line-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  flex: 1;
+}
+.hr-control-page .hr-chart-panel .hr-line-grid {
+  stroke: rgba(213, 224, 232, 0.18);
+  stroke-width: 1;
+}
+.hr-control-page .hr-chart-panel .hr-line-zero {
+  stroke: rgba(255, 255, 255, 0.38);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 5;
+}
+.hr-control-page .hr-chart-panel .hr-line-path {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hr-control-page .hr-chart-panel .hr-line-path-admitted { stroke: #71d5ff; }
+.hr-control-page .hr-chart-panel .hr-line-path-dismissed { stroke: #ff8d7a; }
+.hr-control-page .hr-chart-panel .hr-line-path-total { stroke: #f9d96d; }
+.hr-control-page .hr-chart-panel .hr-line-point {
+  stroke: rgba(21, 29, 35, 0.9);
+  stroke-width: 1.5;
+}
+.hr-control-page .hr-chart-panel .hr-line-point-admitted { fill: #71d5ff; }
+.hr-control-page .hr-chart-panel .hr-line-point-dismissed { fill: #ff8d7a; }
+.hr-control-page .hr-chart-panel .hr-line-point-total { fill: #f9d96d; }
+.hr-control-page .hr-chart-panel .hr-line-label {
+  fill: #d5e0e8;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.hr-control-page .hr-chart-panel .hr-cid-pie-total { fill: #f5f8fb; }
+.hr-control-page .hr-chart-panel .hr-cid-pie-caption { fill: #d5e0e8; }
+.hr-control-page .hr-chart-panel .hr-cid-pie-slice { stroke: #283139; }
+.hr-control-page .hr-chart-panel .hr-cid-pie-legend button,
+.hr-control-page .hr-chart-panel .hr-cid-employee-list article,
+.hr-control-page .hr-chart-panel .hr-cid-selection-panel {
+  border-color: #53616c;
+  background: #303d46;
+}
+.hr-control-page .hr-chart-panel .hr-cid-pie-legend button:hover,
+.hr-control-page .hr-chart-panel .hr-cid-pie-legend button.is-selected { border-color: #69c6ff; background: #3c4d59; }
+.hr-control-page .hr-chart-panel .hr-cid-breakdown { border-top-color: #53616c; }
+.hr-control-page .hr-chart-panel .hr-cid-group { border-bottom-color: #53616c; }
+.hr-control-page .hr-chart-panel .hr-monitoring-list article,
+.hr-control-page .hr-chart-panel .hr-monitoring-list article.is-critical,
+.hr-control-page .hr-chart-panel .hr-monitoring-list article.is-abandonment {
+  background: #303d46;
+  color: #d5e0e8;
+}
+.hr-control-page .hr-chart-panel .hr-monitoring-list em { color: #fbd38d; }
+.hr-control-page .hr-chart-panel .hr-monitoring-list .is-abandonment em { color: #ff9aaa; }
+.hr-control-page .hr-chart-panel .hr-pie span {
+  border-color: #4a5964;
+  background: #27323b;
+  color: #f5f8fb;
+}
+.hr-control-page .hr-chart-panel .hr-cid-pie-stage svg circle:not(.hr-cid-pie-slice) { fill: #27323b; }
+.hr-control-page .hr-chart-panel .muted { color: #d5e0e8; }
+.hr-control-page .hr-chart-panel .pagination-bar { border-color: #53616c; background: transparent; }
+.hr-control-page .hr-chart-panel .hr-has-tooltip::after,
+.hr-control-page .hr-chart-panel .hr-has-tooltip::before { background: #101820; }
+.hr-control-page .hr-chart-panel .hr-has-tooltip::after { border-color: #586a78; }
+
+.hr-dashboard-loading {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  min-height: 230px;
+  margin-top: 18px;
+  padding: 55px 20px;
+  border: 1px solid #d9e5ef;
+  border-radius: 12px;
+  background: #fff;
+  color: #263b4d;
+  text-align: center;
+}
+.hr-dashboard-loading small { color: #607386; }
+.hr-dashboard-loading-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid #d9e8f5;
+  border-top-color: #258fe2;
+  border-radius: 50%;
+  animation: hr-dashboard-spin .7s linear infinite;
+}
+@keyframes hr-dashboard-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .hr-dashboard-loading-spinner { animation-duration: 2s; }
+}
+
+@media (max-width: 1450px) {
+  .hr-dashboard-grid.hr-general-dashboard { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 780px) {
+  .hr-general-dashboard .hr-chart-panel { height: 390px; }
+}
+
+@media (max-width: 1450px) and (min-width: 781px) {
+  .hr-metric-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}

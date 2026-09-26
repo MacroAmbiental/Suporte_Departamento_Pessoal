@@ -43,6 +43,7 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "subsectors",
     "teams",
     "employees",
+    "dismissedEmployees",
     "employeeDocuments",
     "employeeDrafts",
     "employeePromotions",
@@ -89,6 +90,7 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "subsectors",
     "teams",
     "employees",
+    "dismissedEmployees",
     "timekeepingColumns",
   ],
   talentBank: [
@@ -142,9 +144,11 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
  */
 const realtimeScopes: Partial<Record<AppScreen, DomainCollectionName[]>> = {
   // Shared cache + listener: pagination and employee subpage navigation stay local.
-  employees: ["employees", "companies", "employeeDocuments", "employeeProcessHistory"],
+  employees: ["employees", "dismissedEmployees", "companies", "employeeDocuments", "employeeProcessHistory"],
   notifications: ["documentAlerts"],
   records: ["documentAlerts"],
+  // Firestore restaura empregados/feriados do IndexedDB e entrega apenas as mudanças remotas.
+  hrControl: ["timekeepingColumns", "employees"],
 };
 
 export function collectionsForScreen(screen: AppScreen | null): DomainCollectionName[] {
@@ -156,5 +160,4 @@ export function realtimeCollectionsForScreen(screen: AppScreen | null): DomainCo
   if (!screen) return [];
   return Array.from(new Set(realtimeScopes[screen] || []));
 }
-
 

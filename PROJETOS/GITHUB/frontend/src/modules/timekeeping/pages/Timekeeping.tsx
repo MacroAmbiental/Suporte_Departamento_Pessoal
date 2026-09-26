@@ -1,4 +1,5 @@
 import ModalPortal from "@/modules/shared/ModalPortal";
+import { employeeKindOf, employeeKindLabels } from "@/common/utils/employeeKind";
 import { noticeAdjustedMinutes, noticeWorkAdjustment } from "../utils/noticeWorkAdjustment";
 import {
   CalendarDays,
@@ -114,20 +115,8 @@ function loadXlsxModule() {
   return xlsxModulePromise;
 }
 
-const employeeKindLabels: Record<string, string> = {
-  contract: "Funcionario de contrato",
-  company: "Funcionario da empresa",
-  diarist: "Diarista",
-};
-
 function employeeKindLabel(employee: Employee) {
-  const registrationData = employee.registrationData || {};
-  const kind = String(
-    (employee as { employeeKind?: string }).employeeKind ||
-    registrationData.employeeKind ||
-    "",
-  ).toLowerCase();
-  return employeeKindLabels[kind] || "-";
+  return employeeKindLabels[employeeKindOf(employee)];
 }
 
 function employeeProcessBadge(employee: Employee, date: string) {
@@ -8517,7 +8506,7 @@ export default function Timekeeping() {
                   >
                     <option value="">Select manual</option>
                     <option value="companies">Empresas</option>
-                    <option value="employees">Funcionarios da empresa</option>
+                    <option value="employees">Funcionários</option>
                     <option value="departments">Departamentos</option>
                     <option value="sectors">Setores</option>
                     <option value="subsectors">Subsetores</option>

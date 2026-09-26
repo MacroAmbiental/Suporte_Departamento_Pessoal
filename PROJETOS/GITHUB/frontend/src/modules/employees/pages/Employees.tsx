@@ -22,6 +22,7 @@ import { where } from "firebase/firestore";
 import { loadCollection } from "@/core/firestore/domainRepository";
 import useCreateShortcut from "@/hooks/useCreateShortcut";
 import { useDomainData } from "@/hooks/useDomainData";
+import { employeeKindOf, employeeKindLabels } from "@/common/utils/employeeKind";
 import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
@@ -527,12 +528,6 @@ function matchesBirthdayFilter(
   return birthday.iso === fullDate;
 }
 
-function getEmployeeKind(employee: Employee): EmployeeKind {
-  const employeeKind = employee.registrationData?.employeeKind;
-  if (employeeKind === "company" || employeeKind === "diarist") return employeeKind;
-  return "contract";
-}
-
 function makeClientId(prefix: string) {
   const randomId = globalThis.crypto?.randomUUID?.();
   if (randomId) return `${prefix}-${randomId}`;
@@ -593,8 +588,30 @@ function suggestUsername(name: string) {
   return createUsernameFromName(name);
 }
 
-export default function Employees({ initialEmployeeId = "", initialModal, initialQuickDismissal }: { initialEmployeeId?: string; initialModal?: "deactivate"; initialQuickDismissal?: "quick" | "warning" }) {
+export default function Employees({
+  initialEmployeeId = "",
+  initialModal,
+  initialQuickDismissal,
+  showTerminatedOnly = false,
+}: {
+  initialEmployeeId?: string;
+  initialModal?: "deactivate";
+  initialQuickDismissal?: "quick" | "warning";
+  showTerminatedOnly?: boolean;
+}) {
   const data = useDomainData();
+  const employeeSource = useMemo(() => {
+    if (showTerminatedOnly) {
+      // Demitidos incluem: coleção dismissedEmployees + todos com status="terminated" na employees
+      return [
+        ...data.dismissedEmployees,
+        ...data.employees.filter((employee) => isEmployeeTerminated(employee))
+      ];
+    }
+    // A tela de Funcionários deve exibir ativos e inativos.
+    // Somente desligados/terminados ficam na aba Demitidos.
+    return data.employees.filter((employee) => !isEmployeeTerminated(employee));
+  }, [data.dismissedEmployees, data.employees, showTerminatedOnly]);
   const { can, user } = useAuth();
   const canCreateEmployees = can("employees", "create");
   const canEditEmployees = can("employees", "edit");
@@ -861,21 +878,21 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
   }
 
   const employeeOptions = useMemo(() => (
-    data.employees.map((item) => ({ value: item.id, label: item.name }))
-  ), [data.employees]);
+    employeeSource.map((item) => ({ value: item.id, label: item.name }))
+  ), [employeeSource]);
 
   const teamOptions = useMemo(() => {
     const options = new Map<string, { value: string; label: string }>();
-    data.employees.forEach((employee) => {
+    employeeSource.forEach((employee) => {
       const option = employeeTeamFilterOption(employee);
       if (option && !options.has(option.value)) options.set(option.value, option);
     });
     return Array.from(options.values());
-  }, [data.employees, employeeTeamFilterOption]);
+  }, [employeeSource, employeeTeamFilterOption]);
 
   const roleOptions = useMemo(() => {
     const options = new Map<string, { value: string; label: string }>();
-    data.employees.forEach((employee) => {
+    employeeSource.forEach((employee) => {
       const label = employee.role?.trim();
       if (!label) return;
       const value = normalizeFilterValue(label);
@@ -885,8 +902,8 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
   }, [data.employees]);
 
   const cpfOptions = useMemo(() => (
-    Array.from(new Set(data.employees.map((item) => item.cpf?.trim() || ""))).filter(Boolean).map((cpf) => ({ value: cpf, label: cpf }))
-  ), [data.employees]);
+    Array.from(new Set(employeeSource.map((item) => item.cpf?.trim() || ""))).filter(Boolean).map((cpf) => ({ value: cpf, label: cpf }))
+  ), [employeeSource]);
 
   const systemUserByEmployeeId = useMemo(() => new Map(
     data.systemUsers.filter((systemUser) => systemUser.employeeId).map((systemUser) => [systemUser.employeeId as string, systemUser]),
@@ -898,14 +915,14 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
 
   const birthdayYearOptions = useMemo(() => {
     const years = new Set<string>();
-    data.employees.forEach((employee) => {
+    employeeSource.forEach((employee) => {
       const year = parseBirthdayParts(employee.registrationData?.birthDate)?.year;
       if (year) years.add(year);
     });
     return Array.from(years)
       .sort((left, right) => right.localeCompare(left))
       .map((year) => ({ value: year, label: year }));
-  }, [data.employees]);
+  }, [employeeSource]);
 
   function getEmployeeProcessBadge(employee: Employee) {
     const registrationData = employee.registrationData || {};
@@ -954,12 +971,12 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
     return "";
   }
 
-  const filteredEmployees = useMemo(() => data.employees.filter((employee) => {
+  const filteredEmployees = useMemo(() => employeeSource.filter((employee) => {
     const login = systemUserByEmployeeId.get(employee.id);
     const teamOption = employeeTeamFilterOption(employee);
     const search = `${employee.name} ${employee.registration} ${employee.cpf} ${employee.role} ${employee.position} ${teamOption?.label || ""} ${login?.username || ""}`.toLowerCase();
     const displayStatus = getEmployeeDisplayStatus(employee);
-    const employeeKind = getEmployeeKind(employee);
+    const employeeKind = employeeKindOf(employee);
     return (
       (!filters.companyIds.length || filters.companyIds.includes(employee.companyId))
       && (!filters.departmentIds.length || filters.departmentIds.includes(employee.departmentId))
@@ -982,7 +999,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
       )
       && (!filters.search || search.includes(filters.search.toLowerCase()))
     );
-  }).sort((left, right) => Number(isEmployeeTerminated(left)) - Number(isEmployeeTerminated(right))), [data.employees, employeeTeamFilterOption, filters, systemUserByEmployeeId]);
+  }).sort((left, right) => Number(isEmployeeTerminated(left)) - Number(isEmployeeTerminated(right))), [employeeSource, employeeTeamFilterOption, filters, systemUserByEmployeeId, showTerminatedOnly]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
   const paginatedEmployees = useMemo(() => {
@@ -1143,6 +1160,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
         "E-mail": employee.complement?.email || "",
         "Contato de emergência": employee.complement?.emergencyContact || "",
         "Observações": employee.complement?.notes || "",
+        "Tipo de contrato": employeeKindLabels[employeeKindOf(employee)],
       };
     });
 
@@ -1172,6 +1190,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
       { wch: 28 },
       { wch: 26 },
       { wch: 40 },
+      { wch: 24 },
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Funcionários");
@@ -2364,7 +2383,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
             <Save size={17} />
             Exportar Excel
           </button>
-          {canCreateEmployees ? (
+          {!showTerminatedOnly && canCreateEmployees ? (
             <button className="btn btn-primary" type="button" disabled={wizardOpen || wizardSaving || draftSaving} onClick={() => startDraft()}>
               <Plus size={17} />
               Novo funcionário
@@ -2443,18 +2462,19 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
           onChange={(usernameValues) => setFilters({ ...filters, usernameValues })}
           options={usernameOptions}
         />
-        <MultiSelect
-          label="Status"
-          placeholder="Status"
-          value={filters.statuses}
-          onChange={(statuses) => setFilters({ ...filters, statuses })}
-          options={[
-            { value: "active", label: "Ativo" },
-            { value: "leave", label: "Afastado" },
-            { value: "notice", label: "Aviso prévio" },
-            { value: "terminated", label: "Desativado" },
-          ]}
-        />
+        {!showTerminatedOnly ? (
+          <MultiSelect
+            label="Status"
+            placeholder="Status"
+            value={filters.statuses}
+            onChange={(statuses) => setFilters({ ...filters, statuses })}
+            options={[
+              { value: "active", label: "Ativo" },
+              { value: "leave", label: "Afastado" },
+              { value: "notice", label: "Aviso prévio" },
+            ]}
+          />
+        ) : null}
         <MultiSelect
           label="Tipo de desligamento"
           placeholder="Tipo de desligamento"
@@ -2468,8 +2488,8 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
           value={filters.employeeKinds}
           onChange={(employeeKinds) => setFilters({ ...filters, employeeKinds: employeeKinds as EmployeeKind[] })}
           options={[
-            { value: "contract", label: "Funcionario de contrato" },
-            { value: "company", label: "Funcionario da empresa" },
+            { value: "contract", label: employeeKindLabels.contract },
+            { value: "company", label: employeeKindLabels.company },
             { value: "diarist", label: "Diarista" },
           ]}
         />
@@ -2542,7 +2562,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
               <th>{renderSensitiveColumnHeader("Jornada")}</th>
               <th>{renderSensitiveColumnHeader("Salário")}</th>
               <th>Situação</th>
-              <th>Ações</th>
+              {!showTerminatedOnly ? <th>Ações</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -2566,7 +2586,7 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
                       {processBadge ? <div className={`employee-process-badge is-${processBadge.tone}`}>{processBadge.label}</div> : null}
                       <div className="employee-name-cell-main">
                         <strong>{employee.name}</strong>
-                        <span className="muted">{employee.registration} {login ? `· ${login.username}` : ""}</span>
+                        <span className="muted">{employee.registration} {login ? `· ${login.username}` : ""} · {employeeKindLabels[employeeKindOf(employee)]}</span>
                       </div>
                     </div>
                   </td>
@@ -2587,32 +2607,34 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
                       <><br /><span className="muted">{scheduledStatusText}</span></>
                     ) : null}
                   </td>
-                  <td>
-                    <div className="table-actions" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-                      {canEditEmployees ? (
-                        <>
-                          <button type="button" title="Editar funcionário" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startEdit(employee)}><Pencil size={14} /></button>
-                          <button type="button" title="Registrar alteração de cargo" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startPromotion(employee)}><Plus size={14} /></button>
-                          {displayStatus !== "terminated" ? (
-                            <button
-                              type="button"
-                              title="Agendar desativação"
-                              aria-label="Agendar desativação"
-                              disabled={confirmingAction || isDismissalApproved || hasActiveNoticeProcess(employee)}
-                              onClick={() => deactivateEmployee(employee)}
-                            ><Power size={16} /></button>
-                          ) : null}
-                        </>
-                      ) : null}
-                      {canDeleteEmployees ? (
-                        <button type="button" title="Excluir funcionário" disabled={isDismissalApproved || confirmingAction} onClick={() => deleteEmployee(employee)}><Trash2 size={14} /></button>
-                      ) : null}
-                    </div>
-                  </td>
+                  {!showTerminatedOnly ? (
+                    <td>
+                      <div className="table-actions" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "nowrap", whiteSpace: "nowrap" }}>
+                        {canEditEmployees ? (
+                          <>
+                            <button type="button" title="Editar funcionário" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startEdit(employee)}><Pencil size={14} /></button>
+                            <button type="button" title="Registrar alteração de cargo" disabled={isDismissalApproved || wizardOpen || confirmingAction} onClick={() => startPromotion(employee)}><Plus size={14} /></button>
+                            {displayStatus !== "terminated" ? (
+                              <button
+                                type="button"
+                                title="Agendar desativação"
+                                aria-label="Agendar desativação"
+                                disabled={confirmingAction || isDismissalApproved || hasActiveNoticeProcess(employee)}
+                                onClick={() => deactivateEmployee(employee)}
+                              ><Power size={16} /></button>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {canDeleteEmployees ? (
+                          <button type="button" title="Excluir funcionário" disabled={isDismissalApproved || confirmingAction} onClick={() => deleteEmployee(employee)}><Trash2 size={14} /></button>
+                        ) : null}
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}
-            {!filteredEmployees.length ? <tr><td colSpan={7}>Nenhum funcionário encontrado.</td></tr> : null}
+            {!filteredEmployees.length ? <tr><td colSpan={showTerminatedOnly ? 6 : 7}>Nenhum funcionário encontrado.</td></tr> : null}
           </tbody>
         </table>
       </div>
@@ -2626,46 +2648,48 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
         onPageChange={setCurrentPage}
       />
 
-      <div className="dashboard-grid">
-        <article className="panel">
-          <div className="panel-header"><h2 className="panel-title">Rascunhos</h2></div>
-          <div className="module-list padded">
-            {data.employeeDrafts.map((draft) => (
-              <span className="module-pill" key={draft.id}>
-                <button className="table-action" type="button" disabled={wizardOpen || draftSaving} onClick={() => startDraft(draft.payload, draft.id, draft.step)}>
-                  {draft.payload.name || "Rascunho sem nome"} · etapa {draft.step}
-                </button>
-                <button className="table-action" type="button" disabled={confirmingAction} onClick={() => deleteDraft(draft)}><Trash2 size={14} /> Apagar</button>
-              </span>
-            ))}
-            {!data.employeeDrafts.length ? <p className="muted">Nenhum rascunho salvo.</p> : null}
-          </div>
-        </article>
+      {!showTerminatedOnly ? (
+        <div className="dashboard-grid">
+          <article className="panel">
+            <div className="panel-header"><h2 className="panel-title">Rascunhos</h2></div>
+            <div className="module-list padded">
+              {data.employeeDrafts.map((draft) => (
+                <span className="module-pill" key={draft.id}>
+                  <button className="table-action" type="button" disabled={wizardOpen || draftSaving} onClick={() => startDraft(draft.payload, draft.id, draft.step)}>
+                    {draft.payload.name || "Rascunho sem nome"} · etapa {draft.step}
+                  </button>
+                  <button className="table-action" type="button" disabled={confirmingAction} onClick={() => deleteDraft(draft)}><Trash2 size={14} /> Apagar</button>
+                </span>
+              ))}
+              {!data.employeeDrafts.length ? <p className="muted">Nenhum rascunho salvo.</p> : null}
+            </div>
+          </article>
 
-        <article className="panel">
-          <div className="panel-header"><h2 className="panel-title">Trajetória na empresa</h2></div>
-          <div className="table-panel is-flat">
-            <table className="data-table">
-              <thead><tr><th>Data</th><th>Funcionário</th><th>Função / Cargo</th><th>{renderSensitiveColumnHeader("Salário")}</th><th>{renderSensitiveColumnHeader("Carga")}</th></tr></thead>
-              <tbody>
-                {data.employeePromotions.filter(isRoleOrPositionRise).slice(0, 6).map((promotion) => {
-                  const employee = data.employees.find((item) => item.id === promotion.employeeId);
-                  return (
-                    <tr key={promotion.id}>
-                      <td>{formatDate(promotion.effectiveDate)}</td>
-                      <td className="strong-cell">{employee?.name ?? "-"}</td>
-                      <td>{renderTrajectoryRiseIndicator(promotion.employeeId)}</td>
-                      <td>{renderSensitiveValue(`${formatCurrency(promotion.previousSalary)} → ${formatCurrency(promotion.newSalary)}`, "Salário")}</td>
-                      <td>{renderSensitiveValue(`${promotion.previousWeeklyHours}h → ${promotion.newWeeklyHours}h`, "Carga")}</td>
-                    </tr>
-                  );
-                })}
-                {!data.employeePromotions.filter(isRoleOrPositionRise).length ? <tr><td colSpan={5}>Nenhuma evolução de cargo/função registrada.</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </div>
+          <article className="panel">
+            <div className="panel-header"><h2 className="panel-title">Trajetória na empresa</h2></div>
+            <div className="table-panel is-flat">
+              <table className="data-table">
+                <thead><tr><th>Data</th><th>Funcionário</th><th>Função / Cargo</th><th>{renderSensitiveColumnHeader("Salário")}</th><th>{renderSensitiveColumnHeader("Carga")}</th></tr></thead>
+                <tbody>
+                  {data.employeePromotions.filter(isRoleOrPositionRise).slice(0, 6).map((promotion) => {
+                    const employee = data.employees.find((item) => item.id === promotion.employeeId);
+                    return (
+                      <tr key={promotion.id}>
+                        <td>{formatDate(promotion.effectiveDate)}</td>
+                        <td className="strong-cell">{employee?.name ?? "-"}</td>
+                        <td>{renderTrajectoryRiseIndicator(promotion.employeeId)}</td>
+                        <td>{renderSensitiveValue(`${formatCurrency(promotion.previousSalary)} → ${formatCurrency(promotion.newSalary)}`, "Salário")}</td>
+                        <td>{renderSensitiveValue(`${promotion.previousWeeklyHours}h → ${promotion.newWeeklyHours}h`, "Carga")}</td>
+                      </tr>
+                    );
+                  })}
+                  {!data.employeePromotions.filter(isRoleOrPositionRise).length ? <tr><td colSpan={5}>Nenhuma evolução de cargo/função registrada.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      ) : null}
 
       {exportModalOpen ? (
         <ModalPortal className="modal-backdrop" role="presentation">
@@ -2778,8 +2802,8 @@ export default function Employees({ initialEmployeeId = "", initialModal, initia
               <div className="employee-data-step">
                 <div className="employee-kind-panel is-wide-field">
                   <span>Tipo de funcionário</span>
-                  <label><input type="radio" checked={form.employeeKind === "contract"} onChange={() => setForm({ ...form, employeeKind: "contract", registrationData: { ...(form.registrationData || {}), employeeKind: "contract" } })} /> Funcionário de contrato</label>
-                  <label><input type="radio" checked={form.employeeKind === "company"} onChange={() => setForm({ ...form, employeeKind: "company", registrationData: { ...(form.registrationData || {}), employeeKind: "company" } })} /> Funcionário da empresa</label>
+                  <label><input type="radio" checked={form.employeeKind === "contract"} onChange={() => setForm({ ...form, employeeKind: "contract", registrationData: { ...(form.registrationData || {}), employeeKind: "contract" } })} /> {employeeKindLabels.contract}</label>
+                  <label><input type="radio" checked={form.employeeKind === "company"} onChange={() => setForm({ ...form, employeeKind: "company", registrationData: { ...(form.registrationData || {}), employeeKind: "company" } })} /> {employeeKindLabels.company}</label>
                   <label><input type="radio" checked={form.employeeKind === "diarist"} onChange={() => setForm({ ...form, employeeKind: "diarist", createLogin: false, workScheduleDays: blankScheduleTemplate, registrationData: { ...(form.registrationData || {}), employeeKind: "diarist" } })} /> Diarista</label>
                 </div>
                 {formError ? <p className="field-error">{formError}</p> : null}

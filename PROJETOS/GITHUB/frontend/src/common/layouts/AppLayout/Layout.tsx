@@ -42,10 +42,11 @@ const navItems: {
     { to: "/app/records", label: "Registros", icon: Files, screen: "records" },
     { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications", subpage: "notificacoes" },
     { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
-    { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },
-    { to: "/app/ferias", label: "Férias", icon: Plane, screen: "vacation", subpage: "ferias" },
-    { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits", subpage: "beneficios" },
     { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping", subpage: "controle-ponto" },
+    { to: "/app/ferias", label: "Férias", icon: Plane, screen: "vacation", subpage: "ferias" },
+    { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },
+    { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits", subpage: "beneficios" },
+    { to: "/app/employees?tab=demitidos", label: "Demitidos", icon: X, screen: "employees", subpage: "demitidos" },
     { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
     { to: "/app/monitoring", label: "Monitoramento", icon: Activity, screen: "monitoring" },
     { to: "/app/permissions", label: "Permissões do sistema", icon: ShieldCheck, screen: "permissions" },
@@ -215,7 +216,9 @@ export default function Layout() {
   const currentScreen = useMemo(() => screenFromPathname(location.pathname), [location.pathname]);
   const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "benefits", "timekeeping"].includes(item.screen)), [visibleNavItems]);
   const recordSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && item.screen === "notifications"), [visibleNavItems]);
-  const isEmployeeProcessActive = currentScreen === "employees" && new URLSearchParams(location.search).get("tab") === "processos";
+  const employeeTab = new URLSearchParams(location.search).get("tab");
+  const isEmployeeProcessActive = currentScreen === "employees" && employeeTab === "processos";
+  const isEmployeeDismissedActive = currentScreen === "employees" && employeeTab === "demitidos";
   const [employeesMenuOpen, setEmployeesMenuOpen] = useState(false);
   const [recordsMenuOpen, setRecordsMenuOpen] = useState(false);
   const isEmployeesGroupActive = ["employees", "vacation", "benefits", "timekeeping"].includes(currentScreen || "");
@@ -382,7 +385,7 @@ export default function Layout() {
                         <div className="sidebar-submenu-inner">
                           {subItems.map((subItem) => {
                             const SubIcon = subItem.icon;
-                            const isSubItemActive = currentScreen === subItem.screen && (subItem.screen !== "employees" || isEmployeeProcessActive);
+                            const isSubItemActive = currentScreen === subItem.screen && (subItem.screen !== "employees" || employeeTab === subItem.subpage);
                             return <NavLink
                             key={subItem.to}
                             to={`${securePath(subItem.screen)}${subItem.screen === "employees" ? `?tab=${subItem.subpage}` : ""}`}
@@ -413,7 +416,7 @@ export default function Layout() {
                   key={item.to}
                   to={`${securePath(item.screen)}${item.subpage ? `?tab=${item.subpage}` : ""}`}
                   end={item.end}
-                  className={({ isActive }) => [item.subpage ? "sidebar-subpage" : "", isActive && (item.screen !== "employees" || (new URLSearchParams(location.search).get("tab") === "processos") === Boolean(item.subpage)) ? "is-active" : ""].filter(Boolean).join(" ")}
+                  className={({ isActive }) => [item.subpage ? "sidebar-subpage" : "", isActive && (item.screen !== "employees" || ["processos", "demitidos"].includes(employeeTab || "") === Boolean(item.subpage)) ? "is-active" : ""].filter(Boolean).join(" ")}
                   onClick={(event) => {
                     if (!canNavigateAway()) {
                       event.preventDefault();
@@ -457,7 +460,7 @@ export default function Layout() {
             </div>
           ) : null}
         </header>
-        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" ? " is-fullwidth" : ""}${currentScreen === "employees" && new URLSearchParams(location.search).get("tab") === "processos" ? " employee-process-workspace" : ""}`}>
+        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" ? " is-fullwidth" : ""}${currentScreen === "employees" && ["processos", "demitidos"].includes(employeeTab || "") ? " employee-process-workspace" : ""}`}>
           <Outlet />
         </main>
         {domain.undoState ? (

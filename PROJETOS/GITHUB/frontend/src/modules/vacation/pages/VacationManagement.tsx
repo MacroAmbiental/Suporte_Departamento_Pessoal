@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { CalendarDays, Pencil, Plane, Search, Trash2, X } from "lucide-react";
 import { useDomainData } from "@/hooks/useDomainData";
+import { employeeKindOf, employeeKindLabels, type EmployeeKind } from "@/common/utils/employeeKind";
 import type { Employee } from "@/types/domain";
 import { formatDate, todayISO } from "@/utils/format";
 import {
@@ -47,19 +48,6 @@ function daysBetweenInclusive(startISO: string, endISO: string): number {
   const e = new Date(`${endISO}T00:00:00`);
   const diff = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
   return diff > 0 ? diff : 0;
-}
-
-type EmployeeKind = "contract" | "company" | "diarist";
-const employeeKindLabels: Record<EmployeeKind, string> = {
-  company: "Funcionário da empresa",
-  contract: "Funcionário de contrato",
-  diarist: "Diarista",
-};
-
-function employeeKindOf(employee: Employee): EmployeeKind {
-  const kind = employee.registrationData?.employeeKind;
-  if (kind === "company" || kind === "diarist") return kind;
-  return "contract";
 }
 
 export default function VacationManagement() {

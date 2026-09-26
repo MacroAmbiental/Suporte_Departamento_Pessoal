@@ -5,6 +5,8 @@ import {
   doc,
   documentId,
   getDocs,
+  getDocsFromCache,
+  getDocsFromServer,
   onSnapshot,
   query,
   setDoc,
@@ -400,22 +402,22 @@ export function subscribeTimeRecordsForDay(
   };
 }
 
-export async function loadTimeRecordsRange(startDate: string, endDate: string) {
+export async function loadTimeRecordsRange(startDate: string, endDate: string, options: { forceRefresh?: boolean } = {}) {
   if (!firestore || !startDate || !endDate || startDate > endDate) return [] as TimeRecord[];
 
-  if (startDate === endDate) {
+  if (!options.forceRefresh && startDate === endDate) {
     const cachedDay = dayListeners.get(startDate);
     if (cachedDay?.loaded) return cachedDay.records;
   }
 
   const key = `${startDate}:${endDate}`;
   const cached = rangeCache.get(key);
-  if (cached && Date.now() - cached.loadedAt < RANGE_CACHE_TTL_MS) return cached.records;
+  if (!options.forceRefresh && cached && Date.now() - cached.loadedAt < RANGE_CACHE_TTL_MS) return cached.records;
 
   const running = rangeLoadPool.get(key);
   if (running) return running;
 
-  const nestedRangeRequest = getDocs(query(
+  const nestedRangeRequest = (options.forceRefresh ? getDocsFromServer : getDocs)(query(
     collectionGroup(firestore, EMPLOYEE_POINTS_SUBCOLLECTION),
     where("date", ">=", startDate),
     where("date", "<=", endDate),
@@ -569,7 +571,53 @@ export function patchCachedTimeRecords(records: TimeRecord[]) {
   });
 
   rangeCache.clear();
-  if (typeof window !== "undefined") window.dispatchEvent(new Event("timekeeping-data-updated"));
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("timekeeping-data-updated", { detail: { dates: [...byDate.keys()] } }));
+}
+
+/** Restores the last downloaded points from Firestore's persistent browser cache. */
+export async function loadCachedTimeRecordsRange(startDate: string, endDate: string,
+  savedDates: string[] = []): Promise<TimeRecord[] | null> {
+  if (!firestore) return null;
+  let nested: TimeRecord[];
+  try {
+    const snapshot = await getDocsFromCache(query(
+      collectionGroup(firestore, EMPLOYEE_POINTS_SUBCOLLECTION),
+      where("date", ">=", startDate), where("date", "<=", endDate),
+    ));
+    nested = normalize(snapshot);
+  } catch {
+    if (!savedDates.length) return null;
+    try {
+      const groups = await mapWithConcurrency(savedDates, 6, async (date) => {
+        const table = dayRecordsCollection(date);
+        return table ? normalize(await getDocsFromCache(table)) : [];
+      });
+      nested = groups.flat();
+    } catch { return null; }
+  }
+  if (!LEGACY_FALLBACK_ENABLED) return nested;
+  try {
+    const snapshot = await getDocsFromCache(query(
+      collection(firestore, TIME_RECORDS_COLLECTION),
+      where("date", ">=", startDate), where("date", "<=", endDate),
+    ));
+    return mergeLatestRecords(normalize(snapshot), nested);
+  } catch { return null; }
+}
+
+/** Fetches just one modified day, bypassing range and day caches. */
+export async function loadFreshTimeRecordsForDay(date: string): Promise<TimeRecord[]> {
+  if (!firestore) return [];
+  const table = dayRecordsCollection(date);
+  if (!table) return [];
+  const nested = normalize(await getDocsFromServer(table));
+  // Legacy fallback is used only when explicitly enabled for a migration.
+  const legacy = await loadLegacyDayRecords(date);
+  for (const key of rangeCache.keys()) {
+    const [start, end] = key.split(":");
+    if (start <= date && date <= end) rangeCache.delete(key);
+  }
+  return mergeLatestRecords(legacy, nested);
 }
 
 export function removeCachedTimeRecord(id: string, date?: string) {
@@ -582,7 +630,7 @@ export function removeCachedTimeRecord(id: string, date?: string) {
     entry.subscribers.forEach((subscriber) => subscriber.onChange(entry.records));
   });
   rangeCache.clear();
-  if (typeof window !== "undefined") window.dispatchEvent(new Event("timekeeping-data-updated"));
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("timekeeping-data-updated", { detail: { dates: date ? [date] : [] } }));
 }
 
 export async function loadConfirmedAbsencesForEmployee(

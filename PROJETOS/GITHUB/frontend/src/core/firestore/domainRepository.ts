@@ -76,6 +76,7 @@ export const collectionNames: CollectionName[] = [
   "benefitCustomFields",
   "employeeBenefits",
   "employees",
+  "dismissedEmployees",
   "employeePromotions",
   "employeeDrafts",
   "appDrafts",

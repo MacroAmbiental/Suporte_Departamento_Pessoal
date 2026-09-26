@@ -698,6 +698,7 @@ export interface DomainSnapshot {
   benefitCustomFields: BenefitCustomField[];
   employeeBenefits: EmployeeBenefit[];
   employees: Employee[];
+  dismissedEmployees: Employee[];
   employeePromotions: EmployeePromotion[];
   employeeDrafts: EmployeeDraft[];
   appDrafts: AppDraft[];

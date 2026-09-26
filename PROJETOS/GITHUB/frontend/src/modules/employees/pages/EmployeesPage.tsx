@@ -13,6 +13,7 @@ export default function EmployeesPage() {
   return (
     <EmployeesProvider>
       <Employees
+        showTerminatedOnly={params.get("tab") === "demitidos"}
         initialEmployeeId={employeeId}
         initialModal={modal === "deactivate" ? "deactivate" : undefined}
         initialQuickDismissal={quickDismissal === "quick" || quickDismissal === "warning" ? quickDismissal : undefined}
