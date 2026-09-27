@@ -15,6 +15,7 @@ export const systemScreens: { key: AppScreen; label: string; path: string }[] = 
   { key: "employees", label: "Funcionários", path: "/app/employees" },
   { key: "benefits", label: "Benefícios", path: "/app/benefits" },
   { key: "timekeeping", label: "Controle de ponto", path: "/app/timekeeping" },
+  { key: "afastados", label: "Afastados", path: "/app/afastados" },
   { key: "hrControl", label: "Controle RH", path: "/app/hr-control" },
   { key: "notifications", label: "Notificações", path: "/app/notifications" },
   { key: "monitoring", label: "Monitoramento", path: "/app/monitoring" },

@@ -1,14 +1,11 @@
 import type { Employee } from "@/types/domain";
+import { employeeLeaveEntryForDate } from "@/modules/employeeProcesses/utils/leavePeriods";
 
 export const SUSPENSION_MAX_DOCUMENTS = 2;
 
 export function isEmployeeSuspendedOnDate(employee: Employee, date: string) {
-  const fields = employee.registrationData || {};
-  const start = String(fields.suspensionStartDate || "");
-  const end = String(fields.suspensionEndDate || "");
-
-  if (employee.status === "terminated" || !start || !end || !date) return false;
-  return start <= date && date <= end;
+  if (employee.status === "terminated" || !date) return false;
+  return Boolean(employeeLeaveEntryForDate(employee, date)?.kind === "suspension");
 }
 
 export function suspensionDays(start: string, end: string) {

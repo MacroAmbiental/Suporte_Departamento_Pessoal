@@ -2377,20 +2377,22 @@ button:disabled:hover {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 12000;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   padding: 24px;
+  overflow: hidden;
   background: rgba(15, 32, 44, 0.38);
+  isolation: isolate;
 }
 
 .modal-panel,
 .confirm-modal {
   width: min(100%, 980px);
-  max-height: calc(100vh - 48px);
+  max-height: min(90vh, 920px);
   overflow: auto;
   border: 1px solid #d8e4ee;
   border-radius: 8px;

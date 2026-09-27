@@ -42,6 +42,7 @@ const navItems: {
     { to: "/app/records", label: "Registros", icon: Files, screen: "records" },
     { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications", subpage: "notificacoes" },
     { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
+    { to: "/app/afastados", label: "Afastados", icon: CalendarClock, screen: "afastados" },
     { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping", subpage: "controle-ponto" },
     { to: "/app/ferias", label: "Férias", icon: Plane, screen: "vacation", subpage: "ferias" },
     { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },

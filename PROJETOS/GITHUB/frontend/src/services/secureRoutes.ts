@@ -9,6 +9,7 @@ const screenSlugs: Record<AppScreen, string> = {
   employees: "funcionarios",
   benefits: "beneficios",
   timekeeping: "controle-ponto",
+  afastados: "afastados",
   hrControl: "controle-rh",
   talentBank: "banco-talentos",
   notifications: "notificacoes",

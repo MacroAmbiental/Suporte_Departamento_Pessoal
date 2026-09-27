@@ -81,6 +81,17 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "timekeepingColumns",
     // timeRecords é consultado por mês no módulo de ponto.
   ],
+  afastados: [
+    "companies",
+    "companyGroups",
+    "companyGroupCompanies",
+    "departments",
+    "sectors",
+    "subsectors",
+    "teams",
+    "employees",
+    "dismissedEmployees",
+  ],
   hrControl: [
     "companies",
     "companyGroups",

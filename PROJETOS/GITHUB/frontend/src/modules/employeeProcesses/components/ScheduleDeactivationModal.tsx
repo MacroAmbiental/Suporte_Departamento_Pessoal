@@ -34,6 +34,7 @@ import { processEntryDate } from "../utils/processEntryDate";
 import { isInExperience } from "../utils/experience";
 import { justCauseReasons, parseJustCauseReasons } from "../utils/justCauseReasons";
 import MultiSelect from "@/common/components/MultiSelect";
+import { leaveReasons, licenseReasons } from "@/modules/hrControl/constants/absences";
 
 const modeDetails = {
   without_cause: { icon: FileText, description: "Escolha entre aviso indenizado ou trabalhado." },
@@ -43,12 +44,16 @@ const modeDetails = {
   abandonment: { icon: AlertTriangle, description: "Abandono de emprego." },
   quick: { icon: Zap, description: "Desligamento na experiência, conforme a data escolhida." },
   suspension: { icon: PauseCircle, description: "Afaste o funcionário sem encerrar o vínculo." },
+  leave: { icon: CalendarClock, description: "Registre um afastamento por incapacidade ou outro motivo." },
+  license: { icon: CalendarDays, description: "Registre uma licença com início e fim definidos." },
 } as const;
 
 const experienceDismissalTypes = ["Demissão sem justa causa", "Rescisão indireta", "Demissão por justa causa", "Pedido de demissão", "Demissão consensual"] as const;
+const leaveTypeOptions = ["Incapacidade Temporária", "Incapacidade Temporária acidentário", "Afastamento por invalidez", "Suspensão"] as const;
+const licenseTypeOptions = [...licenseReasons] as const;
 
 type DeactivationMode = (typeof dismissalModeOptions)[number] | "quick";
-type FormMode = DeactivationMode | "suspension";
+type FormMode = DeactivationMode | "suspension" | "leave" | "license";
 
 function normalizeCoordinatorRole(value: string) {
   return value.trim().toLocaleLowerCase("pt-BR");
@@ -91,6 +96,16 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
   const [suspensionReason, setSuspensionReason] = useState(employee.registrationData?.suspensionReason || "");
   const [suspensionCoordinatorId, setSuspensionCoordinatorId] = useState(employee.registrationData?.suspensionCoordinatorEmployeeId || "");
   const [suspensionDocuments, setSuspensionDocuments] = useState<File[]>([]);
+  const [leaveType, setLeaveType] = useState(employee.registrationData?.leaveType || "");
+  const [leaveStartDate, setLeaveStartDate] = useState(employee.registrationData?.leaveStartDate || today);
+  const [leaveEndDate, setLeaveEndDate] = useState(employee.registrationData?.leaveEndDate || today);
+  const [leaveReason, setLeaveReason] = useState(employee.registrationData?.leaveReason || employee.registrationData?.absenceReason || "");
+  const [leaveDocuments, setLeaveDocuments] = useState<File[]>([]);
+  const [licenseType, setLicenseType] = useState(employee.registrationData?.licenseType || "");
+  const [licenseStartDate, setLicenseStartDate] = useState(employee.registrationData?.licenseStartDate || today);
+  const [licenseEndDate, setLicenseEndDate] = useState(employee.registrationData?.licenseEndDate || today);
+  const [licenseReason, setLicenseReason] = useState(employee.registrationData?.licenseReason || employee.registrationData?.absenceReason || "");
+  const [licenseDocuments, setLicenseDocuments] = useState<File[]>([]);
   const [variant, setVariant] = useState("");
   const [initiative, setInitiative] = useState("");
   const [justCauseReasonValues, setJustCauseReasonValues] = useState(() => parseJustCauseReasons(employee.registrationData?.dismissalJustCauseReasons));
@@ -179,6 +194,22 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
     event.target.value = "";
   }
 
+  function handleLeaveFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const incoming = Array.from(event.target.files || []);
+    if (!incoming.length) return;
+    const accepted = incoming.filter((file) => file.type === "application/pdf" || file.type.startsWith("image/"));
+    setLeaveDocuments((current) => [...current, ...accepted]);
+    event.target.value = "";
+  }
+
+  function handleLicenseFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const incoming = Array.from(event.target.files || []);
+    if (!incoming.length) return;
+    const accepted = incoming.filter((file) => file.type === "application/pdf" || file.type.startsWith("image/"));
+    setLicenseDocuments((current) => [...current, ...accepted]);
+    event.target.value = "";
+  }
+
   const selectedCoordinator = coordinatorOptions.find((item) => item.id === suspensionCoordinatorId);
   const suspensionDuration = suspensionDays(suspensionStartDate, suspensionEndDate);
   const selectedDateBeforeEnd = experienceProcessActive && Boolean(experienceEndDate && date < experienceEndDate);
@@ -262,6 +293,142 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
       return;
     }
 
+    if (mode === "leave") {
+      if (!leaveType.trim() || !leaveStartDate || !leaveEndDate || leaveEndDate < leaveStartDate) {
+        setError("Informe o tipo e o período válido para o afastamento.");
+        return;
+      }
+      if (leaveStartDate < current.admissionDate) {
+        setError("O afastamento não pode começar antes da admissão.");
+        return;
+      }
+
+      setSaving(true); setError("");
+      try {
+        const now = new Date().toISOString();
+        const company = data.companies.find((item) => item.id === current.companyId);
+        const department = data.departments.find((item) => item.id === current.departmentId);
+        const sector = data.sectors.find((item) => item.id === current.sectorId);
+        const subsector = data.subsectors.find((item) => item.id === current.subsectorId);
+        const folderPath = [company?.name, department?.name, sector?.name, subsector?.name, current.name, "Afastamentos"].filter(Boolean).join(" / ");
+        const uploadedLeaveDocuments: EmployeeDocument[] = [];
+
+        for (const file of leaveDocuments) {
+          const fileUrl = await uploadEmployeeDocumentFile(current.id, file);
+          const savedDocument = await data.upsertEmployeeDocument({
+            companyId: current.companyId,
+            groupId: current.groupId || "",
+            departmentId: current.departmentId,
+            sectorId: current.sectorId,
+            subsectorId: current.subsectorId || "",
+            employeeId: current.id,
+            name: `Afastamento - ${file.name}`,
+            kind: documentKindForFile(file),
+            folderPath,
+            fileUrl,
+            size: formatFileSize(file.size),
+            realizedDate: "",
+            expirationDate: "",
+            active: true,
+            createdAt: now,
+            attachmentDate: now,
+            updatedAt: now,
+          });
+          uploadedLeaveDocuments.push(savedDocument);
+        }
+
+        await data.upsertEmployee({
+          ...current,
+          status: current.status,
+          registrationData: {
+            ...(current.registrationData || {}),
+            leaveType: leaveType.trim(),
+            leaveStartDate,
+            leaveEndDate,
+            leaveReason: leaveReason.trim(),
+            leaveDocumentIds: JSON.stringify(uploadedLeaveDocuments.map((item) => item.id)),
+            leaveDocumentNames: JSON.stringify(uploadedLeaveDocuments.map((item) => item.name)),
+            leaveStatus: leaveStartDate <= today && today <= leaveEndDate ? "active" : "scheduled",
+          },
+          updatedAt: now,
+        });
+        onClose();
+      } catch {
+        setError("Não foi possível salvar o afastamento. Verifique os documentos e tente novamente.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (mode === "license") {
+      if (!licenseType.trim() || !licenseStartDate || !licenseEndDate || licenseEndDate < licenseStartDate) {
+        setError("Informe o tipo e o período válido para a licença.");
+        return;
+      }
+      if (licenseStartDate < current.admissionDate) {
+        setError("A licença não pode começar antes da admissão.");
+        return;
+      }
+
+      setSaving(true); setError("");
+      try {
+        const now = new Date().toISOString();
+        const company = data.companies.find((item) => item.id === current.companyId);
+        const department = data.departments.find((item) => item.id === current.departmentId);
+        const sector = data.sectors.find((item) => item.id === current.sectorId);
+        const subsector = data.subsectors.find((item) => item.id === current.subsectorId);
+        const folderPath = [company?.name, department?.name, sector?.name, subsector?.name, current.name, "Licenças"].filter(Boolean).join(" / ");
+        const uploadedLicenseDocuments: EmployeeDocument[] = [];
+
+        for (const file of licenseDocuments) {
+          const fileUrl = await uploadEmployeeDocumentFile(current.id, file);
+          const savedDocument = await data.upsertEmployeeDocument({
+            companyId: current.companyId,
+            groupId: current.groupId || "",
+            departmentId: current.departmentId,
+            sectorId: current.sectorId,
+            subsectorId: current.subsectorId || "",
+            employeeId: current.id,
+            name: `Licença - ${file.name}`,
+            kind: documentKindForFile(file),
+            folderPath,
+            fileUrl,
+            size: formatFileSize(file.size),
+            realizedDate: "",
+            expirationDate: "",
+            active: true,
+            createdAt: now,
+            attachmentDate: now,
+            updatedAt: now,
+          });
+          uploadedLicenseDocuments.push(savedDocument);
+        }
+
+        await data.upsertEmployee({
+          ...current,
+          status: current.status,
+          registrationData: {
+            ...(current.registrationData || {}),
+            licenseType: licenseType.trim(),
+            licenseStartDate,
+            licenseEndDate,
+            licenseReason: licenseReason.trim(),
+            licenseDocumentIds: JSON.stringify(uploadedLicenseDocuments.map((item) => item.id)),
+            licenseDocumentNames: JSON.stringify(uploadedLicenseDocuments.map((item) => item.name)),
+            licenseStatus: licenseStartDate <= today && today <= licenseEndDate ? "active" : "scheduled",
+          },
+          updatedAt: now,
+        });
+        onClose();
+      } catch {
+        setError("Não foi possível salvar a licença. Verifique os documentos e tente novamente.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     const requiresDismissalDetails = Boolean(mode);
     if (!mode || !effectiveDate || !workedOnDate || (needsConfirmation && !riskConfirmed)) return;
     if (needsVariant && !variant) { setError("Selecione a opção deste desligamento."); return; }
@@ -336,14 +503,21 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
     finally { setSaving(false); }
   }
 
-  const optionEntries: Array<[FormMode, string]> = [
+  const dismissalOptionEntries: Array<[FormMode, string]> = [
     ...dismissalModeOptions.map((key) => [key, terminationModes[key]] as [FormMode, string]),
     ...(experienceProcessActive && !quickModeLocked ? [["quick", terminationModes.quick] as [FormMode, string]] : []),
+  ];
+
+  const leaveOptionEntries: Array<[FormMode, string]> = [
     ["suspension", "Suspensão"],
+    ["leave", "Afastamento"],
+    ["license", "Licença"],
   ];
 
   const isSuspension = mode === "suspension";
-  const requiresDismissalDetails = Boolean(mode) && mode !== "suspension";
+  const isLeave = mode === "leave";
+  const isLicense = mode === "license";
+  const requiresDismissalDetails = Boolean(mode) && !isSuspension && !isLeave && !isLicense;
 
   return createPortal(<div className="modal-backdrop deactivation-backdrop employee-schedule-backdrop">
     <form className="modal-panel deactivation-modal employee-schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-deactivation-title" onSubmit={save}>
@@ -353,14 +527,28 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
           <h3 className="deactivation-section-title">Tipo de desligamento</h3>
           {contractEmployee && <p className="muted">{contractTerminationRestriction}</p>}
           <div className="deactivation-options" role="radiogroup" aria-label="Tipo de desligamento">
-            {optionEntries.map(([value, label]) => {
+            {dismissalOptionEntries.map(([value, label]) => {
               const detail = modeDetails[value as keyof typeof modeDetails];
               const Icon = detail.icon;
               const contractBlocked = !canUseTerminationMode(employee, value);
-              const locked = contractBlocked || (value === "quick" ? quickModeLocked : value === "suspension" || (contractEmployee && value === "contract_end") ? false : cltModesLockedDuringExperience);
-              return <label key={value} className={`deactivation-option${mode === value ? " is-selected" : ""}${value === "quick" ? " is-quick" : ""}${value === "suspension" ? " is-suspension" : ""}${locked ? " is-locked" : ""}`} aria-disabled={locked}>
+              const locked = contractBlocked || (value === "quick" ? quickModeLocked : (contractEmployee && value === "contract_end") ? false : cltModesLockedDuringExperience);
+              return <label key={value} className={`deactivation-option${mode === value ? " is-selected" : ""}${value === "quick" ? " is-quick" : ""}${locked ? " is-locked" : ""}`} aria-disabled={locked}>
                 <input type="radio" name="termination-mode" value={value} checked={mode === value} required disabled={locked} onChange={() => { if (locked) return; setMode(value); setVariant(""); setInitiative(""); setRiskConfirmed(false); setError(""); }} />
                 <Icon size={21} /><span><strong>{label}</strong><small>{detail.description}</small>{contractBlocked && <small className="deactivation-option-lock-note">Bloqueado para Funcionário - Contrato.</small>}{locked && value === "quick" && cltModeUnlocked && <small className="deactivation-option-lock-note">Bloqueado para desligamentos após a experiência.</small>}</span>
+              </label>;
+            })}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 24 }}>
+          <h3 className="deactivation-section-title">Tipo de Afastamento</h3>
+          <div className="deactivation-options" role="radiogroup" aria-label="Tipo de afastamento">
+            {leaveOptionEntries.map(([value, label]) => {
+              const detail = modeDetails[value as keyof typeof modeDetails];
+              const Icon = detail.icon;
+              return <label key={value} className={`deactivation-option${mode === value ? " is-selected" : ""}${value === "suspension" ? " is-suspension" : ""}`} aria-disabled={false}>
+                <input type="radio" name="leave-mode" value={value} checked={mode === value} onChange={() => { setMode(value); setVariant(""); setInitiative(""); setRiskConfirmed(false); setError(""); }} />
+                <Icon size={21} /><span><strong>{label}</strong><small>{detail.description}</small></span>
               </label>;
             })}
           </div>
@@ -389,6 +577,42 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
               {suspensionDocuments.length ? <div className="suspension-document-list">{suspensionDocuments.map((file, index) => <div className="suspension-document-item" key={`${file.name}-${file.lastModified}-${index}`}><FileText size={17} /><div><strong>{file.name}</strong><small>{formatFileSize(file.size)} · {file.type === "application/pdf" ? "PDF" : "Imagem"}</small></div><button type="button" className="icon-button" aria-label={`Remover ${file.name}`} onClick={() => setSuspensionDocuments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button></div>)}</div> : <p className="suspension-no-documents">Nenhum documento anexado.</p>}
             </div>
           </>
+        ) : isLeave ? (
+          <div className="suspension-period-card">
+            <div className="deactivation-date-heading"><div><h3 className="deactivation-section-title">Período do afastamento</h3><p className="muted">Selecione a modalidade e o intervalo do afastamento.</p></div><CalendarClock size={22} /></div>
+            <div className="suspension-period-grid">
+              <label className="field"><span>Modalidade do afastamento</span><select required value={leaveType} onChange={(event) => setLeaveType(event.target.value)}><option value="">Selecione</option>{leaveTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+              <label className="field"><span>Motivo</span><input type="text" value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} placeholder="Descreva o motivo" /></label>
+            </div>
+            <div className="suspension-period-grid" style={{ marginTop: 16 }}>
+              <label className="field"><span>Início do afastamento</span><input type="date" required min={employee.admissionDate} value={leaveStartDate} onChange={(event) => setLeaveStartDate(event.target.value)} /></label>
+              <label className="field"><span>Fim do afastamento</span><input type="date" required min={leaveStartDate || employee.admissionDate} value={leaveEndDate} onChange={(event) => setLeaveEndDate(event.target.value)} /></label>
+            </div>
+
+            <div className="suspension-documents-card">
+              <div><h3 className="deactivation-section-title">Documentos do afastamento</h3><p className="muted">Anexe comprovantes ou documentos relacionados ao afastamento.</p></div>
+              <label className="suspension-upload-button"><Upload size={17} /><span>Anexar documento</span><input type="file" accept=".pdf,application/pdf,image/*" multiple onChange={handleLeaveFiles} /></label>
+              {leaveDocuments.length ? <div className="suspension-document-list">{leaveDocuments.map((file, index) => <div className="suspension-document-item" key={`${file.name}-${file.lastModified}-${index}`}><FileText size={17} /><div><strong>{file.name}</strong><small>{formatFileSize(file.size)} · {file.type === "application/pdf" ? "PDF" : "Imagem"}</small></div><button type="button" className="icon-button" aria-label={`Remover ${file.name}`} onClick={() => setLeaveDocuments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button></div>)}</div> : <p className="suspension-no-documents">Nenhum documento anexado.</p>}
+            </div>
+          </div>
+        ) : isLicense ? (
+          <div className="suspension-period-card">
+            <div className="deactivation-date-heading"><div><h3 className="deactivation-section-title">Período da licença</h3><p className="muted">Selecione a licença e o intervalo correspondente.</p></div><CalendarDays size={22} /></div>
+            <div className="suspension-period-grid">
+              <label className="field"><span>Modalidade da licença</span><select required value={licenseType} onChange={(event) => setLicenseType(event.target.value)}><option value="">Selecione</option>{licenseTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+              <label className="field"><span>Motivo</span><input type="text" value={licenseReason} onChange={(event) => setLicenseReason(event.target.value)} placeholder="Descreva o motivo" /></label>
+            </div>
+            <div className="suspension-period-grid" style={{ marginTop: 16 }}>
+              <label className="field"><span>Início da licença</span><input type="date" required min={employee.admissionDate} value={licenseStartDate} onChange={(event) => setLicenseStartDate(event.target.value)} /></label>
+              <label className="field"><span>Fim da licença</span><input type="date" required min={licenseStartDate || employee.admissionDate} value={licenseEndDate} onChange={(event) => setLicenseEndDate(event.target.value)} /></label>
+            </div>
+
+            <div className="suspension-documents-card">
+              <div><h3 className="deactivation-section-title">Documentos da licença</h3><p className="muted">Anexe documentos que comprovem ou acompanhem a licença.</p></div>
+              <label className="suspension-upload-button"><Upload size={17} /><span>Anexar documento</span><input type="file" accept=".pdf,application/pdf,image/*" multiple onChange={handleLicenseFiles} /></label>
+              {licenseDocuments.length ? <div className="suspension-document-list">{licenseDocuments.map((file, index) => <div className="suspension-document-item" key={`${file.name}-${file.lastModified}-${index}`}><FileText size={17} /><div><strong>{file.name}</strong><small>{formatFileSize(file.size)} · {file.type === "application/pdf" ? "PDF" : "Imagem"}</small></div><button type="button" className="icon-button" aria-label={`Remover ${file.name}`} onClick={() => setLicenseDocuments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button></div>)}</div> : <p className="suspension-no-documents">Nenhum documento anexado.</p>}
+            </div>
+          </div>
         ) : (
           <>
             {mode && <div className="deactivation-date-layout has-side-details">
@@ -429,7 +653,7 @@ export default function ScheduleDeactivationModal({ employee, initialQuickDismis
         )}
         {error && <p role="alert">{error}</p>}
       </fieldset>
-      <div className="modal-footer"><button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>Cancelar</button><button type="submit" className={`btn btn-primary${mode === "quick" ? " deactivation-submit-quick" : isSuspension ? " deactivation-submit-suspension" : ""}`} disabled={saving || (isSuspension ? !suspensionStartDate || !suspensionEndDate || !suspensionReason.trim() || !suspensionCoordinatorId || suspensionEndDate < suspensionStartDate : !mode || !effectiveDate || !workedOnDate || (needsConfirmation && !riskConfirmed) || (needsVariant && !variant) || (mode === "contract_end" && !initiative) || (mode === "quick" && !experienceDismissalType) || (indemnifiedNotice && (!projectionEnd || projectionEnd < effectiveDate)))}><Save size={16} />{saving ? "Salvando..." : isSuspension ? "Confirmar suspensão" : mode === "quick" ? "Desativar agora" : "Confirmar agendamento"}</button></div>
+      <div className="modal-footer"><button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>Cancelar</button><button type="submit" className={`btn btn-primary${mode === "quick" ? " deactivation-submit-quick" : isSuspension ? " deactivation-submit-suspension" : ""}`} disabled={saving || (isSuspension ? !suspensionStartDate || !suspensionEndDate || !suspensionReason.trim() || !suspensionCoordinatorId || suspensionEndDate < suspensionStartDate : isLeave ? !leaveType.trim() || !leaveStartDate || !leaveEndDate || leaveEndDate < leaveStartDate : isLicense ? !licenseType.trim() || !licenseStartDate || !licenseEndDate || licenseEndDate < licenseStartDate : !mode || !effectiveDate || !workedOnDate || (needsConfirmation && !riskConfirmed) || (needsVariant && !variant) || (mode === "contract_end" && !initiative) || (mode === "quick" && !experienceDismissalType) || (indemnifiedNotice && (!projectionEnd || projectionEnd < effectiveDate)))}><Save size={16} />{saving ? "Salvando..." : isSuspension ? "Confirmar suspensão" : isLeave ? "Confirmar afastamento" : isLicense ? "Confirmar licença" : mode === "quick" ? "Desativar agora" : "Confirmar agendamento"}</button></div>
 
       {experienceProcessActive && cltConfirmationOpen && !isSuspension && <div className="experience-clt-confirmation-backdrop">
         <div className="experience-clt-confirmation" role="dialog" aria-modal="true" aria-labelledby="experience-clt-confirmation-title">

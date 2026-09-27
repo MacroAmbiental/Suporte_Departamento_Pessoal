@@ -12,12 +12,13 @@
   background: rgba(15, 32, 44, 0.42) !important;
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
-  overflow-y: auto;
+  overflow: hidden !important;
   overscroll-behavior: contain;
+  isolation: isolate;
 }
 
 :is(.modal-backdrop, .modal-overlay) {
-  z-index: 10000 !important;
+  z-index: 12000 !important;
 }
 
 :is(.process-drawer-backdrop, .experience-clt-confirmation-backdrop) {

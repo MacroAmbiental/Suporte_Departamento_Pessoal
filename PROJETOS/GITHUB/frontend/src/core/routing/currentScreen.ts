@@ -8,6 +8,7 @@ const legacyScreenPaths: Array<[RegExp, AppScreen]> = [
   [/^\/app\/(employees|funcionarios)\/?$/, "employees"],
   [/^\/app\/(benefits|beneficios)\/?$/, "benefits"],
   [/^\/app\/(timekeeping|controle-ponto)\/?$/, "timekeeping"],
+  [/^\/app\/(afastados)\/?$/, "afastados"],
   [/^\/app\/(hr-control|controle-rh)\/?$/, "hrControl"],
   [/^\/app\/(talent-bank|banco-talentos)\/?$/, "talentBank"],
   [/^\/app\/(notifications|notificacoes)\/?$/, "notifications"],

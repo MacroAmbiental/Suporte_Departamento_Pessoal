@@ -90,7 +90,7 @@ import {
 } from "@/common/utils/groupStructure";
 import { badgeClass, labelStatus, todayISO } from "@/utils/format";
 import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
-import { isEmployeeSuspendedOnDate } from "@/modules/employeeProcesses/utils/suspension";
+import { employeeLeaveEntryForDate, isEmployeeLeaveOnDate } from "@/modules/employeeProcesses/utils/leavePeriods";
 
 const fallbackStatuses: AttendanceStatus[] = [
   "present",
@@ -121,7 +121,8 @@ function employeeKindLabel(employee: Employee) {
 
 function employeeProcessBadge(employee: Employee, date: string) {
   const fields = employee.registrationData || {};
-  if (isEmployeeSuspendedOnDate(employee, date)) return "Suspensão";
+  const leaveEntry = employee.registrationData ? employeeLeaveEntryForDate(employee, date) : undefined;
+  if (leaveEntry) return leaveEntry.kind === "suspension" ? "Suspensão" : leaveEntry.label;
   const mode = String(fields.terminationMode || "");
   const end = String(
     fields.noticeEndDate ||
@@ -1793,9 +1794,9 @@ function createDisplayRecord(
   const normalLimitMinutes = normalLimitMinutesForEmployeeDate(employee, date, settings);
   const scheduleDefaults = scheduleDefaultsForDate(employee, date, settings);
   const noticeAdjustment = noticeWorkAdjustment(employee, date);
-  const suspensionDay = isEmployeeSuspendedOnDate(employee, date);
-  const status = suspensionDay
-    ? "absence_confirmed"
+  const leaveDay = isEmployeeLeaveOnDate(employee, date);
+  const status = leaveDay
+    ? "leave"
     : noticeAdjustment === "leave" && (!existing?.status || isFullDayAbsenceStatus(existing.status)) ? "day_off" :
     existing?.status ||
     (isHoliday(date, settings) || normalLimitMinutes <= 0
