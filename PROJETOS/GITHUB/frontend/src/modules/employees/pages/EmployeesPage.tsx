@@ -8,6 +8,10 @@ export default function EmployeesPage() {
   const employeeId = params.get("employeeId") || "";
   const modal = params.get("modal");
   const quickDismissal = params.get("quickDismissal");
+  const companyIds = (params.get("companyIds") || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 
   if (params.get("tab") === "processos") return <EmployeeProcesses />;
   return (
@@ -17,6 +21,7 @@ export default function EmployeesPage() {
         initialEmployeeId={employeeId}
         initialModal={modal === "deactivate" ? "deactivate" : undefined}
         initialQuickDismissal={quickDismissal === "quick" || quickDismissal === "warning" ? quickDismissal : undefined}
+        initialCompanyIds={companyIds}
       />
     </EmployeesProvider>
   );

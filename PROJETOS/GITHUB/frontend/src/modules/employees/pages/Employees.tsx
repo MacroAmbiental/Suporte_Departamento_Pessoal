@@ -593,11 +593,13 @@ export default function Employees({
   initialModal,
   initialQuickDismissal,
   showTerminatedOnly = false,
+  initialCompanyIds = [],
 }: {
   initialEmployeeId?: string;
   initialModal?: "deactivate";
   initialQuickDismissal?: "quick" | "warning";
   showTerminatedOnly?: boolean;
+  initialCompanyIds?: string[];
 }) {
   const data = useDomainData();
   const employeeSource = useMemo(() => {
@@ -659,7 +661,12 @@ export default function Employees({
     birthdayDate: "",
     search: "",
   };
-  const [filters, setFilters] = useState(initialEmployeeFilters);
+  const [filters, setFilters] = useState(() => ({ ...initialEmployeeFilters, companyIds: initialCompanyIds }));
+
+  useEffect(() => {
+    if (!initialCompanyIds.length) return;
+    setFilters((current) => ({ ...current, companyIds: initialCompanyIds }));
+  }, [initialCompanyIds]);
   const [sensitiveDataVisible, setSensitiveDataVisible] = useState(false);
   const [sensitivePasswordModalOpen, setSensitivePasswordModalOpen] = useState(false);
   const [sensitivePassword, setSensitivePassword] = useState("");

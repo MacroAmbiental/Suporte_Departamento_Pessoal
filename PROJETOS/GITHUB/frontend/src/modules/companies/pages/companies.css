@@ -1198,6 +1198,252 @@
   box-shadow: 0 0 0 2px rgba(7, 150, 107, 0.05);
 }
 
+.group-wizard-department-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8e3ea;
+  border-radius: 14px;
+  background: #f8fbfb;
+}
+
+.group-wizard-department-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.group-wizard-department-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.group-wizard-department-header span {
+  color: #5c7585;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.group-wizard-department-header strong {
+  color: #18384f;
+  font-size: 18px;
+}
+
+.group-wizard-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-wizard-inline-add,
+.group-wizard-department-toggle,
+.group-wizard-subsector-toggle {
+  border: 1px solid #cfe2d9;
+  border-radius: 10px;
+  background: #edf9f4;
+  color: #0a7d5d;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 8px 12px;
+}
+
+.group-wizard-inline-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-width: 36px;
+  padding: 8px;
+}
+
+.group-wizard-subsector-toggle {
+  background: #eefaf3;
+}
+
+.group-wizard-sector-children {
+  display: grid;
+  gap: 12px;
+  margin-left: 22px;
+  padding-left: 14px;
+  border-left: 2px solid #cfe8dd;
+}
+
+.group-wizard-sector-children-header {
+  color: #2f6477;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.group-wizard-sector-card {
+  border-color: #cfe4d7 !important;
+  background: #edfaf5 !important;
+}
+
+.group-wizard-sector-card .group-selected-unit-header {
+  background: #e5f5ee !important;
+}
+
+.group-wizard-subsector-card {
+  border-color: #f2d9b7 !important;
+  background: #fff8ef !important;
+}
+
+.group-wizard-subsector-card .group-selected-unit-header {
+  background: #fef1df !important;
+}
+
+.group-wizard-sector-empty {
+  padding: 12px 14px;
+  border: 1px dashed #cfe3d7;
+  border-radius: 12px;
+  background: #f5fbf8;
+  color: #5b7d73;
+  font-size: 13px;
+}
+
+.group-wizard-subsector-children {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px dashed #d2e7dc;
+  border-radius: 12px;
+  background: #f6fcf9;
+}
+
+.group-wizard-subsector-children-header {
+  color: #417b6d;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.group-wizard-subsector-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-wizard-subsector-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid #d7e7dd;
+  border-radius: 999px;
+  background: #ecf9f3;
+  color: #0d6a54;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.group-wizard-team-board {
+  display: grid;
+  gap: 16px;
+}
+
+.group-wizard-team-section {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dfe9ef;
+  border-radius: 14px;
+  background: #f7fafb;
+}
+
+.group-wizard-team-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.group-wizard-team-section-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.group-wizard-team-section-header span {
+  color: #5d788a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.group-wizard-team-section-header strong {
+  color: #18384f;
+  font-size: 20px;
+}
+
+.group-wizard-team-list {
+  display: grid;
+  gap: 12px;
+}
+
+.group-wizard-team-card {
+  overflow: hidden;
+  border: 1px solid #dfe6ea;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.group-wizard-team-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5edf0;
+  background: #f3f7f8;
+}
+
+.group-wizard-team-card-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.group-wizard-team-card-header span {
+  color: #698293;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.group-wizard-team-card-header strong {
+  color: #18384f;
+  font-size: 16px;
+}
+
+.group-wizard-team-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-wizard-team-empty {
+  padding: 12px 14px;
+  border: 1px dashed #d7e4ea;
+  border-radius: 12px;
+  background: #fbfcfd;
+  color: #6d8390;
+  font-size: 13px;
+}
+
+.group-wizard-team-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+
 .group-selected-unit-header {
   padding: 12px 14px;
   border-bottom: 1px solid #e6edef;

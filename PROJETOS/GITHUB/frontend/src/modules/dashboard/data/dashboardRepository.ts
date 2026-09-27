@@ -4,6 +4,7 @@ import {
   getCountFromServer,
   query,
   sum,
+  where,
 } from "firebase/firestore";
 import { firestore } from "@/services/firebase";
 
@@ -29,9 +30,14 @@ let cachedMetrics: { value: DashboardMetrics; loadedAt: number } | null = null;
 let pendingMetrics: Promise<DashboardMetrics> | null = null;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-async function collectionCount(name: string) {
+async function collectionCount(name: string, filterField?: string, filterValue?: string) {
   if (!firestore) return 0;
-  const snapshot = await getCountFromServer(query(collection(firestore, name)));
+
+  const baseQuery = filterField && filterValue !== undefined
+    ? query(collection(firestore, name), where(filterField, "!=", filterValue))
+    : query(collection(firestore, name));
+
+  const snapshot = await getCountFromServer(baseQuery);
   return snapshot.data().count;
 }
 
@@ -56,7 +62,7 @@ export async function loadDashboardMetrics(force = false): Promise<DashboardMetr
 
   pendingMetrics = Promise.all([
     collectionCount("companies"),
-    collectionCount("employees"),
+    collectionCount("employees", "status", "terminated"),
     collectionCount("employeeDocuments"),
     collectionCount("benefitPlans"),
     collectionCount("talentCandidates"),

@@ -12,6 +12,7 @@ import {
   structureScopePayload,
 } from "@/common/utils/groupStructure";
 import { isSystemTiUser } from "@/services/accessControl";
+import { securePath } from "@/services/secureRoutes";
 import type {
   BenefitType,
   CustomModule,
@@ -33,6 +34,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  Copy,
   Edit2,
   Eye,
   GitBranch,
@@ -81,6 +83,8 @@ type CompanyGroupUnit = {
   parentUnitId?: string;
   links: GroupUnitLink[];
   coordinatorEmployeeId: string;
+  leaderEmployeeId?: string;
+  responsibleEmployeeIds?: string[];
 };
 
 type GroupDivergenceMode = "keep_existing" | "use_reference" | "copy_from_source";
@@ -117,7 +121,7 @@ const groupUnitTypeLabels: Record<GroupUnitType, string> = {
   team: "Equipe",
 };
 
-type GroupWizardStep = 1 | 2 | 3;
+type GroupWizardStep = 1 | 2 | 3 | 4;
 
 type GroupSimilarity = {
   overall: number;
@@ -335,6 +339,9 @@ export default function Companies() {
   const [groupWizardOpen, setGroupWizardOpen] = useState(false);
   const [groupWizardStep, setGroupWizardStep] = useState<GroupWizardStep>(1);
   const [groupStructureFilter, setGroupStructureFilter] = useState<GroupUnitType | "all">("all");
+  const [groupWizardLevelTab, setGroupWizardLevelTab] = useState<GroupUnitType>("department");
+  const [groupWizardExpandedDepartments, setGroupWizardExpandedDepartments] = useState<Record<string, boolean>>({});
+  const [groupWizardExpandedSectors, setGroupWizardExpandedSectors] = useState<Record<string, boolean>>({});
   const [groupDetailId, setGroupDetailId] = useState("");
   const [groupDetailTab, setGroupDetailTab] = useState<"structure" | "employees">("structure");
   const [groupStructureView, setGroupStructureView] = useState<StructureView>("tree");
@@ -609,6 +616,23 @@ export default function Companies() {
     </select>
   );
 
+  const MultiEmployeeSelect = ({ value, onChange, disabled = false }: { value: string[]; onChange: (value: string[]) => void; disabled?: boolean }) => (
+    <select
+      multiple
+      size={Math.min(6, Math.max(3, wizardCompanyEmployees.length || 3))}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => {
+        const selectedValues = Array.from(event.target.selectedOptions, (option) => option.value);
+        onChange(selectedValues);
+      }}
+    >
+      {wizardCompanyEmployees.map((employee) => (
+        <option key={employee.id} value={employee.id}>{employee.name}</option>
+      ))}
+    </select>
+  );
+
   function groupIdForCompany(companyIdValue: string) {
     return `group-company-${companyIdValue}`;
   }
@@ -695,10 +719,17 @@ export default function Companies() {
   }
 
   function groupUnitResponsibleLabel(type: GroupUnitType) {
-    if (type === "sector") return "Coordenador do setor no grupo";
-    if (type === "department") return "Responsável do departamento no grupo";
+    if (type === "sector") return "Responsáveis do setor no grupo";
+    if (type === "department") return "Responsáveis do departamento no grupo";
+    if (type === "subsector") return "Responsáveis do subsetor no grupo";
+    return "Responsáveis da equipe no grupo";
+  }
+
+  function groupUnitLeaderLabel(type: GroupUnitType) {
+    if (type === "sector") return "Líder do setor no grupo";
+    if (type === "department") return "Líder do departamento no grupo";
     if (type === "subsector") return "Líder do subsetor no grupo";
-    return "Responsável da equipe no grupo";
+    return "Líder da equipe no grupo";
   }
 
   function groupLeadershipRoleForUnit(type: GroupUnitType): EmployeeAssignmentRole {
@@ -2742,13 +2773,10 @@ function clearDatabaseFromScreen() {
     const ActionButtons = ({ onEdit, onToggle, onDelete, onStructure, active = true }: any) => (
       <div className="table-actions">
         {onStructure && (
-        <button className="btn btn-secondary" type="button" onClick={onStructure}
-          title="Ver estrutura" aria-label="Ver estrutura"
-        >
-          <Building2 size={14} />
-        </button>
+          <button className="btn btn-secondary" type="button" onClick={onStructure} title="Ver estrutura" aria-label="Ver estrutura">
+            <Building2 size={14} />
+          </button>
         )}
-
 
         <button className="btn btn-secondary" type="button" onClick={onEdit}>
           <Edit2 size={14} />
@@ -2760,6 +2788,32 @@ function clearDatabaseFromScreen() {
 
         <button className="btn btn-secondary" type="button" onClick={onDelete}>
           <Trash2 size={14} />
+        </button>
+      </div>
+    );
+
+    const CompanyActionButtons = ({ companyId, onEdit }: { companyId: string; onEdit: () => void }) => (
+      <div className="table-actions">
+        <button
+          className="btn btn-secondary"
+          type="button"
+          title="Para ver os funcionários cadastrados nessa empresa"
+          aria-label="Para ver os funcionários cadastrados nessa empresa"
+          onClick={() => {
+            window.location.assign(`${securePath("employees")}?companyIds=${encodeURIComponent(companyId)}`);
+          }}
+        >
+          <Users size={14} />
+        </button>
+
+        <button
+          className="btn btn-secondary"
+          type="button"
+          onClick={onEdit}
+          title="Editar empresa"
+          aria-label="Editar empresa"
+        >
+          <Edit2 size={14} />
         </button>
       </div>
     );
@@ -2985,13 +3039,14 @@ function clearDatabaseFromScreen() {
     });
   }
 
-  function addManualGroupUnit() {
+  function addManualGroupUnit(type: GroupUnitType = "department", parentUnitId = "") {
     setGroupWizardDraft((current) => ({
       ...current,
       units: [...current.units, {
         id: crypto.randomUUID(),
         name: "",
-        type: "sector",
+        type,
+        parentUnitId,
         links: [],
         coordinatorEmployeeId: "",
       }],
@@ -3602,8 +3657,8 @@ function clearDatabaseFromScreen() {
           </p>
         </div>
         <div className="page-header-actions companies-header-actions">
-          <button className="btn btn-primary" type="button" onClick={openCompanyManager}>
-            <Building2 size={16} /> Empresas
+          <button className="btn btn-primary" type="button" onClick={startCreateCompanyStructure}>
+            <Building2 size={16} /> Cadastrar Empresa
           </button>
           <button className="btn btn-primary" type="button" onClick={() => openGroupWizard()}>
             <GitBranch size={16} /> Criar grupo
@@ -3740,7 +3795,7 @@ function clearDatabaseFromScreen() {
             closeForm();
           }}
         >
-          <GitBranch size={16} /> Ver grupos
+          <GitBranch size={16} /> Grupos Empresariais
         </button>
 
         {companyId && (
@@ -3909,12 +3964,9 @@ function clearDatabaseFromScreen() {
                         <td className="company-location-cell">{company.location || "-"}</td>
                         <td className="company-status-cell">{company.active === false ? "Inativa" : "Ativa"}</td>
                         <td className="company-actions-cell">
-                          <ActionButtons
-                            active={company.active}
-                            onStructure={() => openCompanyStructure(company.id)}
+                          <CompanyActionButtons
+                            companyId={company.id}
                             onEdit={() => startEditCompany(company)}
-                            onToggle={() => toggleActive(company, "upsertCompany")}
-                            onDelete={() => tryDelete("deleteCompany", company.id)}
                           />
                         </td>
                       </tr>
@@ -3943,84 +3995,54 @@ function clearDatabaseFromScreen() {
                 <tr>
                   <th>Grupo</th>
                   <th>Empresas participantes</th>
-                  <th>Estrutura do grupo</th>
-                  <th>Semelhança</th>
                   <th>Status</th>
                   <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {companyGroups.length === 0 && <EmptyRow colSpan={6} text="Nenhum grupo cadastrado." />}
-                {companyGroups.map((group) => {
-                  const similarity = groupSimilarity(group.companyIds);
-                  const groupUnits = effectiveGroupUnits(group);
-                  return (
-                    <tr key={group.id}>
-                      <td className="group-name-cell">
-                        <strong>{group.name}</strong>
-                        <small>{group.companyIds.length} empresa(s) · {data.employees.filter((employee) => group.companyIds.includes(employee.companyId)).length} funcionário(s)</small>
-                      </td>
-                      <td>
-                        <div className="group-table-company-list">
-                          {group.companyIds.map((id) => (
-                            <span key={id}>{data.companies.find((company) => company.id === id)?.name || "Empresa removida"}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="group-table-unit-summary">
-                          <strong>{groupUnits.length}</strong>
-                          <span>estrutura(s) da empresa virtual</span>
-                          {groupUnits.slice(0, 2).map((unit) => (
-                            <small key={unit.id}>{groupUnitTypeLabels[unit.type]}: {unit.name}</small>
-                          ))}
-                          {groupUnits.length > 2 && <small>+ {groupUnits.length - 2} outra(s)</small>}
-                        </div>
-                      </td>
-                      <td>
-                        <span className="group-similarity-badge">{similarity.overall}%</span>
-                      </td>
-                      <td>{group.active === false ? "Inativo" : "Ativo"}</td>
-                      <td className="company-actions-cell">
-                        <div className="table-actions group-table-actions">
-                          <button
-                            className="btn btn-secondary"
-                            type="button"
-                            title="Abrir empresa virtual"
-                            aria-label="Abrir empresa virtual"
-                            onClick={() => { setGroupDetailId(group.id); setGroupDetailTab("structure"); }}
-                          >
-                            <Eye size={14} />
-                          </button>
-                          <button className="btn btn-secondary" type="button" title="Gerenciar estrutura do grupo" aria-label="Gerenciar estrutura do grupo" onClick={() => openGroupWizard(group, 3)}>
-                            <GitBranch size={14} />
-                          </button>
-                          <button className="btn btn-secondary" type="button" title="Editar grupo" aria-label="Editar grupo" onClick={() => openGroupWizard(group, 1)}>
-                            <Edit2 size={14} />
-                          </button>
-                          <button
-                            className="btn btn-secondary"
-                            type="button"
-                            title={group.active === false ? "Ativar grupo" : "Desativar grupo"}
-                            aria-label={group.active === false ? "Ativar grupo" : "Desativar grupo"}
-                            onClick={() => setNormalizedCompanyGroups((current) => current.map((item) => item.id === group.id ? { ...item, active: item.active === false, updatedAt: new Date().toISOString() } : item))}
-                          >
-                            <Power size={14} />
-                          </button>
-                          <button
-                            className="btn btn-secondary danger-text"
-                            type="button"
-                            title="Excluir grupo"
-                            aria-label="Excluir grupo"
-                            onClick={() => deleteCompanyGroup(group)}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {companyGroups.length === 0 && <EmptyRow colSpan={4} text="Nenhum grupo cadastrado." />}
+                {companyGroups.map((group) => (
+                  <tr key={group.id}>
+                    <td className="group-name-cell">
+                      <strong>{group.name}</strong>
+                      <small>{group.companyIds.length} empresa(s) · {data.employees.filter((employee) => group.companyIds.includes(employee.companyId)).length} funcionário(s)</small>
+                    </td>
+                    <td>
+                      <div className="group-table-company-list">
+                        {group.companyIds.map((id) => (
+                          <span key={id}>{data.companies.find((company) => company.id === id)?.name || "Empresa removida"}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>{group.active === false ? "Inativo" : "Ativo"}</td>
+                    <td className="company-actions-cell">
+                      <div className="table-actions group-table-actions">
+                        <button className="btn btn-secondary" type="button" title="Editar grupo" aria-label="Editar grupo" onClick={() => openGroupWizard(group, 1)}>
+                          <Edit2 size={14} />
+                        </button>
+        
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          title={group.active === false ? "Ativar grupo" : "Desativar grupo"}
+                          aria-label={group.active === false ? "Ativar grupo" : "Desativar grupo"}
+                          onClick={() => toggleActive(group, "upsertCompanyGroup")}
+                        >
+                          <Power size={14} />
+                        </button>
+                        <button
+                          className="btn btn-secondary danger-text"
+                          type="button"
+                          title="Excluir grupo"
+                          aria-label="Excluir grupo"
+                          onClick={() => deleteCompanyGroup(group)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -5323,9 +5345,13 @@ function clearDatabaseFromScreen() {
                 <span>{groupWizardStep > 2 ? <Check size={15} /> : "2"}</span>
                 <div><strong>Selecionar empresas</strong><small>CNPJs participantes</small></div>
               </button>
-              <button className={groupWizardStep === 3 ? "is-active" : ""} type="button" disabled={groupWizardDraft.companyIds.length < 1} onClick={() => setGroupWizardStep(3)}>
-                <span>3</span>
+              <button className={groupWizardStep === 3 ? "is-active" : groupWizardStep > 3 ? "is-complete" : ""} type="button" disabled={groupWizardDraft.companyIds.length < 1} onClick={() => setGroupWizardStep(3)}>
+                <span>{groupWizardStep > 3 ? <Check size={15} /> : "3"}</span>
                 <div><strong>Criar estrutura do grupo</strong><small>Empresa virtual</small></div>
+              </button>
+              <button className={groupWizardStep === 4 ? "is-active" : ""} type="button" disabled={groupWizardDraft.companyIds.length < 1} onClick={() => setGroupWizardStep(4)}>
+                <span>4</span>
+                <div><strong>Gerenciar equipes</strong><small>Departamentos e áreas</small></div>
               </button>
             </div>
 
@@ -5373,10 +5399,6 @@ function clearDatabaseFromScreen() {
                   <div className="group-wizard-company-grid">
                     {data.companies.map((company) => {
                       const selected = groupWizardDraft.companyIds.includes(company.id);
-                      const departments = departmentsForStructureCompany(company.id).length;
-                      const sectors = sectorsForStructureCompany(company.id).length;
-                      const subsectors = subsectorsForStructureCompany(company.id).length;
-                      const teams = teamsForStructureCompany(company.id).length;
                       return (
                         <label className={`group-wizard-company-card ${selected ? "is-selected" : ""}`} key={company.id}>
                           <input type="checkbox" checked={selected} onChange={() => toggleGroupCompany(company.id)} />
@@ -5385,363 +5407,469 @@ function clearDatabaseFromScreen() {
                             <strong>{company.name}</strong>
                             <small>{company.document || "CNPJ não informado"}</small>
                           </div>
-                          <div className="group-company-stats">
-                            <span><b>{departments}</b> departamentos</span>
-                            <span><b>{sectors}</b> setores</span>
-                            <span><b>{subsectors}</b> subsetores</span>
-                            <span><b>{teams}</b> equipes</span>
-                          </div>
                         </label>
                       );
                     })}
                   </div>
-
-                  {groupWizardDraft.companyIds.length >= 2 && (
-                    <div className="group-similarity-panel">
-                      <div className="group-similarity-main">
-                        <div className="group-similarity-circle" style={{ "--similarity": `${currentGroupSimilarity.overall}%` } as CSSProperties}>
-                          <strong>{currentGroupSimilarity.overall}%</strong>
-                          <small>semelhança</small>
-                        </div>
-                        <div>
-                          <h4>Semelhança média das empresas selecionadas</h4>
-                          <p>O cálculo compara os nomes dos departamentos, setores, subsetores e equipes já cadastrados.</p>
-                        </div>
-                      </div>
-
-                      <div className="group-similarity-types">
-                        <span><b>{currentGroupSimilarity.department}%</b> Departamentos</span>
-                        <span><b>{currentGroupSimilarity.sector}%</b> Setores</span>
-                        <span><b>{currentGroupSimilarity.subsector}%</b> Subsetores</span>
-                        <span><b>{currentGroupSimilarity.team}%</b> Equipes</span>
-                      </div>
-
-                      {groupPairScores.length > 1 && (
-                        <div className="group-pair-scores">
-                          {groupPairScores.map((pair) => (
-                            <div key={`${pair.firstCompanyId}-${pair.secondCompanyId}`}>
-                              <span>{data.companies.find((company) => company.id === pair.firstCompanyId)?.name}</span>
-                              <b>{pair.score.overall}%</b>
-                              <span>{data.companies.find((company) => company.id === pair.secondCompanyId)?.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
 
               {groupWizardStep === 3 && (
                 <div className="group-wizard-step-content group-wizard-structure-step">
-                  <div className="group-wizard-step-heading group-wizard-step-heading-with-score">
+                  <div className="group-wizard-step-heading">
                     <span className="group-wizard-step-number">3</span>
                     <div>
-                      <h3>Como será a estrutura da empresa virtual?</h3>
-                      <p>Use as estruturas existentes apenas como referência para montar o grupo. Nenhuma empresa selecionada será alterada.</p>
+                      <h3>Estrutura do grupo</h3>
+                      <p>Defina os níveis da árvore organizacional do grupo para criar a estrutura virtual da empresa.</p>
                     </div>
-                    <span className="group-inline-similarity"><b>{currentGroupSimilarity.overall}%</b> semelhantes</span>
                   </div>
 
                   <section className="group-wizard-section">
                     <div className="group-wizard-section-header">
                       <div>
-                        <h4>Estrutura identificada por empresa</h4>
-                        <p>Departamentos, setores, subsetores e equipes aparecem na hierarquia em que foram cadastrados.</p>
+                        <h4>Árvore de níveis</h4>
+                        <p>Personalize a hierarquia dos departamentos, setores, subsetores e equipes dentro do grupo.</p>
                       </div>
-                    </div>
-                    <div className="group-structure-company-grid">
-                      {groupWizardDraft.companyIds.map((companyIdValue) => renderGroupCompanyTree(companyIdValue))}
-                    </div>
-                  </section>
-
-                  <section className="group-wizard-section">
-                    <div className="group-wizard-section-header">
-                      <div>
-                        <h4>Sugestões automáticas de unificação</h4>
-                        <p>Itens com o mesmo nome em duas ou mais empresas foram relacionados automaticamente.</p>
-                      </div>
-                      <div className="group-suggestion-header-actions">
-                        <button
-                          className="btn btn-secondary"
-                          type="button"
-                          onClick={toggleAllSuggestedGroupUnits}
-                          disabled={filteredSuggestedGroupUnits.length === 0}
-                        >
-                          <Check size={14} /> {allFilteredSuggestionsSelected ? "Desmarcar tudo" : "Selecionar tudo"}
-                        </button>
-                        <button className="btn btn-secondary" type="button" onClick={addManualGroupUnit}>
-                          <Plus size={14} /> Unificação manual
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="group-structure-filters">
-                      {(["all", "department", "sector", "subsector", "team"] as const).map((type) => (
-                        <button className={groupStructureFilter === type ? "is-active" : ""} type="button" key={type} onClick={() => setGroupStructureFilter(type)}>
-                          {type === "all" ? "Todos" : groupUnitTypeLabels[type]}
-                          {type !== "all" && <small>{type === "department" ? currentGroupSimilarity.department : type === "sector" ? currentGroupSimilarity.sector : type === "subsector" ? currentGroupSimilarity.subsector : currentGroupSimilarity.team}%</small>}
-                        </button>
-                      ))}
-                    </div>
-
-                    {filteredSuggestedGroupUnits.length === 0 ? (
-                      <div className="group-suggestions-empty">
-                        <span>Nenhum item de mesmo nome foi encontrado neste filtro.</span>
-                        <small>Use “Unificação manual” para relacionar estruturas com nomes diferentes.</small>
-                      </div>
-                    ) : (
-                      <div className="group-suggestion-grid">
-                        {filteredSuggestedGroupUnits.map((suggestion) => {
-                          const selected = groupWizardDraft.units.some((unit) => unit.id === suggestion.id);
-                          return (
-                            <button className={`group-suggestion-card ${selected ? "is-selected" : ""}`} type="button" key={suggestion.id} onClick={() => toggleSuggestedGroupUnit(suggestion)}>
-                              <div>
-                                <span className={`group-unit-type is-${suggestion.type}`}>{groupUnitTypeLabels[suggestion.type]}</span>
-                                <strong>{suggestion.name}</strong>
-                                <small>{suggestion.links.length} empresas identificadas</small>
-                              </div>
-                              <span className="group-suggestion-action">{selected ? <><Check size={15} /> Selecionado</> : "+ Unificar"}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="group-wizard-section group-divergence-section">
-                    <div className="group-wizard-section-header">
-                      <div>
-                        <h4>Resolver divergências entre as empresas</h4>
-                        <p>Escolha o que fazer quando uma empresa possui estruturas que a outra não possui.</p>
-                      </div>
-                      {hasValidDivergencePlan && <span className="group-divergence-copy-badge">{divergencePlanCopyCount} estrutura(s) entrarão somente no grupo</span>}
-                    </div>
-
-                    <div className="group-divergence-mode-grid">
-                      <label className={`group-divergence-mode ${(groupWizardDraft.divergenceMode !== "use_reference" && groupWizardDraft.divergenceMode !== "copy_from_source") ? "is-selected" : ""}`}>
-                        <input
-                          type="radio"
-                          name="group-divergence-mode"
-                          checked={groupWizardDraft.divergenceMode !== "use_reference" && groupWizardDraft.divergenceMode !== "copy_from_source"}
-                          onChange={() => setGroupWizardDraft((current) => ({
-                            ...current,
-                            divergenceMode: "keep_existing",
-                            divergenceSourceCompanyId: "",
-                            divergenceTypes: [],
-                            units: current.units.filter((unit) => !isReferenceGroupUnit(unit)),
-                          }))}
-                        />
-                        <div>
-                          <strong>Manter somente as unificações selecionadas</strong>
-                          <span>O grupo será criado com os itens escolhidos acima. A estrutura original das empresas permanecerá intacta.</span>
-                        </div>
-                      </label>
-
-                      <label className={`group-divergence-mode ${(groupWizardDraft.divergenceMode === "use_reference" || groupWizardDraft.divergenceMode === "copy_from_source") ? "is-selected" : ""}`}>
-                        <input
-                          type="radio"
-                          name="group-divergence-mode"
-                          checked={groupWizardDraft.divergenceMode === "use_reference" || groupWizardDraft.divergenceMode === "copy_from_source"}
-                          onChange={() => setGroupWizardDraft((current) => ({ ...current, divergenceMode: "use_reference" }))}
-                        />
-                        <div>
-                          <strong>Usar uma empresa como referência do grupo</strong>
-                          <span>As estruturas exclusivas dessa empresa entrarão apenas na empresa virtual do grupo, sem alterar nenhum CNPJ.</span>
-                        </div>
-                      </label>
-                    </div>
-
-                    {(groupWizardDraft.divergenceMode === "use_reference" || groupWizardDraft.divergenceMode === "copy_from_source") && (
-                      <div className="group-divergence-config">
-                        <div>
-                          <strong className="group-divergence-label">1. Qual empresa será a referência?</strong>
-                          <div className="group-divergence-company-grid">
-                            {groupWizardDraft.companyIds.map((companyIdValue) => {
-                              const company = data.companies.find((item) => item.id === companyIdValue);
-                              const selected = groupWizardDraft.divergenceSourceCompanyId === companyIdValue;
-                              return (
-                                <button
-                                  className={`group-divergence-company ${selected ? "is-selected" : ""}`}
-                                  type="button"
-                                  key={companyIdValue}
-                                  onClick={() => setGroupWizardDraft((current) => ({ ...current, divergenceSourceCompanyId: companyIdValue }))}
-                                >
-                                  <span className="group-divergence-company-check">{selected ? <Check size={14} /> : null}</span>
-                                  <div>
-                                    <strong>{company?.name}</strong>
-                                    <small>
-                                      {groupSourceOptions("department", companyIdValue).length} dep. · {groupSourceOptions("sector", companyIdValue).length} setores · {groupSourceOptions("subsector", companyIdValue).length} subsetores · {groupSourceOptions("team", companyIdValue).length} equipes
-                                    </small>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        <div>
-                          <strong className="group-divergence-label">2. O que deve seguir o lado escolhido?</strong>
-                          <div className="group-divergence-type-grid">
-                            {(["department", "sector", "subsector", "team"] as GroupUnitType[]).map((type) => {
-                              const selected = (groupWizardDraft.divergenceTypes || []).includes(type);
-                              const uniqueItems = sourceDivergenceItems(groupWizardDraft.divergenceSourceCompanyId || "", type).length;
-                              const copies = divergenceCopyCount(groupWizardDraft.divergenceSourceCompanyId || "", type);
-                              return (
-                                <button
-                                  className={`group-divergence-type ${selected ? "is-selected" : ""}`}
-                                  type="button"
-                                  key={type}
-                                  disabled={!groupWizardDraft.divergenceSourceCompanyId}
-                                  onClick={() => toggleDivergenceType(type)}
-                                >
-                                  <span>{selected ? <Check size={14} /> : null}</span>
-                                  <div>
-                                    <strong>{groupUnitTypeLabels[type]}</strong>
-                                    <small>{uniqueItems} estrutura(s) exclusiva(s) · {copies} entrarão no grupo</small>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        <div className={`group-divergence-preview ${hasValidDivergencePlan ? "is-ready" : ""}`}>
-                          <GitBranch size={19} />
-                          <div>
-                            {divergenceSourceCompany ? (
-                              <>
-                                <strong>{divergenceSourceCompany.name} será usada como referência</strong>
-                                <span>
-                                  {hasValidDivergencePlan
-                                    ? `${divergencePlanCopyCount} estrutura(s) exclusiva(s) serão adicionadas somente à estrutura virtual do grupo. Nenhuma empresa selecionada será alterada.`
-                                    : "Selecione ao menos um tipo com diferenças para visualizar o resultado."}
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <strong>Selecione uma empresa de referência</strong>
-                                <span>Exemplo: se ela tiver 5 equipes e outra empresa tiver 0, o grupo poderá ter as 5 equipes sem criá-las na outra empresa.</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="group-wizard-section">
-                    <div className="group-wizard-section-header">
-                      <div>
-                        <h4>Estrutura da empresa virtual</h4>
-                        <p>Defina os nomes e responsáveis que valerão somente dentro do grupo.</p>
-                      </div>
-                      <span className="group-selected-count">
-                        {validGroupUnits.length} estrutura(s) na empresa virtual
-                      </span>
+                      <button className="btn btn-secondary" type="button" onClick={() => addManualGroupUnit("department")}>
+                        <Plus size={14} /> Adicionar departamento
+                      </button>
                     </div>
 
                     {groupWizardDisplayUnits.length === 0 ? (
                       <div className="group-selected-empty">
                         <GitBranch size={24} />
-                        <strong>Nenhuma estrutura selecionada</strong>
-                        <span>Você pode criar o grupo sem estrutura e organizar os departamentos, setores, subsetores e equipes depois.</span>
+                        <strong>Nenhuma estrutura cadastrada</strong>
+                        <span>Crie os níveis do grupo para começar a customizar a árvore organizacional.</span>
                       </div>
                     ) : (
-                      <div className="group-selected-units">
-                        {groupWizardDisplayUnits.map((unit, index) => {
-                          const linkedCompanies = new Set(unit.links.map((link) => link.companyId)).size;
-                          const generatedByReference = isReferenceGroupUnit(unit)
-                            && !groupWizardDraft.units.some((draftUnit) => draftUnit.id === unit.id);
-                          return (
-                            <article className={`group-selected-unit ${linkedCompanies >= 1 && unit.name.trim() ? "is-valid" : ""}`} key={unit.id}>
-                              <div className="group-selected-unit-header">
-                                <div>
-                                  <span>{generatedByReference ? "Referência" : "Unificação"} {index + 1}</span>
-                                  <strong>{unit.name || "Sem nome"}</strong>
-                                </div>
-                                <div>
-                                  <span className={linkedCompanies >= 1 ? "group-link-status is-valid" : "group-link-status"}>{linkedCompanies} origem(ns)</span>
-                                  {!generatedByReference ? (
-                                    <button className="icon-button" type="button" onClick={() => removeGroupUnit(unit.id)} aria-label="Remover unificação">
-                                      <Trash2 size={15} />
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </div>
+                      <div className="group-wizard-level-tabs">
+                        <div className="group-wizard-level-tabs-list" role="tablist" aria-label="Níveis hierárquicos do grupo">
+                          {(["department", "sector", "subsector", "team"] as GroupUnitType[]).map((type) => {
+                            const typeUnits = groupWizardDisplayUnits.filter((unit) => unit.type === type);
+                            return (
+                              <button
+                                key={type}
+                                type="button"
+                                role="tab"
+                                aria-selected={groupWizardLevelTab === type}
+                                className={groupWizardLevelTab === type ? "is-active" : ""}
+                                onClick={() => setGroupWizardLevelTab(type)}
+                              >
+                                <span>{groupUnitTypeLabels[type]}</span>
+                                <small>{typeUnits.length}</small>
+                              </button>
+                            );
+                          })}
+                        </div>
 
-                              <div className="group-selected-unit-fields">
-                                <label className="field">
-                                  <span>Tipo</span>
-                                  <select
-                                    value={unit.type}
-                                    disabled={generatedByReference}
-                                    onChange={(event) => updateGroupUnit(unit.id, { type: event.target.value as GroupUnitType, links: [] })}
-                                  >
-                                    <option value="department">Departamento</option>
-                                    <option value="sector">Setor</option>
-                                    <option value="subsector">Subsetor</option>
-                                    <option value="team">Equipe</option>
-                                  </select>
-                                </label>
-                                <label className="field">
-                                  <span>Nome unificado</span>
-                                  <input
-                                    value={unit.name}
-                                    readOnly={generatedByReference}
-                                    onChange={(event) => updateGroupUnit(unit.id, { name: event.target.value })}
-                                    placeholder="Nome comum no grupo"
-                                  />
-                                </label>
-                                <label className="field group-coordinator-field">
-                                  <span>{groupUnitResponsibleLabel(unit.type)}</span>
-                                  <select
-                                    value={unit.coordinatorEmployeeId}
-                                    disabled={generatedByReference}
-                                    onChange={(event) => updateGroupUnit(unit.id, { coordinatorEmployeeId: event.target.value })}
-                                  >
-                                    <option value="">Definir depois</option>
-                                    {data.employees
-                                      .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
-                                      .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
-                                  </select>
-                                  <small>{generatedByReference ? "Vem da empresa de referência e será salva ao confirmar." : "Será o responsável desta estrutura dentro do grupo, para funcionários de qualquer CNPJ participante."}</small>
-                                </label>
-                              </div>
+                        <div className="group-wizard-level-tab-panel">
+                          {(() => {
+                            if (groupWizardLevelTab === "department") {
+                              const departmentUnits = groupWizardDisplayUnits.filter((unit) => unit.type === "department");
+                              if (departmentUnits.length === 0) {
+                                return (
+                                  <div className="group-selected-empty compact">
+                                    <GitBranch size={20} />
+                                    <strong>Nenhum departamento cadastrado</strong>
+                                    <span>Use “Adicionar departamento” para criar esse tipo de estrutura no grupo.</span>
+                                  </div>
+                                );
+                              }
 
-                              <div className="group-selected-unit-links">
-                                {groupWizardDraft.companyIds.map((companyIdValue) => {
-                                  const company = data.companies.find((item) => item.id === companyIdValue);
-                                  const selectedSourceId = unit.links.find((link) => link.companyId === companyIdValue)?.sourceId || "";
-                                  return (
-                                    <label className="field" key={companyIdValue}>
-                                      <span>{company?.name}</span>
-                                      <select
-                                        value={selectedSourceId}
-                                        disabled={generatedByReference}
-                                        onChange={(event) => updateGroupUnitLink(unit.id, companyIdValue, event.target.value)}
+                              return departmentUnits.map((unit, index) => {
+                                const departmentSourceIds = new Set(unit.links.map((link) => link.sourceId));
+                                const realDepartmentSectors = data.sectors.filter((sector) => departmentSourceIds.has(sector.departmentId));
+                                const sectorUnits = groupWizardDisplayUnits.filter((item) => item.type === "sector" && (item.parentUnitId || "") === unit.id);
+                                const displaySectorUnits = sectorUnits.length > 0 ? sectorUnits : realDepartmentSectors.map((sector) => ({
+                                  id: `real-sector-${sector.id}`,
+                                  name: sector.name,
+                                  type: "sector" as GroupUnitType,
+                                  parentUnitId: unit.id,
+                                  links: [{ companyId: unit.links[0]?.companyId || "", sourceId: sector.id }],
+                                  coordinatorEmployeeId: sector.coordinatorEmployeeId || "",
+                                }));
+                                const expanded = Boolean(groupWizardExpandedDepartments[unit.id]);
+                                return (
+                                  <div className="group-wizard-department-card" key={unit.id}>
+                                    <div className="group-wizard-department-header">
+                                      <div>
+                                        <span>Departamento {index + 1}</span>
+                                        <strong>{unit.name || "Sem nome"}</strong>
+                                      </div>
+                                      {expanded && (
+                                        <div className="group-wizard-inline-actions">
+                                          <button
+                                            type="button"
+                                            className="group-wizard-inline-add"
+                                            onClick={() => addManualGroupUnit("sector", unit.id)}
+                                            aria-label="Adicionar setor"
+                                          >
+                                            <Plus size={14} />
+                                          </button>
+                                        </div>
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="group-wizard-department-toggle"
+                                        onClick={() => setGroupWizardExpandedDepartments((current) => ({ ...current, [unit.id]: !current[unit.id] }))}
                                       >
-                                        <option value="">Sem estrutura de origem nesta empresa</option>
-                                        {groupSourceOptions(unit.type, companyIdValue).map((item) => (
-                                          <option key={item.id} value={item.id}>{groupSourcePath(unit.type, item.id)}</option>
-                                        ))}
-                                      </select>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </article>
-                          );
-                        })}
+                                        {expanded ? "Ocultar setores" : "Abrir setores"}
+                                      </button>
+                                    </div>
+
+                                    <article className="group-selected-unit is-valid">
+                                      <div className="group-selected-unit-header">
+                                        <div>
+                                          <span>Departamento</span>
+                                          <strong>{unit.name || "Sem nome"}</strong>
+                                        </div>
+                                        <button className="icon-button" type="button" onClick={() => removeGroupUnit(unit.id)} aria-label="Remover departamento">
+                                          <Trash2 size={15} />
+                                        </button>
+                                      </div>
+
+                                      <div className="group-selected-unit-fields">
+                                        <label className="field">
+                                          <span>Tipo</span>
+                                          <select
+                                            value={unit.type}
+                                            onChange={(event) => updateGroupUnit(unit.id, { type: event.target.value as GroupUnitType, links: [] })}
+                                          >
+                                            <option value="department">Departamento</option>
+                                            <option value="sector">Setor</option>
+                                            <option value="subsector">Subsetor</option>
+                                            <option value="team">Equipe</option>
+                                          </select>
+                                        </label>
+
+                                        <label className="field">
+                                          <span>Nome do nível</span>
+                                          <input
+                                            value={unit.name}
+                                            onChange={(event) => updateGroupUnit(unit.id, { name: event.target.value })}
+                                            placeholder="Ex.: Administrativo"
+                                          />
+                                        </label>
+
+                                        <label className="field group-coordinator-field">
+                                          <span>{groupUnitResponsibleLabel(unit.type)}</span>
+                                          <select
+                                            value={unit.coordinatorEmployeeId}
+                                            onChange={(event) => updateGroupUnit(unit.id, { coordinatorEmployeeId: event.target.value })}
+                                          >
+                                            <option value="">Definir depois</option>
+                                            {data.employees
+                                              .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
+                                              .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                                          </select>
+                                        </label>
+                                      </div>
+                                    </article>
+
+                                    {expanded && (
+                                      <div className="group-wizard-sector-children">
+                                        <div className="group-wizard-sector-children-header">Setores deste departamento</div>
+                                        {displaySectorUnits.length === 0 ? (
+                                          <div className="group-wizard-sector-empty">Nenhum setor neste departamento.</div>
+                                        ) : displaySectorUnits.map((sectorUnit) => {
+                                          const realSectorSubsectors = data.subsectors.filter((subsector) => subsector.sectorId === sectorUnit.links[0]?.sourceId);
+                                          const subsectorExpanded = Boolean(groupWizardExpandedSectors[sectorUnit.id]);
+                                          return (
+                                            <article className="group-selected-unit group-wizard-sector-card" key={sectorUnit.id}>
+                                              <div className="group-selected-unit-header">
+                                                <div>
+                                                  <span>Setor</span>
+                                                  <strong>{sectorUnit.name || "Sem nome"}</strong>
+                                                </div>
+                                                <div className="group-wizard-inline-actions">
+                                                  {subsectorExpanded && (
+                                                    <button
+                                                      type="button"
+                                                      className="group-wizard-inline-add"
+                                                      onClick={() => addManualGroupUnit("subsector", sectorUnit.id)}
+                                                      aria-label="Adicionar subsetor"
+                                                    >
+                                                      <Plus size={14} />
+                                                    </button>
+                                                  )}
+                                                  <button
+                                                    type="button"
+                                                    className="group-wizard-subsector-toggle"
+                                                    onClick={() => setGroupWizardExpandedSectors((current) => ({ ...current, [sectorUnit.id]: !current[sectorUnit.id] }))}
+                                                  >
+                                                    {subsectorExpanded ? "Ocultar subsetores" : "Abrir subsetores"}
+                                                  </button>
+                                                  <button className="icon-button" type="button" onClick={() => removeGroupUnit(sectorUnit.id)} aria-label="Remover setor">
+                                                    <Trash2 size={15} />
+                                                  </button>
+                                                </div>
+                                              </div>
+
+                                              <div className="group-selected-unit-fields">
+                                                <label className="field">
+                                                  <span>Tipo</span>
+                                                  <select
+                                                    value={sectorUnit.type}
+                                                    onChange={(event) => updateGroupUnit(sectorUnit.id, { type: event.target.value as GroupUnitType, links: [] })}
+                                                  >
+                                                    <option value="department">Departamento</option>
+                                                    <option value="sector">Setor</option>
+                                                    <option value="subsector">Subsetor</option>
+                                                    <option value="team">Equipe</option>
+                                                  </select>
+                                                </label>
+
+                                                <label className="field">
+                                                  <span>Nome do nível</span>
+                                                  <input
+                                                    value={sectorUnit.name}
+                                                    onChange={(event) => updateGroupUnit(sectorUnit.id, { name: event.target.value })}
+                                                    placeholder="Ex.: Recursos Humanos"
+                                                  />
+                                                </label>
+
+                                                <label className="field group-coordinator-field">
+                                                  <span>{groupUnitResponsibleLabel(sectorUnit.type)}</span>
+                                                  <select
+                                                    value={sectorUnit.coordinatorEmployeeId}
+                                                    onChange={(event) => updateGroupUnit(sectorUnit.id, { coordinatorEmployeeId: event.target.value })}
+                                                  >
+                                                    <option value="">Definir depois</option>
+                                                    {data.employees
+                                                      .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
+                                                      .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                                                  </select>
+                                                </label>
+                                              </div>
+
+                                              {subsectorExpanded && (
+                                                <div className="group-wizard-subsector-children">
+                                                  <div className="group-wizard-subsector-children-header">Subsetores deste setor</div>
+                                                  {realSectorSubsectors.length === 0 ? (
+                                                    <div className="group-wizard-sector-empty">Nenhum subsetor neste setor.</div>
+                                                  ) : (
+                                                    <div className="group-wizard-subsector-list">
+                                                      {realSectorSubsectors.map((subsector) => (
+                                                        <article className="group-selected-unit group-wizard-subsector-card" key={subsector.id}>
+                                                          <div className="group-selected-unit-header">
+                                                            <div>
+                                                              <span>Subsetor</span>
+                                                              <strong>{subsector.name || "Sem nome"}</strong>
+                                                            </div>
+                                                            <button className="icon-button" type="button" onClick={() => removeGroupUnit(subsector.id)} aria-label="Remover subsetor">
+                                                              <Trash2 size={15} />
+                                                            </button>
+                                                          </div>
+                                                          <div className="group-selected-unit-fields">
+                                                            <label className="field">
+                                                              <span>Tipo</span>
+                                                              <select value="subsector" disabled>
+                                                                <option value="subsector">Subsetor</option>
+                                                              </select>
+                                                            </label>
+                                                            <label className="field">
+                                                              <span>Nome do nível</span>
+                                                              <input value={subsector.name || ""} onChange={(event) => updateGroupUnit(subsector.id, { name: event.target.value })} placeholder="Ex.: Rede" />
+                                                            </label>
+                                                            <label className="field group-coordinator-field">
+                                                              <span>Líder do subsetor no grupo</span>
+                                                              <select value={subsector.leaderEmployeeId || ""} onChange={(event) => updateGroupUnit(subsector.id, { coordinatorEmployeeId: event.target.value, leaderEmployeeId: event.target.value })}>
+                                                                <option value="">Definir depois</option>
+                                                                {data.employees.filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId)).map((employee) => (
+                                                                  <option key={employee.id} value={employee.id}>{employee.name}</option>
+                                                                ))}
+                                                              </select>
+                                                            </label>
+                                                          </div>
+                                                        </article>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </article>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              });
+                            }
+
+                            const activeTypeUnits = groupWizardDisplayUnits.filter((unit) => unit.type === groupWizardLevelTab);
+                            if (activeTypeUnits.length === 0) {
+                              return (
+                                <div className="group-selected-empty compact">
+                                  <GitBranch size={20} />
+                                  <strong>Nenhum {groupUnitTypeLabels[groupWizardLevelTab].toLowerCase()} cadastrado</strong>
+                                  <span>Use “Adicionar departamento” para criar esse tipo de estrutura no grupo.</span>
+                                </div>
+                              );
+                            }
+
+                            return activeTypeUnits.map((unit, index) => (
+                              <article className="group-selected-unit is-valid" key={unit.id}>
+                                <div className="group-selected-unit-header">
+                                  <div>
+                                    <span>{groupUnitTypeLabels[unit.type]} {index + 1}</span>
+                                    <strong>{unit.name || "Sem nome"}</strong>
+                                  </div>
+                                  <button className="icon-button" type="button" onClick={() => removeGroupUnit(unit.id)} aria-label={`Remover ${groupUnitTypeLabels[unit.type].toLowerCase()}`}>
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+
+                                <div className="group-selected-unit-fields">
+                                  <label className="field">
+                                    <span>Tipo</span>
+                                    <select
+                                      value={unit.type}
+                                      onChange={(event) => updateGroupUnit(unit.id, { type: event.target.value as GroupUnitType, links: [] })}
+                                    >
+                                      <option value="department">Departamento</option>
+                                      <option value="sector">Setor</option>
+                                      <option value="subsector">Subsetor</option>
+                                      <option value="team">Equipe</option>
+                                    </select>
+                                  </label>
+
+                                  <label className="field">
+                                    <span>Nome do nível</span>
+                                    <input
+                                      value={unit.name}
+                                      onChange={(event) => updateGroupUnit(unit.id, { name: event.target.value })}
+                                      placeholder={`Ex.: ${groupUnitTypeLabels[groupWizardLevelTab]}`}
+                                    />
+                                  </label>
+
+                                  <label className="field group-coordinator-field">
+                                    <span>{groupUnitResponsibleLabel(unit.type)}</span>
+                                    <select
+                                      value={unit.coordinatorEmployeeId}
+                                      onChange={(event) => updateGroupUnit(unit.id, { coordinatorEmployeeId: event.target.value })}
+                                    >
+                                      <option value="">Definir depois</option>
+                                      {data.employees
+                                        .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
+                                        .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                                    </select>
+                                  </label>
+                                </div>
+                              </article>
+                            ));
+                          })()}
+                        </div>
                       </div>
                     )}
                   </section>
                 </div>
               )}
+
+              {groupWizardStep === 4 && (
+                <div className="group-wizard-step-content group-wizard-team-step">
+                  <div className="group-wizard-step-heading">
+                    <span className="group-wizard-step-number">4</span>
+                    <div>
+                      <h3>Gerenciar equipes</h3>
+                      <p>Crie, edite, remova e mova equipes dentro dos departamentos, setores e subsetores do grupo.</p>
+                    </div>
+                  </div>
+
+                  <div className="group-wizard-team-board">
+                    {groupWizardDisplayUnits.filter((unit) => unit.type !== "team").map((unit) => {
+                      const teams = groupWizardDisplayUnits.filter((item) => item.type === "team" && (item.parentUnitId || "") === unit.id);
+                      const availableMoveTargets = groupWizardDisplayUnits.filter((target) => target.id !== unit.id && (target.type === "department" || target.type === "sector" || target.type === "subsector"));
+                      return (
+                        <div className="group-wizard-team-section" key={unit.id}>
+                          <div className="group-wizard-team-section-header">
+                            <div>
+                              <span>{groupUnitTypeLabels[unit.type]}</span>
+                              <strong>{unit.name || "Sem nome"}</strong>
+                            </div>
+                            <button type="button" className="btn btn-secondary tiny" onClick={() => addManualGroupUnit("team", unit.id)}>
+                              <Plus size={14} /> Nova equipe
+                            </button>
+                          </div>
+
+                          {teams.length === 0 ? (
+                            <div className="group-wizard-team-empty">Nenhuma equipe cadastrada neste nível.</div>
+                          ) : (
+                            <div className="group-wizard-team-list">
+                              {teams.map((teamUnit) => (
+                                <div className="group-wizard-team-card" key={teamUnit.id}>
+                                  <div className="group-wizard-team-card-header">
+                                    <div>
+                                      <span>Equipe</span>
+                                      <strong>{teamUnit.name || "Sem nome"}</strong>
+                                    </div>
+                                    <div className="group-wizard-team-actions">
+                                      <button className="icon-button" type="button" onClick={() => {
+                                        const duplicate = {
+                                          ...teamUnit,
+                                          id: crypto.randomUUID(),
+                                          name: `${teamUnit.name || "Equipe"} (cópia)`,
+                                          parentUnitId: teamUnit.parentUnitId || unit.id,
+                                        };
+                                        setGroupWizardDraft((current) => ({ ...current, units: [...current.units, duplicate] }));
+                                      }} aria-label="Duplicar equipe">
+                                        <Copy size={15} />
+                                      </button>
+                                      <button className="icon-button" type="button" onClick={() => removeGroupUnit(teamUnit.id)} aria-label="Remover equipe">
+                                        <Trash2 size={15} />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="group-wizard-team-fields">
+                                    <label className="field">
+                                      <span>Nome da equipe</span>
+                                      <input
+                                        value={teamUnit.name}
+                                        onChange={(event) => updateGroupUnit(teamUnit.id, { name: event.target.value })}
+                                        placeholder="Ex.: Equipe de Atendimento"
+                                      />
+                                    </label>
+
+                                    <label className="field">
+                                      <span>Responsável</span>
+                                      <select
+                                        value={teamUnit.coordinatorEmployeeId}
+                                        onChange={(event) => updateGroupUnit(teamUnit.id, { coordinatorEmployeeId: event.target.value })}
+                                      >
+                                        <option value="">Definir depois</option>
+                                        {data.employees
+                                          .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
+                                          .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                                      </select>
+                                    </label>
+
+                                    <label className="field">
+                                      <span>Vincular a</span>
+                                      <select
+                                        value={teamUnit.parentUnitId || unit.id}
+                                        onChange={(event) => updateGroupUnit(teamUnit.id, { parentUnitId: event.target.value })}
+                                      >
+                                        {availableMoveTargets.map((target) => (
+                                          <option key={target.id} value={target.id}>{groupUnitTypeLabels[target.type]} · {target.name || "Sem nome"}</option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="group-wizard-footer">
-              <button className="btn btn-secondary" type="button" onClick={groupWizardStep === 1 ? closeGroupWizard : () => setGroupWizardStep((groupWizardStep - 1) as GroupWizardStep)}>
+              <button className="btn btn-secondary" type="button" onClick={groupWizardStep === 1 ? closeGroupWizard : () => setGroupWizardStep((Math.max(1, groupWizardStep - 1)) as GroupWizardStep)}>
                 {groupWizardStep === 1 ? "Cancelar" : <><ChevronLeft size={15} /> Voltar</>}
               </button>
               <div>
@@ -5750,10 +5878,10 @@ function clearDatabaseFromScreen() {
                 <button
                   className="btn btn-primary"
                   type="button"
-                  disabled={!groupWizardCanContinue}
-                  onClick={groupWizardStep === 3 ? saveGroupWizard : () => setGroupWizardStep((groupWizardStep + 1) as GroupWizardStep)}
+                  disabled={!groupWizardCanContinue && groupWizardStep !== 4}
+                  onClick={groupWizardStep === 4 ? saveGroupWizard : () => setGroupWizardStep((Math.min(4, groupWizardStep + 1)) as GroupWizardStep)}
                 >
-                  {groupWizardStep === 3 ? (groupWizardDraft.id ? "Salvar alterações" : "Criar grupo") : <>Continuar <ChevronRight size={15} /></>}
+                  {groupWizardStep === 4 ? (groupWizardDraft.id ? "Salvar alterações" : "Criar grupo") : <>Continuar <ChevronRight size={15} /></>}
                 </button>
               </div>
             </div>
