@@ -2921,7 +2921,11 @@ export default function Timekeeping() {
     const dayMap = new Map<string, SavedDayFolder>();
     const companyFilter = new Set(filters.companyIds);
 
+    // Hide specific saved entries that were created incorrectly (client-side exclusion).
+    // To permanently delete them, remove from Firestore separately.
+    const excludedSavedIds = new Set(["8202"]);
     savedDayTables
+      .filter((table) => !excludedSavedIds.has(table.id))
       .filter((table) => !companyFilter.size || table.companyIds.some((companyId) => companyFilter.has(companyId)))
       .forEach((table) => {
         dayMap.set(table.date, { date: table.date });

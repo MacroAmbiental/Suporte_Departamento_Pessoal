@@ -14,6 +14,7 @@ import {
 import { isSystemTiUser } from "@/services/accessControl";
 import { securePath } from "@/services/secureRoutes";
 import type {
+  AuditLog,
   BenefitType,
   CustomModule,
   Department,
@@ -25,11 +26,13 @@ import type {
   Subsector,
   Team,
 } from "@/types/domain";
-import { labelStatus, todayISO } from "@/utils/format";
+import { formatDate, labelStatus, todayISO } from "@/utils/format";
+import { loadRecentAuditLogs } from "@/modules/monitoring/data/auditLogRepository";
 import "./companies.css";
 
 import {
   AlertTriangle,
+  BookOpen,
   Building2,
   ChevronLeft,
   ChevronRight,
@@ -343,6 +346,10 @@ export default function Companies() {
   const [groupWizardExpandedDepartments, setGroupWizardExpandedDepartments] = useState<Record<string, boolean>>({});
   const [groupWizardExpandedSectors, setGroupWizardExpandedSectors] = useState<Record<string, boolean>>({});
   const [groupDetailId, setGroupDetailId] = useState("");
+  const [groupStructureHistoryId, setGroupStructureHistoryId] = useState("");
+  const [groupHistoryOpenType, setGroupHistoryOpenType] = useState<GroupUnitType | null>(null);
+  const [groupHistorySelectedTeamId, setGroupHistorySelectedTeamId] = useState("");
+  const [groupHistoryLogs, setGroupHistoryLogs] = useState<AuditLog[]>([]);
   const [groupDetailTab, setGroupDetailTab] = useState<"structure" | "employees">("structure");
   const [groupStructureView, setGroupStructureView] = useState<StructureView>("tree");
   const [groupNodeForm, setGroupNodeForm] = useState<GroupNodeForm>(emptyGroupNodeForm());
@@ -497,7 +504,7 @@ export default function Companies() {
     columns: "",
   });
 
-  const [teamForm, setTeamForm] = useState({ name: "", description: "" });
+  const [teamForm, setTeamForm] = useState({ name: "", description: "", startedAt: todayISO(), endedAt: "" });
 
   const companyDepartments = structureItemsForGroup(data.departments, activeStructureGroup, data.companyGroupCompanies, data.companies);
   const companySectors = structureItemsForGroup(data.sectors, activeStructureGroup, data.companyGroupCompanies, data.companies);
@@ -1261,7 +1268,7 @@ export default function Companies() {
   }
 
   function resetTeamForm() {
-    setTeamForm({ name: "", description: "" });
+    setTeamForm({ name: "", description: "", startedAt: todayISO(), endedAt: "" });
   }
 
   function resetAllForms() {
@@ -1350,7 +1357,12 @@ export default function Companies() {
   function startEditTeam(item: Team) {
     setEditingKind("team");
     setEditingId(item.id);
-    setTeamForm({ name: item.name ?? "", description: item.description ?? "" });
+    setTeamForm({
+      name: item.name ?? "",
+      description: item.description ?? "",
+      startedAt: item.startedAt || item.createdAt?.slice(0, 10) || todayISO(),
+      endedAt: item.endedAt || "",
+    });
     setActiveTab("teams");
   }
 
@@ -1799,6 +1811,8 @@ export default function Companies() {
       groupId: activeStructureScope.groupId,
       name: teamForm.name.trim(),
       description: teamForm.description.trim(),
+      startedAt: teamForm.startedAt || undefined,
+      endedAt: teamForm.endedAt || undefined,
       active: existing?.active ?? true,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -3361,6 +3375,7 @@ function clearDatabaseFromScreen() {
     ? Boolean(groupWizardDraft.name.trim())
     : groupWizardDraft.companyIds.length >= 1;
   const selectedGroupDetail = companyGroups.find((group) => group.id === groupDetailId);
+  const selectedGroupHistory = companyGroups.find((group) => group.id === groupStructureHistoryId);
   const selectedGroupEmployees = selectedGroupDetail
     ? data.employees.filter((employee) => selectedGroupDetail.companyIds.includes(employee.companyId))
     : [];
@@ -3395,6 +3410,157 @@ function clearDatabaseFromScreen() {
         },
       ]
     : [];
+  const selectedGroupHistoryCards = useMemo(() => {
+    if (!selectedGroupHistory) return [] as Array<{
+      type: GroupUnitType;
+      label: string;
+      count: number;
+      entries: Array<{ id: string; name: string; startedAt: string; endedAt: string }>;
+    }>;
+
+    return (["department", "sector", "subsector", "team"] as GroupUnitType[]).map((type) => {
+      const items = effectiveGroupUnits(selectedGroupHistory).filter((unit) => unit.type === type);
+
+      return {
+        type,
+        label: groupUnitTypeLabels[type],
+        count: items.length,
+        entries: items.map((unit) => {
+          const sourceId = unit.links[0]?.sourceId ?? "";
+          const team = sourceId ? data.teams.find((item) => item.id === sourceId) : undefined;
+          return {
+            id: type === "team" ? (team?.id || sourceId || unit.id) : unit.id,
+            name: unit.name,
+            startedAt: type === "team" ? team?.startedAt || team?.createdAt?.slice(0, 10) || "" : "",
+            endedAt: type === "team" ? team?.endedAt || "" : "",
+          };
+        }).filter((entry) => Boolean(entry.name)),
+      };
+    });
+  }, [data.teams, selectedGroupHistory]);
+
+  const selectedGroupHistoryTeamEntries = selectedGroupHistoryCards.find((card) => card.type === "team")?.entries || [];
+  const selectedGroupHistoryTeam = selectedGroupHistoryTeamEntries.find((entry) => entry.id === groupHistorySelectedTeamId)
+    || selectedGroupHistoryTeamEntries[0]
+    || null;
+
+  useEffect(() => {
+    if (!selectedGroupHistory) {
+      setGroupHistoryLogs([]);
+      setGroupHistorySelectedTeamId("");
+      setGroupHistoryOpenType(null);
+      return;
+    }
+
+    void loadRecentAuditLogs(250).then((logs) => {
+      setGroupHistoryLogs(logs);
+    }).catch(() => setGroupHistoryLogs([]));
+  }, [selectedGroupHistory?.id]);
+
+  useEffect(() => {
+    const teamEntries = selectedGroupHistoryCards.find((card) => card.type === "team")?.entries || [];
+    if (!teamEntries.length) {
+      setGroupHistorySelectedTeamId("");
+      return;
+    }
+
+    if (!groupHistorySelectedTeamId || !teamEntries.some((entry) => entry.id === groupHistorySelectedTeamId)) {
+      setGroupHistorySelectedTeamId(teamEntries[0].id);
+    }
+  }, [selectedGroupHistoryCards, groupHistorySelectedTeamId]);
+
+  const selectedTeamHistory = useMemo(() => {
+    const teamId = selectedGroupHistoryTeam?.id || "";
+    if (!teamId) return [];
+
+    const relatedLogs = groupHistoryLogs.filter((log) => {
+      if (log.entityType === "teams") {
+        return log.entityId === teamId;
+      }
+      if (log.entityType === "employees") {
+        return String(log.metadata?.teamId || "") === teamId && (
+          log.changedFields.includes("teamId")
+          || log.changedFields.includes("isTeamLead")
+          || log.changedFields.includes("name")
+        );
+      }
+      return false;
+    });
+
+    return relatedLogs
+      .map((log) => {
+        const metadata = log.metadata as Record<string, string | number | boolean | undefined> | undefined;
+        const employeeName = metadata?.employeeName ? String(metadata.employeeName) : "";
+        const teamName = metadata?.teamName ? String(metadata.teamName) : selectedGroupHistoryTeam?.name || "";
+
+        if (log.entityType === "employees") {
+          if (log.changedFields.includes("isTeamLead")) {
+            return {
+              id: log.id,
+              title: "Encarregado da equipe",
+              detail: `${employeeName || log.entityLabel || "Funcionário"} ${String(metadata?.isTeamLead ? "passou a ser o encarregado" : "deixou de ser o encarregado")} da equipe ${teamName}.`,
+              date: log.createdAt,
+              status: metadata?.isTeamLead ? "lead-assigned" : "lead-removed",
+            };
+          }
+
+          return {
+            id: log.id,
+            title: "Movimentação de colaborador",
+            detail: employeeName
+              ? `${employeeName} foi movimentado para a equipe ${teamName}.`
+              : `${teamName} recebeu atualização de colaboradores.`,
+            date: log.createdAt,
+            status: "member-change",
+          };
+        }
+
+        const changedFields = log.changedFields || [];
+        const previousName = String(metadata?.previousName || "");
+        const previousStartedAt = metadata?.previousStartedAt ? String(metadata.previousStartedAt) : "";
+        const previousEndedAt = metadata?.previousEndedAt ? String(metadata.previousEndedAt) : "";
+        const currentStartedAt = metadata?.startedAt ? String(metadata.startedAt) : "";
+        const currentEndedAt = metadata?.endedAt ? String(metadata.endedAt) : "";
+
+        if (changedFields.includes("name")) {
+          return {
+            id: log.id,
+            title: "Nome da equipe alterado",
+            detail: previousName
+              ? `Nome anterior: ${previousName}. Período: ${previousStartedAt || "-"} até ${previousEndedAt || "em andamento"}. Nome atual: ${log.entityLabel || teamName}.`
+              : `${log.entityLabel || teamName} ganhou um novo nome na estrutura do grupo.`,
+            date: log.createdAt,
+            status: "name-change",
+            meta: {
+              previousName,
+              previousStartedAt,
+              previousEndedAt,
+              currentStartedAt,
+              currentEndedAt,
+            },
+          };
+        }
+
+        if (changedFields.includes("startedAt") || changedFields.includes("endedAt")) {
+          return {
+            id: log.id,
+            title: "Vigência da equipe",
+            detail: `A vigência da equipe ${teamName} foi ajustada. Início: ${currentStartedAt || "-"}; término: ${currentEndedAt || "em andamento"}.`,
+            date: log.createdAt,
+            status: "period-change",
+          };
+        }
+
+        return {
+          id: log.id,
+          title: "Edição da equipe",
+          detail: log.description || `${teamName} foi atualizado na estrutura.`,
+          date: log.createdAt,
+          status: "team-edit",
+        };
+      })
+      .sort((first, second) => new Date(second.date).getTime() - new Date(first.date).getTime());
+  }, [groupHistoryLogs, selectedGroupHistoryTeam]);
 
   function resetGroupNodeForm() {
     setGroupNodeForm(emptyGroupNodeForm());
@@ -4020,7 +4186,17 @@ function clearDatabaseFromScreen() {
                         <button className="btn btn-secondary" type="button" title="Editar grupo" aria-label="Editar grupo" onClick={() => openGroupWizard(group, 1)}>
                           <Edit2 size={14} />
                         </button>
-        
+
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          title="Histórico de estrutura"
+                          aria-label="Histórico de estrutura"
+                          onClick={() => setGroupStructureHistoryId(group.id)}
+                        >
+                          <BookOpen size={14} />
+                        </button>
+
                         <button
                           className="btn btn-secondary"
                           type="button"
@@ -4377,6 +4553,14 @@ function clearDatabaseFromScreen() {
                   <label className="field">
                     Nome da equipe
                     <input required value={teamForm.name} onChange={(event) => setTeamForm({ ...teamForm, name: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    Início da equipe
+                    <input type="date" value={teamForm.startedAt} onChange={(event) => setTeamForm({ ...teamForm, startedAt: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    Término da equipe
+                    <input type="date" value={teamForm.endedAt} onChange={(event) => setTeamForm({ ...teamForm, endedAt: event.target.value })} />
                   </label>
                   <label className="field is-wide-field">
                     Descrição
@@ -5022,6 +5206,139 @@ function clearDatabaseFromScreen() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {selectedGroupHistory && (
+        <ModalPortal className="modal-backdrop" role="presentation">
+          <div className="group-history-modal" role="dialog" aria-modal="true" aria-labelledby="group-history-title">
+            <div className="modal-header group-history-header">
+              <div>
+                <span className="group-wizard-eyebrow">Resumo da estrutura</span>
+                <h2 id="group-history-title">Histórico de Estrutura</h2>
+                <p>{selectedGroupHistory.name}</p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setGroupStructureHistoryId("")} aria-label="Fechar histórico da estrutura">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="group-history-body">
+              {selectedGroupHistoryCards.map((card) => {
+                const isCardOpen = groupHistoryOpenType === card.type;
+                const isTeamCard = card.type === "team";
+
+                return (
+                  <div key={card.type} className={`group-history-card ${isCardOpen ? "is-open" : ""}`}>
+                    <div
+                      className="group-history-card-header"
+                      onClick={() => {
+                        if (isTeamCard) {
+                          if (!card.entries.length) return;
+                          setGroupHistorySelectedTeamId(card.entries[0].id);
+                          setGroupHistoryOpenType(card.type);
+                        }
+                      }}
+                      role={isTeamCard ? "button" : undefined}
+                      tabIndex={isTeamCard ? 0 : undefined}
+                      onKeyDown={(event) => {
+                        if (isTeamCard && (event.key === "Enter" || event.key === " ")) {
+                          event.preventDefault();
+                          if (!card.entries.length) return;
+                          setGroupHistorySelectedTeamId(card.entries[0].id);
+                          setGroupHistoryOpenType(card.type);
+                        }
+                      }}
+                    >
+                      <span>{card.label}</span>
+                      <strong>{card.count}</strong>
+                    </div>
+
+                    {card.entries.length > 0 ? (
+                      <ul>
+                        {card.entries.map((entry) => (
+                          <li key={`${card.type}-${entry.id}`}>
+                            <span>{entry.name}</span>
+                            {card.type === "team" && (entry.startedAt || entry.endedAt) ? (
+                              <small>
+                                {entry.startedAt ? `Início: ${formatDate(entry.startedAt)}` : "Início: -"}
+                                {entry.endedAt ? ` · Término: ${formatDate(entry.endedAt)}` : " · Término: em andamento"}
+                              </small>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <small>Nenhum cadastrado</small>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {groupHistoryOpenType === "team" && selectedGroupHistoryTeam && (
+              <ModalPortal className="modal-backdrop" role="presentation">
+                <div className="group-history-team-modal" role="dialog" aria-modal="true" aria-labelledby="group-history-team-title">
+                  <div className="modal-header group-history-team-modal-header">
+                    <button className="btn btn-secondary" type="button" onClick={() => setGroupHistoryOpenType(null)}>
+                      <ChevronLeft size={14} /> Voltar
+                    </button>
+                    <div>
+                      <span className="group-wizard-eyebrow">Equipe</span>
+                      <h2 id="group-history-team-title">{selectedGroupHistoryTeam.name}</h2>
+                    </div>
+                  </div>
+
+                  <div className="group-history-team-modal-body">
+                    <div className="group-history-team-list">
+                      {selectedGroupHistoryTeamEntries.map((entry) => {
+                        const isSelected = groupHistorySelectedTeamId === entry.id;
+                        return (
+                          <button
+                            key={`team-history-${entry.id}`}
+                            type="button"
+                            className={`group-history-team-item ${isSelected ? "is-selected" : ""}`}
+                            onClick={() => setGroupHistorySelectedTeamId(entry.id)}
+                          >
+                            <span>{entry.name}</span>
+                            <small>
+                              {entry.startedAt ? `Início: ${formatDate(entry.startedAt)}` : "Início: -"}
+                              {entry.endedAt ? ` · Término: ${formatDate(entry.endedAt)}` : " · Término: em andamento"}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="group-history-team-details">
+                      <div className="group-history-team-details-header">
+                        <strong>{selectedGroupHistoryTeam.name}</strong>
+                        <span>{selectedTeamHistory.length} alteração(ões)</span>
+                      </div>
+
+                      {selectedTeamHistory.length > 0 ? (
+                        selectedTeamHistory.map((event) => (
+                          <div className="group-history-event" key={event.id}>
+                            <span>{event.title}</span>
+                            <small>{new Date(event.date).toLocaleString("pt-BR")}</small>
+                            <p>{event.detail}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="group-history-empty-state">Nenhum histórico encontrado para esta equipe.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </ModalPortal>
+            )}
+
+            <div className="group-history-footer">
+              <button className="btn btn-primary" type="button" onClick={() => setGroupStructureHistoryId("")}>
+                Fechar
+              </button>
             </div>
           </div>
         </ModalPortal>

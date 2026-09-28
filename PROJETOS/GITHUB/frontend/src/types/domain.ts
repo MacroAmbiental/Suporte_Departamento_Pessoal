@@ -23,7 +23,6 @@ export type AppScreen =
   | "employees"
   | "benefits"
   | "timekeeping"
-  | "afastados"
   | "hrControl"
   | "talentBank"
   | "notifications"
@@ -243,6 +242,8 @@ export interface Team {
   groupId?: string;
   name: string;
   description?: string;
+  startedAt?: string;
+  endedAt?: string;
   active: boolean;
   createdAt: string;
   updatedAt: string;

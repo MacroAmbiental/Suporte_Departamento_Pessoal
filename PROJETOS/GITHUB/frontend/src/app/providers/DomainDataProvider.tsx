@@ -779,6 +779,50 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     }).catch(() => undefined);
   }, [user]);
 
+  const buildAuditMetadata = useCallback((collectionName: CollectionName, item: Entity, previous?: Entity) => {
+    const record = item as Record<string, unknown>;
+    const previousRecord = previous as Record<string, unknown> | undefined;
+
+    if (collectionName === "teams") {
+      const teamId = String(record.id ?? previousRecord?.id ?? "");
+      const previousName = previousRecord && "name" in previousRecord ? String(previousRecord.name ?? "") : "";
+      const previousStartedAt = previousRecord && "startedAt" in previousRecord ? String(previousRecord.startedAt ?? "") : "";
+      const previousEndedAt = previousRecord && "endedAt" in previousRecord ? String(previousRecord.endedAt ?? "") : "";
+      const currentStartedAt = typeof record.startedAt === "string" ? record.startedAt : "";
+      const currentEndedAt = typeof record.endedAt === "string" ? record.endedAt : "";
+
+      return {
+        teamId,
+        teamName: String(record.name ?? previousRecord?.name ?? ""),
+        previousName,
+        currentName: String(record.name ?? previousRecord?.name ?? ""),
+        companyId: String(record.companyId ?? previousRecord?.companyId ?? ""),
+        groupId: String(record.groupId ?? previousRecord?.groupId ?? ""),
+        previousStartedAt,
+        previousEndedAt,
+        startedAt: currentStartedAt,
+        endedAt: currentEndedAt,
+        employeeCount: dataRef.current.employees.filter((employee) => employee.teamId === teamId).length,
+      };
+    }
+
+    if (collectionName === "employees") {
+      const employeeId = String(record.id ?? previousRecord?.id ?? "");
+      const teamId = String(record.teamId ?? previousRecord?.teamId ?? "");
+      const teamName = teamId ? (dataRef.current.teams.find((team) => team.id === teamId)?.name ?? "") : "";
+      return {
+        employeeId,
+        employeeName: String(record.name ?? previousRecord?.name ?? ""),
+        teamId,
+        teamName,
+        isTeamLead: Boolean(record.isTeamLead ?? previousRecord?.isTeamLead),
+        companyId: String(record.companyId ?? previousRecord?.companyId ?? ""),
+      };
+    }
+
+    return undefined;
+  }, []);
+
   const updateCollection = useCallback(async <T extends Entity>(collectionName: CollectionName, item: T) => {
     const previous = (dataRef.current[collectionName] as unknown as T[]).find((entry) => entry.id === item.id);
     setData((current) => {
@@ -800,9 +844,10 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       entityLabel: entityDisplayName(item as Record<string, unknown>, item.id),
       description: `${action === "create" ? "Registro criado" : action === "deactivate" ? "Registro desativado" : "Registro editado"} em ${collectionName}.`,
       changedFields: changedFieldNames(previous as Record<string, unknown> | undefined, item as Record<string, unknown>),
+      metadata: buildAuditMetadata(collectionName, item, previous),
     }).catch(() => undefined);
     return item;
-  }, [user]);
+  }, [buildAuditMetadata, user]);
 
   const upsert = useCallback(async <T extends Entity>(
     collectionName: CollectionName,
