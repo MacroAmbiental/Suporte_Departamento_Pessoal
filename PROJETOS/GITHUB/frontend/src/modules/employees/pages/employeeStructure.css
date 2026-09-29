@@ -23,12 +23,18 @@
 }
 
 .employee-team-owner svg {
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 3px;
 }
+  
 
 .employee-team-owner.is-assigned {
-  color: #087f65;
+  color: #2ad384;
+  font-size: 16px;
+
+
 }
 
 .employee-team-owner-label {

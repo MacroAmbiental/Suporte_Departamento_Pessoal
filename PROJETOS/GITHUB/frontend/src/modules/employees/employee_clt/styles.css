@@ -1,0 +1,4 @@
+/* Estilos específicos do módulo Funcionários CLT. A tela base de funcionários continua compartilhada. */
+.employee-module-company {
+  min-width: 0;
+}

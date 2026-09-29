@@ -1,0 +1,4 @@
+/* Estilos específicos do módulo Funcionários contratados. A tela base de funcionários continua compartilhada. */
+.employee-module-contract {
+  min-width: 0;
+}

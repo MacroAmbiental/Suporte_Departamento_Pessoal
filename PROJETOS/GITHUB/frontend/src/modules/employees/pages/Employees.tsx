@@ -591,18 +591,22 @@ function suggestUsername(name: string) {
   return createUsernameFromName(name);
 }
 
+export type EmployeeScreenKind = "contract" | "company";
+
 export default function Employees({
   initialEmployeeId = "",
   initialModal,
   initialQuickDismissal,
   showTerminatedOnly = false,
   initialCompanyIds = [],
+  employeeKind,
 }: {
   initialEmployeeId?: string;
   initialModal?: "deactivate";
   initialQuickDismissal?: "quick" | "warning";
   showTerminatedOnly?: boolean;
   initialCompanyIds?: string[];
+  employeeKind?: EmployeeScreenKind;
 }) {
   const data = useDomainData();
   const employeeSource = useMemo(() => {
@@ -617,6 +621,12 @@ export default function Employees({
     // Somente desligados/terminados ficam na aba Demitidos.
     return data.employees.filter((employee) => !isEmployeeTerminated(employee));
   }, [data.dismissedEmployees, data.employees, showTerminatedOnly]);
+  const scopedEmployeeSource = useMemo(
+    () => employeeKind
+      ? employeeSource.filter((employee) => employeeKindOf(employee) === employeeKind)
+      : employeeSource,
+    [employeeKind, employeeSource],
+  );
   const { can, user } = useAuth();
   const canCreateEmployees = can("employees", "create");
   const canEditEmployees = can("employees", "edit");
@@ -898,21 +908,21 @@ export default function Employees({
   }
 
   const employeeOptions = useMemo(() => (
-    employeeSource.map((item) => ({ value: item.id, label: item.name }))
-  ), [employeeSource]);
+    scopedEmployeeSource.map((item) => ({ value: item.id, label: item.name }))
+  ), [scopedEmployeeSource]);
 
   const teamOptions = useMemo(() => {
     const options = new Map<string, { value: string; label: string }>();
-    employeeSource.forEach((employee) => {
+    scopedEmployeeSource.forEach((employee) => {
       const option = employeeTeamFilterOption(employee);
       if (option && !options.has(option.value)) options.set(option.value, option);
     });
     return Array.from(options.values());
-  }, [employeeSource, employeeTeamFilterOption]);
+  }, [scopedEmployeeSource, employeeTeamFilterOption]);
 
   const roleOptions = useMemo(() => {
     const options = new Map<string, { value: string; label: string }>();
-    employeeSource.forEach((employee) => {
+    scopedEmployeeSource.forEach((employee) => {
       const label = employee.role?.trim();
       if (!label) return;
       const value = normalizeFilterValue(label);
@@ -922,8 +932,8 @@ export default function Employees({
   }, [data.employees]);
 
   const cpfOptions = useMemo(() => (
-    Array.from(new Set(employeeSource.map((item) => item.cpf?.trim() || ""))).filter(Boolean).map((cpf) => ({ value: cpf, label: cpf }))
-  ), [employeeSource]);
+    Array.from(new Set(scopedEmployeeSource.map((item) => item.cpf?.trim() || ""))).filter(Boolean).map((cpf) => ({ value: cpf, label: cpf }))
+  ), [scopedEmployeeSource]);
 
   const systemUserByEmployeeId = useMemo(() => new Map(
     data.systemUsers.filter((systemUser) => systemUser.employeeId).map((systemUser) => [systemUser.employeeId as string, systemUser]),
@@ -935,14 +945,14 @@ export default function Employees({
 
   const birthdayYearOptions = useMemo(() => {
     const years = new Set<string>();
-    employeeSource.forEach((employee) => {
+    scopedEmployeeSource.forEach((employee) => {
       const year = parseBirthdayParts(employee.registrationData?.birthDate)?.year;
       if (year) years.add(year);
     });
     return Array.from(years)
       .sort((left, right) => right.localeCompare(left))
       .map((year) => ({ value: year, label: year }));
-  }, [employeeSource]);
+  }, [scopedEmployeeSource]);
 
   function getEmployeeProcessBadge(employee: Employee) {
     const registrationData = employee.registrationData || {};
@@ -991,7 +1001,7 @@ export default function Employees({
     return "";
   }
 
-  const filteredEmployees = useMemo(() => employeeSource.filter((employee) => {
+  const filteredEmployees = useMemo(() => scopedEmployeeSource.filter((employee) => {
     const login = systemUserByEmployeeId.get(employee.id);
     const teamOption = employeeTeamFilterOption(employee);
     const search = `${employee.name} ${employee.registration} ${employee.cpf} ${employee.role} ${employee.position} ${teamOption?.label || ""} ${login?.username || ""}`.toLowerCase();
@@ -1019,7 +1029,7 @@ export default function Employees({
       )
       && (!filters.search || search.includes(filters.search.toLowerCase()))
     );
-  }).sort((left, right) => Number(isEmployeeTerminated(left)) - Number(isEmployeeTerminated(right))), [employeeSource, employeeTeamFilterOption, filters, systemUserByEmployeeId, showTerminatedOnly]);
+  }).sort((left, right) => Number(isEmployeeTerminated(left)) - Number(isEmployeeTerminated(right))), [scopedEmployeeSource, employeeTeamFilterOption, filters, systemUserByEmployeeId, showTerminatedOnly]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
   const paginatedEmployees = useMemo(() => {
@@ -1039,12 +1049,12 @@ export default function Employees({
 
   useEffect(() => {
     if (!initialEmployeeId || !data.employees.length) return;
-    const target = data.employees.find((employee) => employee.id === initialEmployeeId);
+    const target = data.employees.find((employee) => employee.id === initialEmployeeId && (!employeeKind || employeeKindOf(employee) === employeeKind));
     if (!target || target.registrationData?.dismissalApprovedAt) return;
     if (initialModal === "deactivate") {
       setDeactivationEmployee(target);
     }
-  }, [data.employees, initialEmployeeId, initialModal]);
+  }, [data.employees, employeeKind, initialEmployeeId, initialModal]);
 
   useEffect(() => {
     if (!wizardOpen || !editingEmployeeId || !selectedFormUsesGroupStructure || !selectedFormGroup) return;
@@ -1706,7 +1716,7 @@ export default function Employees({
       ...draftPayload,
       isTeamLead: draftGroup ? Boolean(draftPayload?.id && data.companyGroupUnits.find(unit => unit.id === employeeGroupUnitSelection(draftGroup, draftPayload).teamUnitId)?.coordinatorEmployeeId === draftPayload.id) : Boolean(draftPayload?.isTeamLead),
       groupId: draftPayload?.groupId || draftDomainGroup?.id || "",
-      employeeKind: asPromotion ? "company" : registrationData.employeeKind === "company" ? "company" : registrationData.employeeKind === "diarist" ? "diarist" : "contract",
+      employeeKind: employeeKind || (asPromotion ? "company" : registrationData.employeeKind === "company" ? "company" : registrationData.employeeKind === "diarist" ? "diarist" : "contract"),
       diaristUseStructure: registrationData.diaristUseStructure === "true",
       diaristDailyRate: Number(registrationData.diaristDailyRate || 0),
       diaristBankDetails: registrationData.diaristBankDetails || "",
@@ -2812,12 +2822,14 @@ export default function Employees({
 
             {step === 1 ? (
               <div className="employee-data-step">
-                <div className="employee-kind-panel is-wide-field">
-                  <span>Tipo de funcionário</span>
-                  <label><input type="radio" checked={form.employeeKind === "contract"} onChange={() => setForm({ ...form, employeeKind: "contract", registrationData: { ...(form.registrationData || {}), employeeKind: "contract" } })} /> {employeeKindLabels.contract}</label>
-                  <label><input type="radio" checked={form.employeeKind === "company"} onChange={() => setForm({ ...form, employeeKind: "company", registrationData: { ...(form.registrationData || {}), employeeKind: "company" } })} /> {employeeKindLabels.company}</label>
-                  <label><input type="radio" checked={form.employeeKind === "diarist"} onChange={() => setForm({ ...form, employeeKind: "diarist", createLogin: false, workScheduleDays: blankScheduleTemplate, registrationData: { ...(form.registrationData || {}), employeeKind: "diarist" } })} /> Diarista</label>
-                </div>
+                {!employeeKind ? (
+                  <div className="employee-kind-panel is-wide-field">
+                    <span>Tipo de funcionário</span>
+                    <label><input type="radio" checked={form.employeeKind === "contract"} onChange={() => setForm({ ...form, employeeKind: "contract", registrationData: { ...(form.registrationData || {}), employeeKind: "contract" } })} /> {employeeKindLabels.contract}</label>
+                    <label><input type="radio" checked={form.employeeKind === "company"} onChange={() => setForm({ ...form, employeeKind: "company", registrationData: { ...(form.registrationData || {}), employeeKind: "company" } })} /> {employeeKindLabels.company}</label>
+                    <label><input type="radio" checked={form.employeeKind === "diarist"} onChange={() => setForm({ ...form, employeeKind: "diarist", createLogin: false, workScheduleDays: blankScheduleTemplate, registrationData: { ...(form.registrationData || {}), employeeKind: "diarist" } })} /> Diarista</label>
+                  </div>
+                ) : null}
                 {formError ? <p className="field-error">{formError}</p> : null}
 
                 {form.employeeKind === "contract" ? (
