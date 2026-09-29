@@ -1,0 +1,47 @@
+﻿import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from 'typescript';
+const compiled = ts.transpileModule(fs.readFileSync('src/common/utils/teamLeadership.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {employeeLeadershipChanges,groupLeadershipEmployees}=await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const employees=[{id:'a',name:'Ana',groupId:'g',companyId:'c',teamId:'s1',isTeamLead:false,updatedAt:'now'},{id:'b',name:'Bia',groupId:'g',companyId:'c',teamId:'s1',isTeamLead:false,updatedAt:'now'}];
+const team={id:'t1',groupId:'g',type:'team',active:true,name:'Apoio',coordinatorEmployeeId:''};
+const base={employees,companyGroupUnits:[team,{...team,id:'t2'}],companyGroupEmployeeAssignments:employees.map(e=>({id:e.id,employeeId:e.id,groupId:'g',teamUnitId:'t1'})),companyGroupUnitLinks:[{companyId:'c',sourceId:'s1',sourceType:'team',groupUnitId:'t1'},{companyId:'c',sourceId:'s2',sourceType:'team',groupUnitId:'t2'}],companyGroupLeadershipAssignments:[]};
+const plan=employeeLeadershipChanges(base,{...employees[0],isTeamLead:true});
+assert.equal(plan.employee.isTeamLead,false);
+assert.ok(plan.mutations.every(m=>!['companyGroupUnits','companyGroupLeadershipAssignments'].includes(m.collection)));
+const owned={...base,employees:[{...employees[0],isTeamLead:true},employees[1]],companyGroupUnits:[{...team,coordinatorEmployeeId:'a'},base.companyGroupUnits[1]]};
+assert.equal(employeeLeadershipChanges(owned,{...employees[1],isTeamLead:true}).employee.isTeamLead,false);
+assert.equal(employeeLeadershipChanges(owned,{...employees[0],isTeamLead:false}).employee.isTeamLead,true);
+assert.throws(()=>employeeLeadershipChanges(owned,{...employees[0],teamId:'s2',isTeamLead:true}),/etapa 4/);
+const moved=employeeLeadershipChanges(base,{...employees[0],teamId:'s2',isTeamLead:true});
+assert.equal(moved.employee.isTeamLead,false);
+const swapped=groupLeadershipEmployees(owned,'g',[{...team,coordinatorEmployeeId:'b'}],base.companyGroupEmployeeAssignments,'now');
+assert.equal(swapped.find(e=>e.id==='a').isTeamLead,false);assert.equal(swapped.find(e=>e.id==='b').isTeamLead,true);
+const removed=groupLeadershipEmployees(owned,'g',[team],base.companyGroupEmployeeAssignments,'now');assert.equal(removed.find(e=>e.id==='a').isTeamLead,false);
+assert.throws(()=>groupLeadershipEmployees(owned,'g',[{...team,id:'t2',coordinatorEmployeeId:'b'}],base.companyGroupEmployeeAssignments,'now'),/vinculado/);
+console.log('PASS: employee cannot appoint/remove owner; group replacement/removal and membership validated.');
+assert.equal(moved.mutations.find(m=>m.collection==='companyGroupEmployeeAssignments').item.teamUnitId,'t2');
+const repository = fs.readFileSync('src/core/firestore/domainRepository.ts','utf8');
+const transactionCode = repository.slice(repository.indexOf('export async function commitLeadershipTransaction('), repository.indexOf('function patchMutationCaches('));
+const transactionJs = ts.transpileModule(transactionCode,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const store = new Map([['companyGroupUnits/t1',{coordinatorEmployeeId:''}]]);
+const fakeTransaction = async (_db, callback) => {
+  const writes=[];
+  await callback({get:async path=>({data:()=>store.get(path)}),set:(path,value)=>writes.push([path,value]),delete:path=>writes.push([path,null])});
+  for(const [path,value] of writes){if(value)store.set(path,{...store.get(path),...value});else store.delete(path);}
+};
+const exportsObject={};
+new Function('exports','runTransaction','doc','firestore','patchMutationCaches',transactionJs)(exportsObject,fakeTransaction,(_db,collection,id)=>`${collection}/${id}`,{},()=>{});
+await exportsObject.commitLeadershipTransaction([{type:'set',collection:'companyGroupUnits',item:{id:'t1',coordinatorEmployeeId:'a'}}],{t1:''});
+await assert.rejects(()=>exportsObject.commitLeadershipTransaction([{type:'set',collection:'companyGroupUnits',item:{id:'t1',coordinatorEmployeeId:'b'}},{type:'set',collection:'employees',item:{id:'b',isTeamLead:true}}],{t1:''}),/outra pessoa/);
+assert.equal(store.get('companyGroupUnits/t1').coordinatorEmployeeId,'a');
+assert.equal(store.has('employees/b'),false);
+console.log('PASS: stale owner rejected without writing a second employee flag.');
+
+const hierarchyJs=ts.transpileModule(fs.readFileSync('src/modules/companies/utils/teamHierarchy.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {teamsForDepartment}=await import('data:text/javascript;base64,'+Buffer.from(hierarchyJs).toString('base64'));
+const hierarchy=[{id:'p',type:'department'},{id:'s',type:'department'},{id:'sector',type:'sector',parentUnitId:'p'},{id:'prod',type:'team',parentUnitId:'p'},{id:'support',type:'team',parentUnitId:'s'},{id:'child',type:'team',parentUnitId:'sector'},{id:'orphan',type:'team'},{id:'cycle',type:'team',parentUnitId:'cycle'}];
+assert.deepEqual(teamsForDepartment(hierarchy,'p').map(t=>t.id),['prod','child']);
+assert.deepEqual(teamsForDepartment(hierarchy,'s').map(t=>t.id),['support']);
+assert.deepEqual(teamsForDepartment(hierarchy,''),[]);
+console.log('PASS: teams restricted to department; empty selection, orphans and cycles excluded.');

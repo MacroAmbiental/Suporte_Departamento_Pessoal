@@ -8,6 +8,7 @@ import {
   limit,
   onSnapshot,
   query,
+  runTransaction,
   setDoc,
   where,
   writeBatch,
@@ -381,6 +382,35 @@ export async function commitEntityBatch(mutations: EntityBatchMutation[]): Promi
     await batch.commit();
   }
 
+  patchMutationCaches(mutations);
+}
+
+/** Keep the team owner, employee flag and leadership record atomic. */
+export async function commitLeadershipTransaction(mutations: EntityBatchMutation[], expectedOwners: Record<string, string>) {
+  if (!firestore) throw new Error("Firestore não configurado.");
+  const db = firestore;
+  const unique = new Map<string, EntityBatchMutation>();
+  mutations.forEach(m => unique.set(`${m.collection}/${m.type === "set" ? m.item.id : m.id}`, m));
+  const writes = [...unique.values()];
+  if (writes.length > 450) throw new Error("Muitas alterações de responsáveis de uma vez. Salve em grupos menores.");
+  await runTransaction(db, async transaction => {
+    const entries = Object.entries(expectedOwners);
+    const current = await Promise.all(entries.map(([id]) => transaction.get(doc(db, "companyGroupUnits", id))));
+    current.forEach((snapshot, index) => {
+      if ((snapshot.data()?.coordinatorEmployeeId || "") !== entries[index][1]) {
+        throw new Error("O responsável desta equipe foi alterado por outra pessoa. Atualize a tela e tente novamente.");
+      }
+    });
+    writes.forEach(m => {
+      const ref = doc(db, m.collection, m.type === "set" ? m.item.id : m.id);
+      if (m.type === "set") transaction.set(ref, m.item, { merge: true });
+      else transaction.delete(ref);
+    });
+  });
+  patchMutationCaches(writes);
+}
+
+function patchMutationCaches(mutations: EntityBatchMutation[]) {
   mutations.forEach((mutation) => {
     if (mutation.type === "set") {
       patchCollectionCache<Entity>(mutation.collection, (current) => {

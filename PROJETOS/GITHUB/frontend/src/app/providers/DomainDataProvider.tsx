@@ -1,4 +1,5 @@
 import ModalPortal from "@/modules/shared/ModalPortal";
+import { employeeLeadershipChanges, groupLeadershipEmployees, type EmployeeStructureSelection } from "@/common/utils/teamLeadership";
 import { archiveEmployeeProcess } from "@/modules/employeeProcesses/utils/processHistory";
 import { todayISO } from "@/utils/format";
 import { processEntryDate } from "@/modules/employeeProcesses/utils/processEntryDate";
@@ -20,6 +21,7 @@ import {
 import {
   collectionNames,
   commitEntityBatch,
+  commitLeadershipTransaction,
   deleteEntity,
   loadCollection,
   loadDocumentsByIds,
@@ -132,7 +134,7 @@ interface DomainDataContextValue extends DomainSnapshot {
   upsertBenefitFolder: (payload: UpsertPayload<BenefitFolder>) => Promise<BenefitFolder>;
   upsertBenefitCustomField: (payload: UpsertPayload<BenefitCustomField>) => Promise<BenefitCustomField>;
   upsertEmployeeBenefit: (payload: UpsertPayload<EmployeeBenefit>) => Promise<EmployeeBenefit>;
-  upsertEmployee: (payload: UpsertPayload<Employee>) => Promise<Employee>;
+  upsertEmployee: (payload: UpsertPayload<Employee>, selection?: EmployeeStructureSelection) => Promise<Employee>;
   upsertEmployeePromotion: (payload: UpsertPayload<EmployeePromotion>) => Promise<EmployeePromotion>;
   upsertEmployeeDraft: (payload: UpsertPayload<EmployeeDraft>) => Promise<EmployeeDraft>;
   upsertAppDraft: (payload: UpsertPayload<AppDraft>) => Promise<AppDraft>;
@@ -1574,7 +1576,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
         .trim();
       if (!normalizedName) return;
 
-      const key = `${unit.type}:${normalizedName}`;
+      const key = `${unit.type}:${normalizedName}${unit.type === "team" ? `:${unit.parentUnitId || ""}` : ""}`;
       const current = canonicalByKey.get(key);
       if (current) {
         unitIdMap.set(rawId, current.id);
@@ -1623,7 +1625,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       const targetUnitId = targetUnitIdByIndex.get(index);
       if (!targetUnitId || !validUnitIds.has(targetUnitId)) return;
       links.forEach((link) => {
-        if (!companyIds.includes(link.companyId) || !link.sourceId) return;
+        if ((!companyIds.includes(link.companyId) && !data.employees.some(employee => employee.groupId === groupId && employee.companyId === link.companyId)) || !link.sourceId) return;
         const id = link.id || `${targetUnitId}-${link.companyId}-${link.sourceId}`;
         if (unitLinks.some((item) => item.groupUnitId === targetUnitId && item.companyId === link.companyId && item.sourceId === link.sourceId)) return;
         unitLinks.push({
@@ -1639,7 +1641,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     });
 
     const validEmployeeIds = new Set(
-      data.employees.filter((employee) => companyIds.includes(employee.companyId)).map((employee) => employee.id),
+      data.employees.filter((employee) => companyIds.includes(employee.companyId) || employee.groupId === groupId).map((employee) => employee.id),
     );
 
     const employeeAssignments: CompanyGroupEmployeeAssignment[] = payload.employeeAssignments
@@ -1680,7 +1682,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       const relatedAssignment = leadershipAssignments.find((assignment) => (
         assignment.unitId === unit.id && assignment.role === responsibleRole
       ));
-      const responsibleEmployeeId = unit.coordinatorEmployeeId || relatedAssignment?.employeeId || "";
+      const responsibleEmployeeId = unit.type === "team" ? unit.coordinatorEmployeeId || "" : unit.coordinatorEmployeeId || relatedAssignment?.employeeId || "";
       return {
         ...unit,
         coordinatorEmployeeId: validEmployeeIds.has(responsibleEmployeeId) ? responsibleEmployeeId : "",
@@ -1725,7 +1727,10 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       updatedAt: now,
     }));
 
+    const leadershipEmployees = groupLeadershipEmployees(data, groupId, normalizedUnits, employeeAssignments, now);
+    const leadershipEmployeeIds = new Set(leadershipEmployees.map(employee => employee.id));
     const previousByCollection = {
+      employees: data.employees.filter(employee => leadershipEmployeeIds.has(employee.id)),
       companyGroups: data.companyGroups.filter((item) => item.id === groupId),
       companyGroupCompanies: data.companyGroupCompanies.filter((item) => item.groupId === groupId),
       companyGroupUnits: data.companyGroupUnits.filter((item) => item.groupId === groupId),
@@ -1735,6 +1740,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     };
 
     const nextByCollection = {
+      employees: leadershipEmployees.map(employee => ({ id: employee.id, isTeamLead: employee.isTeamLead, updatedAt: employee.updatedAt })),
       companyGroups: [group],
       companyGroupCompanies: groupCompanies,
       companyGroupUnits: normalizedUnits,
@@ -1756,6 +1762,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     const previousSnapshot = data;
     setData((current) => ({
       ...current,
+      employees: current.employees.map(employee => leadershipEmployees.find(next => next.id === employee.id) || employee),
       companyGroups: [...current.companyGroups.filter((item) => item.id !== groupId), group],
       companyGroupCompanies: [...current.companyGroupCompanies.filter((item) => item.groupId !== groupId), ...groupCompanies],
       companyGroupUnits: [...current.companyGroupUnits.filter((item) => item.groupId !== groupId), ...normalizedUnits],
@@ -1765,7 +1772,12 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     }));
 
     try {
-      await commitEntityBatch(mutations);
+      const teamIds = new Set([...data.companyGroupUnits.filter(unit => unit.groupId === groupId && unit.type === "team"), ...normalizedUnits.filter(unit => unit.type === "team")].map(unit => unit.id));
+      const leadershipIds = new Set([...data.companyGroupLeadershipAssignments, ...leadershipAssignments].filter(item => teamIds.has(item.unitId)).map(item => item.id));
+      const atomic = mutations.filter(m => m.collection === "employees" || (m.collection === "companyGroupUnits" && teamIds.has(m.type === "set" ? m.item.id : m.id)) || (m.collection === "companyGroupLeadershipAssignments" && leadershipIds.has(m.type === "set" ? m.item.id : m.id)));
+      const atomicSet = new Set(atomic);
+      await commitLeadershipTransaction(atomic, Object.fromEntries([...teamIds].map(id => [id, data.companyGroupUnits.find(unit => unit.id === id)?.coordinatorEmployeeId || ""])));
+      await commitEntityBatch(mutations.filter(m => !atomicSet.has(m)));
     } catch (error) {
       setData(previousSnapshot);
       throw error;
@@ -1978,8 +1990,9 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     await deleteEntity("dismissedEmployees", employee.id);
   }, [data.dismissedEmployees, deleteEntity, updateCollection]);
 
-  const upsertEmployeeValidated = useCallback(async (payload: UpsertPayload<Employee>) => {
-    const previous = data.employees.find((employee) => employee.id === payload.id);
+  const upsertEmployeeValidated = useCallback(async (payload: UpsertPayload<Employee>, selection?: EmployeeStructureSelection) => {
+    assertPermission("employees", payload.id ? "edit" : "create");
+    const previous = dataRef.current.employees.find((employee) => employee.id === payload.id);
     const employee = { ...previous, ...payload } as Employee;
     const normalizedCpf = normalizeEmployeeCpf(employee.cpf);
 
@@ -2000,17 +2013,48 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     const fields = employee.registrationData || {};
     const hasProcess = experience || fields.scheduledDeactivationDate || fields.deactivationEffectiveDate || fields.noticeStartDate;
     if (previous) await archiveEmployeeProcess(previous);
-    const savedEmployee = await upsert<Employee>("employees", "employee", {
-      ...payload,
+    let savedEmployee = {
+      ...employee,
+      id: payload.id || createId("employee"),
       registrationData: {
         ...fields,
         processStartedAt: fields.processStartedAt || (!previous && hasProcess ? new Date().toISOString() : enteredAt),
       },
+    } as Employee;
+    const beforeSnapshot = dataRef.current;
+    const plan = employeeLeadershipChanges(beforeSnapshot, savedEmployee, selection);
+    savedEmployee = plan.employee;
+    await commitLeadershipTransaction(plan.mutations, plan.expectedOwners);
+    const applyLocalMutations = (mutations: EntityBatchMutation[]) => setData(current => {
+      const next = { ...current };
+      for (const mutation of mutations) {
+        const list = next[mutation.collection] as Entity[];
+        const id = mutation.type === "set" ? mutation.item.id : mutation.id;
+        (next[mutation.collection] as Entity[]) = mutation.type === "set" ? [...list.filter(item => item.id !== id), mutation.item] : list.filter(item => item.id !== id);
+      }
+      dataRef.current = next;
+      return next;
     });
+    applyLocalMutations(plan.mutations);
+    registerUndo(previous ? "Funcionário atualizado." : "Funcionário criado.", async () => {
+      const inverse = new Map<string, EntityBatchMutation>();
+      for (const mutation of plan.mutations) {
+        const id = mutation.type === "set" ? mutation.item.id : mutation.id;
+        const old = (beforeSnapshot[mutation.collection] as Entity[]).find(item => item.id === id);
+        inverse.set(`${mutation.collection}/${id}`, old ? { type: "set", collection: mutation.collection, item: old } : { type: "delete", collection: mutation.collection, id });
+      }
+      const expectedOwners = { ...plan.expectedOwners };
+      plan.mutations.forEach(mutation => {
+        if (mutation.collection === "companyGroupUnits" && mutation.type === "set") expectedOwners[mutation.item.id] = (mutation.item as CompanyGroupUnit).coordinatorEmployeeId || "";
+      });
+      await commitLeadershipTransaction([...inverse.values()], expectedOwners);
+      applyLocalMutations([...inverse.values()]);
+    });
+    void writeAuditLog({ actor: user, action: previous ? "edit" : "create", entityType: "employees", entityId: savedEmployee.id, entityLabel: savedEmployee.name, description: "Funcionário e responsável da equipe atualizados.", changedFields: changedFieldNames(previous as unknown as Record<string, unknown>, savedEmployee as unknown as Record<string, unknown>) }).catch(() => undefined);
     await archiveEmployeeProcess(savedEmployee);
     await syncDismissedEmployee(savedEmployee);
     return savedEmployee;
-  }, [data.employees, syncDismissedEmployee, upsert]);
+  }, [assertPermission, data.employees, registerUndo, syncDismissedEmployee, user]);
 
   const deleteOrganizationalNode = useCallback(async (id: string) => {
     const nodeIds = descendantNodeIds(id);

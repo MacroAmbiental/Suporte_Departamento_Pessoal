@@ -1,3 +1,6 @@
+import { useCompanyDrafts } from "../hooks/useCompanyDrafts";
+import { buildIndexedGroupAssignments } from "../utils/groupEmployeeAssignments";
+import GroupTeamsStep from "./GroupTeamsStep";
 import ModalPortal from "@/modules/shared/ModalPortal";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -37,7 +40,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
-  Copy,
   Edit2,
   Eye,
   GitBranch,
@@ -340,6 +342,9 @@ export default function Companies() {
   } | null>(null);
   const [deleteRequestBusy, setDeleteRequestBusy] = useState(false);
   const [groupWizardOpen, setGroupWizardOpen] = useState(false);
+  const [groupWizardSaving, setGroupWizardSaving] = useState(false);
+  const [groupWizardError, setGroupWizardError] = useState("");
+  const groupWizardSavingRef = useRef(false);
   const [groupWizardStep, setGroupWizardStep] = useState<GroupWizardStep>(1);
   const [groupStructureFilter, setGroupStructureFilter] = useState<GroupUnitType | "all">("all");
   const [groupWizardLevelTab, setGroupWizardLevelTab] = useState<GroupUnitType>("department");
@@ -383,7 +388,7 @@ export default function Companies() {
         role: item.role,
       }));
     const units = data.companyGroupUnits
-      .filter((item) => item.groupId === group.id)
+      .filter((item) => item.groupId === group.id && item.active !== false)
       .map((unit) => {
         const responsibleRole: EmployeeAssignmentRole = unit.type === "department"
           ? "gerente"
@@ -505,6 +510,32 @@ export default function Companies() {
   });
 
   const [teamForm, setTeamForm] = useState({ name: "", description: "", startedAt: todayISO(), endedAt: "" });
+
+  const modalDraft = groupWizardOpen ? {
+    key: 'group:' + (groupWizardDraft.id || 'new'), title: (groupWizardDraft.id ? 'Editar grupo: ' : 'Novo grupo: ') + (groupWizardDraft.name || 'Sem nome'),
+    payload: { kind: 'group' as const, groupWizardDraft, groupWizardStep, groupStructureFilter, groupWizardLevelTab },
+  } : isWizardOpen ? {
+    key: 'structure', title: 'Estrutura: ' + (wizardCompanyForm.name || data.companies.find(company => company.id === wizardCompanyId)?.name || 'Nova empresa'),
+    payload: { kind: 'structure' as const, wizardStep, wizardCompanyId, wizardCompanyForm, wizardDepartments, wizardSectors, wizardTeams, wizardLeaderships },
+  } : editingKind ? {
+    key: 'entity:' + editingKind + ':' + (editingId || 'new'), title: (editingId ? 'Editar: ' : 'Novo cadastro: ') + ({company:companyForm,department:departmentForm,sector:sectorForm,subsector:subsectorForm,team:teamForm,contract:contractForm,module:moduleForm}[editingKind].name || 'Sem nome'),
+    payload: { kind: 'entity' as const, editingKind, editingId, activeTab, selectedCompanyId, createCompanyThenOpenStructure, companyForm, departmentForm, sectorForm, subsectorForm, teamForm, contractForm, moduleForm },
+  } : null;
+  const modalDrafts = useCompanyDrafts<NonNullable<typeof modalDraft>['payload']>(user?.id || 'anonymous', modalDraft);
+  function resumeModalDraft(draft: (typeof modalDrafts.drafts)[number]) {
+    const payload = draft.payload;
+    const key = payload.kind === 'group' ? 'group:' + (payload.groupWizardDraft.id || 'new') : payload.kind === 'structure' ? 'structure' : 'entity:' + payload.editingKind + ':' + (payload.editingId || 'new');
+    modalDrafts.resume(draft, key);
+    setEditingKind(null); setIsWizardOpen(false); setGroupWizardOpen(false);
+    if (payload.kind === 'group') {
+      setGroupWizardDraft(payload.groupWizardDraft); setGroupWizardStep(payload.groupWizardStep); setGroupStructureFilter(payload.groupStructureFilter); setGroupWizardLevelTab(payload.groupWizardLevelTab); setGroupWizardError(''); setGroupWizardOpen(true); setActiveTab('groups');
+    } else if (payload.kind === 'structure') {
+      setWizardStep(payload.wizardStep); setWizardCompanyId(payload.wizardCompanyId); setWizardCompanyForm(payload.wizardCompanyForm); setWizardDepartments(payload.wizardDepartments); setWizardSectors(payload.wizardSectors); setWizardTeams(payload.wizardTeams); setWizardLeaderships(payload.wizardLeaderships); setIsWizardOpen(true);
+    } else {
+      setEditingKind(payload.editingKind); setEditingId(payload.editingId); setActiveTab(payload.activeTab); setSelectedCompanyId(payload.selectedCompanyId); setCreateCompanyThenOpenStructure(payload.createCompanyThenOpenStructure);
+      setCompanyForm(payload.companyForm); setDepartmentForm(payload.departmentForm); setSectorForm(payload.sectorForm); setSubsectorForm(payload.subsectorForm); setTeamForm(payload.teamForm); setContractForm(payload.contractForm); setModuleForm(payload.moduleForm);
+    }
+  }
 
   const companyDepartments = structureItemsForGroup(data.departments, activeStructureGroup, data.companyGroupCompanies, data.companies);
   const companySectors = structureItemsForGroup(data.sectors, activeStructureGroup, data.companyGroupCompanies, data.companies);
@@ -804,41 +835,7 @@ export default function Companies() {
   }
 
   function buildGroupEmployeeAssignments(group: CompanyGroup) {
-    const units = effectiveGroupUnits(group);
-    const unitsByType = (type: GroupUnitType) => new Set(units.filter((unit) => unit.type === type).map((unit) => unit.id));
-    const unitSets = {
-      department: unitsByType("department"),
-      sector: unitsByType("sector"),
-      subsector: unitsByType("subsector"),
-      team: unitsByType("team"),
-    };
-    const previousAssignments = new Map((group.employeeAssignments || []).map((assignment) => [assignment.employeeId, assignment]));
-
-    return data.employees
-      .filter((employee) => group.companyIds.includes(employee.companyId))
-      .map((employee) => {
-        const previous = previousAssignments.get(employee.id);
-        const keepOrInfer = (type: GroupUnitType, previousUnitId?: string) => {
-          const set = type === "department"
-            ? unitSets.department
-            : type === "sector"
-              ? unitSets.sector
-              : type === "subsector"
-                ? unitSets.subsector
-                : unitSets.team;
-          return previousUnitId && set.has(previousUnitId)
-            ? previousUnitId
-            : inferEmployeeGroupUnitId(group, employee, type);
-        };
-
-        return {
-          employeeId: employee.id,
-          departmentUnitId: keepOrInfer("department", previous?.departmentUnitId),
-          sectorUnitId: keepOrInfer("sector", previous?.sectorUnitId),
-          subsectorUnitId: keepOrInfer("subsector", previous?.subsectorUnitId),
-          teamUnitId: keepOrInfer("team", previous?.teamUnitId),
-        };
-      });
+    return buildIndexedGroupAssignments(effectiveGroupUnits(group), group.companyIds, data.employees, group.employeeAssignments || [], group.id);
   }
 
   function deduplicateGroupStructure(group: CompanyGroup): CompanyGroup {
@@ -847,7 +844,7 @@ export default function Companies() {
 
     (group.units || []).forEach((unit) => {
       const normalizedName = normalizeStructureName(unit.name || "");
-      const key = normalizedName ? `${unit.type}:${normalizedName}` : `${unit.type}:id:${unit.id}`;
+      const key = normalizedName ? `${unit.type}:${normalizedName}${unit.type === "team" ? `:${unit.parentUnitId || ""}` : ""}` : `${unit.type}:id:${unit.id}`;
       const current = mergedByName.get(key);
 
       if (!current) {
@@ -952,7 +949,7 @@ export default function Companies() {
       if (!companyIds.length) return acc;
 
       companyIds.forEach((id) => groupedCompanyIds.add(id));
-      const companyIdSet = new Set(companyIds);
+      const companyIdSet = new Set([...companyIds, ...data.employees.filter(employee => employee.groupId === group.id).map(employee => employee.companyId)]);
       const sourceUnits = group.autoSyncStructure && companyIds.length === 1
         ? mergeGroupUnits([...group.units, ...groupUnitsFromCompany(companyIds[0])])
         : group.units;
@@ -1721,6 +1718,7 @@ export default function Companies() {
     });
 
     setSelectedCompanyId(saved.id);
+    modalDrafts.complete();
     closeForm();
     if (shouldOpenStructure) {
       setStructureView("tree");
@@ -1743,6 +1741,7 @@ export default function Companies() {
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     });
 
+    modalDrafts.complete();
     closeForm();
   }
 
@@ -1762,6 +1761,7 @@ export default function Companies() {
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     });
 
+    modalDrafts.complete();
     closeForm();
   }
 
@@ -1783,6 +1783,7 @@ export default function Companies() {
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     });
 
+    modalDrafts.complete();
     closeForm();
   }
 
@@ -1818,6 +1819,7 @@ export default function Companies() {
       updatedAt: new Date().toISOString(),
     });
 
+    modalDrafts.complete();
     closeForm();
   }
 
@@ -1840,6 +1842,7 @@ export default function Companies() {
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     });
 
+    modalDrafts.complete();
     closeForm();
   }
 
@@ -2691,7 +2694,8 @@ async function finishStructureWizard() {
 
   setSelectedCompanyId(targetCompanyId);
   setActiveTab("structure");
-  closeStructureWizard();
+  modalDrafts.complete();
+    closeStructureWizard();
 }
 
 function openCompanyStructure(companyIdToOpen: string) {
@@ -2781,6 +2785,7 @@ function clearDatabaseFromScreen() {
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     });
 
+    modalDrafts.complete();
     closeForm();
   }
 
@@ -2980,6 +2985,8 @@ function clearDatabaseFromScreen() {
   }
 
   function closeGroupWizard() {
+    if (groupWizardSavingRef.current) return;
+    setGroupWizardError("");
     setGroupWizardOpen(false);
     setGroupWizardStep(1);
     setGroupStructureFilter("all");
@@ -3107,12 +3114,12 @@ function clearDatabaseFromScreen() {
 
   function sourceDivergenceItemsForDraft(draft: CompanyGroup, sourceCompanyId: string, type: GroupUnitType) {
     if (!sourceCompanyId) return [];
-    const otherCompanyIds = draft.companyIds.filter((id) => id !== sourceCompanyId);
-    return groupSourceOptions(type, sourceCompanyId).filter((sourceItem) => {
+    const otherNames = draft.companyIds.filter(id => id !== sourceCompanyId).map(companyId => new Set(
+      groupSourceOptions(type, companyId).map(item => normalizeStructureName(item.name || "")),
+    ));
+    return groupSourceOptions(type, sourceCompanyId).filter(sourceItem => {
       const normalized = normalizeStructureName(sourceItem.name || "");
-      return normalized && otherCompanyIds.some((companyIdValue) =>
-        !groupSourceOptions(type, companyIdValue).some((item) => normalizeStructureName(item.name || "") === normalized),
-      );
+      return normalized && otherNames.some(names => !names.has(normalized));
     });
   }
 
@@ -3127,7 +3134,7 @@ function clearDatabaseFromScreen() {
   function mergeGroupUnits(units: CompanyGroupUnit[]) {
     const merged = new Map<string, CompanyGroupUnit>();
     units.forEach((unit) => {
-      const key = `${unit.type}:${normalizeStructureName(unit.name)}`;
+      const key = `${unit.type}:${normalizeStructureName(unit.name)}${unit.type === "team" ? `:${unit.parentUnitId || ""}` : ""}`;
       const current = merged.get(key);
       if (!current) {
         merged.set(key, { ...unit, parentUnitId: unit.parentUnitId || "", links: unit.links.map((link) => ({ ...link })) });
@@ -3155,6 +3162,9 @@ function clearDatabaseFromScreen() {
 
     const generatedUnits: CompanyGroupUnit[] = [];
     selectedTypes.forEach((type) => {
+      // Once teams are managed in step 4, importing the old flat list would
+      // recreate duplicates without departments every time the group is saved.
+      if (type === "team" && draft.units.some((unit) => unit.type === "team" && unit.parentUnitId)) return;
       sourceDivergenceItemsForDraft(draft, sourceCompanyId, type).forEach((sourceItem) => {
         generatedUnits.push({
           id: `reference-${type}-${sourceItem.id}`,
@@ -3217,7 +3227,8 @@ function clearDatabaseFromScreen() {
     }
   }
 
-  function saveGroupWizard() {
+  async function saveGroupWizard() {
+    if (groupWizardSavingRef.current) return;
     if (!groupWizardDraft.name.trim() || groupWizardDraft.companyIds.length < 1) return;
     const normalizedGroupName = normalizeStructureName(groupWizardDraft.name);
     const duplicatedName = companyGroups.some((group) => (
@@ -3228,50 +3239,67 @@ function clearDatabaseFromScreen() {
       return;
     }
 
-    const referenceUnits = buildReferenceVirtualUnits(groupWizardDraft);
-    const units = mergeGroupUnits([...groupWizardDraft.units, ...referenceUnits])
-      .filter((unit) => unit.name.trim() && unit.links.length >= 1);
-    const allowedEmployeeIds = new Set(
-      data.employees.filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId)).map((employee) => employee.id),
-    );
-    const autoSyncStructure = groupWizardDraft.companyIds.length === 1 && (groupWizardDraft.autoSyncStructure !== false || units.length === 0);
-    const group: CompanyGroup = {
-      ...groupWizardDraft,
-      id: groupWizardDraft.id || crypto.randomUUID(),
-      name: groupWizardDraft.name.trim(),
-      units: units.map((unit) => ({ ...unit, name: unit.name.trim() })),
-      active: groupWizardDraft.active !== false,
-      autoSyncStructure,
-      divergenceMode: groupWizardDraft.divergenceMode === "copy_from_source" ? "use_reference" : (groupWizardDraft.divergenceMode || "keep_existing"),
-      divergenceSourceCompanyId: groupWizardDraft.divergenceSourceCompanyId || "",
-      divergenceTypes: [...(groupWizardDraft.divergenceTypes || [])],
-      employeeAssignments: (groupWizardDraft.employeeAssignments || []).filter((assignment) => allowedEmployeeIds.has(assignment.employeeId)),
-      leadershipAssignments: (groupWizardDraft.leadershipAssignments || []).filter((assignment) => allowedEmployeeIds.has(assignment.employeeId)),
-      createdAt: groupWizardDraft.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const groupWithAssignments = {
-      ...group,
-      employeeAssignments: buildGroupEmployeeAssignments(group),
-    };
-    const selectedCompanyIds = new Set(groupWithAssignments.companyIds);
+    groupWizardSavingRef.current = true;
+    setGroupWizardSaving(true);
+    setGroupWizardError("");
+    try {
+      // Yield once so the browser can paint the saving state before preparation.
+      await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+      const referenceUnits = buildReferenceVirtualUnits(groupWizardDraft);
+      const units = mergeGroupUnits([...groupWizardDraft.units, ...referenceUnits])
+        .filter((unit) => unit.name.trim() && (unit.links.length >= 1 || (unit.type === "team" && unit.parentUnitId)));
+      const allowedEmployeeIds = new Set(
+        data.employees.filter((employee) => (groupWizardDraft.companyIds.includes(employee.companyId) || employee.groupId === groupWizardDraft.id)).map((employee) => employee.id),
+      );
+      const autoSyncStructure = groupWizardDraft.companyIds.length === 1 && (groupWizardDraft.autoSyncStructure !== false || units.length === 0);
+      const group: CompanyGroup = {
+        ...groupWizardDraft,
+        id: groupWizardDraft.id || crypto.randomUUID(),
+        name: groupWizardDraft.name.trim(),
+        units: units.map((unit) => ({ ...unit, name: unit.name.trim() })),
+        active: groupWizardDraft.active !== false,
+        autoSyncStructure,
+        divergenceMode: groupWizardDraft.divergenceMode === "copy_from_source" ? "use_reference" : (groupWizardDraft.divergenceMode || "keep_existing"),
+        divergenceSourceCompanyId: groupWizardDraft.divergenceSourceCompanyId || "",
+        divergenceTypes: [...(groupWizardDraft.divergenceTypes || [])],
+        employeeAssignments: (groupWizardDraft.employeeAssignments || []).filter((assignment) => allowedEmployeeIds.has(assignment.employeeId)),
+        leadershipAssignments: (groupWizardDraft.leadershipAssignments || []).filter((assignment) => allowedEmployeeIds.has(assignment.employeeId)),
+        createdAt: groupWizardDraft.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const groupWithAssignments = {
+        ...group,
+        employeeAssignments: buildGroupEmployeeAssignments(group),
+      };
+      const selectedCompanyIds = new Set(groupWithAssignments.companyIds);
 
-    setNormalizedCompanyGroups((current) => [
-      ...current
-        .filter((item) => item.id !== groupWithAssignments.id)
-        .map((item) => ({
-          ...item,
-          companyIds: item.companyIds.filter((companyIdValue) => !selectedCompanyIds.has(companyIdValue)),
-          units: item.units.map((unit) => ({
-            ...unit,
-            links: unit.links.filter((link) => !selectedCompanyIds.has(link.companyId)),
-          })),
-        }))
-        .filter((item) => item.companyIds.length > 0),
-      groupWithAssignments,
-    ]);
-    setActiveTab("groups");
+      const nextGroups = normalizeCompanyGroups([
+        ...companyGroups
+          .filter((item) => item.id !== groupWithAssignments.id)
+          .map((item) => ({
+            ...item,
+            companyIds: item.companyIds.filter((companyIdValue) => !selectedCompanyIds.has(companyIdValue)),
+            units: item.units.map((unit) => ({
+              ...unit,
+              links: unit.links.filter((link) => !selectedCompanyIds.has(link.companyId)),
+            })),
+          }))
+          .filter((item) => item.companyIds.length > 0),
+        groupWithAssignments,
+      ]);
+      const saveTask = groupMutationQueueRef.current.catch(() => undefined).then(() => persistNormalizedGroups(nextGroups));
+      groupMutationQueueRef.current = saveTask.catch(() => undefined);
+      await saveTask;
+      groupWizardSavingRef.current = false;
+      setActiveTab("groups");
+      modalDrafts.complete();
     closeGroupWizard();
+    } catch (error) {
+      setGroupWizardError(error instanceof Error ? error.message : "Não foi possível salvar o grupo. Tente novamente.");
+    } finally {
+      groupWizardSavingRef.current = false;
+      setGroupWizardSaving(false);
+    }
   }
 
   function renderGroupCompanyTree(companyIdValue: string) {
@@ -3370,7 +3398,7 @@ function clearDatabaseFromScreen() {
     ...groupWizardDraft.units,
     ...buildReferenceVirtualUnits(groupWizardDraft),
   ]);
-  const validGroupUnits = groupWizardDisplayUnits.filter((unit) => unit.name.trim() && unit.links.length >= 1);
+  const validGroupUnits = groupWizardDisplayUnits.filter((unit) => unit.name.trim() && (unit.links.length >= 1 || (unit.type === "team" && unit.parentUnitId)));
   const groupWizardCanContinue = groupWizardStep === 1
     ? Boolean(groupWizardDraft.name.trim())
     : groupWizardDraft.companyIds.length >= 1;
@@ -3636,7 +3664,7 @@ function clearDatabaseFromScreen() {
     event.preventDefault();
     if (!selectedGroupDetail || !groupNodeForm.nome.trim()) return;
     const normalizedName = normalizeStructureName(groupNodeForm.nome);
-    const duplicated = selectedGroupUnits.some((unit) => unit.id !== groupNodeForm.id && unit.type === groupNodeForm.tipo && normalizeStructureName(unit.name) === normalizedName);
+    const duplicated = selectedGroupUnits.some((unit) => unit.id !== groupNodeForm.id && unit.type === groupNodeForm.tipo && normalizeStructureName(unit.name) === normalizedName && (unit.type !== "team" || (unit.parentUnitId || rootParentValue) === groupNodeForm.parentId));
     if (duplicated) {
       alert("Já existe um item com esse nome nesse nível do grupo.");
       return;
@@ -3831,6 +3859,17 @@ function clearDatabaseFromScreen() {
           </button>
         </div>
       </div>
+
+      <section className="panel companies-drafts-card" aria-label="Rascunhos de Empresas">
+        <div><h2>Rascunhos ({modalDrafts.drafts.length})</h2><p className="muted">Alterações salvas neste navegador. Continue de onde parou.</p></div>
+        {modalDrafts.error && <p role="alert" className="field-error">{modalDrafts.error}</p>}
+        {modalDrafts.notice && <p role="status">{modalDrafts.notice}</p>}
+        {!modalDrafts.drafts.length && <p className="muted">Nenhum rascunho salvo.</p>}
+        <div className="companies-drafts-list">{modalDrafts.drafts.map(draft => <article key={draft.id} className="companies-draft-item">
+          <div><strong>{draft.title}</strong><small>Salvo em {new Date(draft.updatedAt).toLocaleString('pt-BR')}{draft.payload.kind === 'group' ? ' · Etapa ' + draft.payload.groupWizardStep + ' de 4' : ''}</small></div>
+          <div><button type="button" className="btn btn-primary" disabled={Boolean(modalDraft)} onClick={() => resumeModalDraft(draft)}>Continuar</button><button type="button" className="btn btn-secondary" disabled={Boolean(modalDraft)} onClick={() => { if (window.confirm('Excluir este rascunho?')) modalDrafts.remove(draft.id); }}>Excluir</button></div>
+        </article>)}</div>
+      </section>
 
       {importSummary && (
         <article className="panel">
@@ -4052,6 +4091,7 @@ function clearDatabaseFromScreen() {
                 <h2 className="panel-title">
                   <Plus size={18} /> {isEditing ? "Editar empresa" : "Nova empresa"}
                 </h2>
+                <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
                 <button className="btn btn-secondary" type="button" onClick={closeForm}>
                   <X size={14} /> Cancelar
                 </button>
@@ -4241,7 +4281,8 @@ function clearDatabaseFromScreen() {
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="department-form-title" onSubmit={submitDepartment}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="department-form-title">{isEditing ? "Editar departamento" : "Novo departamento"}</h2>
-                  <button className="btn btn-secondary" type="button" onClick={closeForm}>
+                  <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
+                <button className="btn btn-secondary" type="button" onClick={closeForm}>
                     <X size={14} /> Cancelar
                   </button>
                 </div>
@@ -4331,7 +4372,8 @@ function clearDatabaseFromScreen() {
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="sector-form-title" onSubmit={submitSector}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="sector-form-title">{isEditing ? "Editar setor" : "Novo setor"}</h2>
-                  <button className="btn btn-secondary" type="button" onClick={closeForm}>
+                  <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
+                <button className="btn btn-secondary" type="button" onClick={closeForm}>
                     <X size={14} /> Cancelar
                   </button>
                 </div>
@@ -4399,7 +4441,8 @@ function clearDatabaseFromScreen() {
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="subsector-form-title" onSubmit={submitSubsector}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="subsector-form-title">{isEditing ? "Editar subsetor" : "Novo subsetor"}</h2>
-                  <button className="btn btn-secondary" type="button" onClick={closeForm}>
+                  <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
+                <button className="btn btn-secondary" type="button" onClick={closeForm}>
                     <X size={14} /> Cancelar
                   </button>
                 </div>
@@ -4544,7 +4587,8 @@ function clearDatabaseFromScreen() {
               <form className="panel form-card entity-form-modal" role="dialog" aria-modal="true" aria-labelledby="team-form-title" onSubmit={submitTeam}>
                 <div className="panel-header">
                   <h2 className="panel-title" id="team-form-title">{isEditing ? "Editar equipe" : "Nova equipe"}</h2>
-                  <button className="btn btn-secondary" type="button" onClick={closeForm}>
+                  <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
+                <button className="btn btn-secondary" type="button" onClick={closeForm}>
                     <X size={14} /> Cancelar
                   </button>
                 </div>
@@ -4624,6 +4668,7 @@ function clearDatabaseFromScreen() {
             <form className="panel form-card" onSubmit={submitContract}>
               <div className="panel-header">
                 <h2 className="panel-title">{isEditing ? "Editar contrato" : "Novo contrato"}</h2>
+                <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
                 <button className="btn btn-secondary" type="button" onClick={closeForm}>
                   <X size={14} /> Cancelar
                 </button>
@@ -4768,6 +4813,7 @@ function clearDatabaseFromScreen() {
                 <h2 className="panel-title">
                   <GitBranch size={18} /> {isEditing ? "Editar módulo" : "Novo módulo customizado"}
                 </h2>
+                <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
                 <button className="btn btn-secondary" type="button" onClick={closeForm}>
                   <X size={14} /> Cancelar
                 </button>
@@ -5646,14 +5692,14 @@ function clearDatabaseFromScreen() {
               <div>
                 <span className="group-wizard-eyebrow">Grupo empresarial</span>
                 <h2 id="group-wizard-title">{groupWizardDraft.id ? "Editar grupo" : "Criar novo grupo"}</h2>
-                <p>Etapa {groupWizardStep} de 3</p>
+                <p>Etapa {groupWizardStep} de 4</p>
               </div>
               <button className="icon-button" type="button" onClick={closeGroupWizard} aria-label="Fechar criação de grupo">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="group-wizard-steps" aria-label="Etapas da criação do grupo">
+            <div className="group-wizard-steps" inert={groupWizardSaving} aria-label="Etapas da criação do grupo">
               <button className={groupWizardStep === 1 ? "is-active" : groupWizardStep > 1 ? "is-complete" : ""} type="button" onClick={() => setGroupWizardStep(1)}>
                 <span>{groupWizardStep > 1 ? <Check size={15} /> : "1"}</span>
                 <div><strong>Nome do grupo</strong><small>Identificação</small></div>
@@ -5672,7 +5718,7 @@ function clearDatabaseFromScreen() {
               </button>
             </div>
 
-            <div className="group-wizard-body">
+            <div className="group-wizard-body" inert={groupWizardSaving}>
               {groupWizardStep === 1 && (
                 <div className="group-wizard-step-content group-wizard-name-step">
                   <div className="group-wizard-step-heading">
@@ -5876,7 +5922,7 @@ function clearDatabaseFromScreen() {
                                           >
                                             <option value="">Definir depois</option>
                                             {data.employees
-                                              .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
+                                              .filter((employee) => (groupWizardDraft.companyIds.includes(employee.companyId) || employee.groupId === groupWizardDraft.id))
                                               .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
                                           </select>
                                         </label>
@@ -5953,7 +5999,7 @@ function clearDatabaseFromScreen() {
                                                   >
                                                     <option value="">Definir depois</option>
                                                     {data.employees
-                                                      .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
+                                                      .filter((employee) => (groupWizardDraft.companyIds.includes(employee.companyId) || employee.groupId === groupWizardDraft.id))
                                                       .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
                                                   </select>
                                                 </label>
@@ -5992,7 +6038,7 @@ function clearDatabaseFromScreen() {
                                                               <span>Líder do subsetor no grupo</span>
                                                               <select value={subsector.leaderEmployeeId || ""} onChange={(event) => updateGroupUnit(subsector.id, { coordinatorEmployeeId: event.target.value, leaderEmployeeId: event.target.value })}>
                                                                 <option value="">Definir depois</option>
-                                                                {data.employees.filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId)).map((employee) => (
+                                                                {data.employees.filter((employee) => (groupWizardDraft.companyIds.includes(employee.companyId) || employee.groupId === groupWizardDraft.id)).map((employee) => (
                                                                   <option key={employee.id} value={employee.id}>{employee.name}</option>
                                                                 ))}
                                                               </select>
@@ -6068,7 +6114,7 @@ function clearDatabaseFromScreen() {
                                     >
                                       <option value="">Definir depois</option>
                                       {data.employees
-                                        .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
+                                        .filter((employee) => (groupWizardDraft.companyIds.includes(employee.companyId) || employee.groupId === groupWizardDraft.id))
                                         .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
                                     </select>
                                   </label>
@@ -6084,109 +6130,25 @@ function clearDatabaseFromScreen() {
               )}
 
               {groupWizardStep === 4 && (
-                <div className="group-wizard-step-content group-wizard-team-step">
-                  <div className="group-wizard-step-heading">
-                    <span className="group-wizard-step-number">4</span>
-                    <div>
-                      <h3>Gerenciar equipes</h3>
-                      <p>Crie, edite, remova e mova equipes dentro dos departamentos, setores e subsetores do grupo.</p>
-                    </div>
-                  </div>
-
-                  <div className="group-wizard-team-board">
-                    {groupWizardDisplayUnits.filter((unit) => unit.type !== "team").map((unit) => {
-                      const teams = groupWizardDisplayUnits.filter((item) => item.type === "team" && (item.parentUnitId || "") === unit.id);
-                      const availableMoveTargets = groupWizardDisplayUnits.filter((target) => target.id !== unit.id && (target.type === "department" || target.type === "sector" || target.type === "subsector"));
-                      return (
-                        <div className="group-wizard-team-section" key={unit.id}>
-                          <div className="group-wizard-team-section-header">
-                            <div>
-                              <span>{groupUnitTypeLabels[unit.type]}</span>
-                              <strong>{unit.name || "Sem nome"}</strong>
-                            </div>
-                            <button type="button" className="btn btn-secondary tiny" onClick={() => addManualGroupUnit("team", unit.id)}>
-                              <Plus size={14} /> Nova equipe
-                            </button>
-                          </div>
-
-                          {teams.length === 0 ? (
-                            <div className="group-wizard-team-empty">Nenhuma equipe cadastrada neste nível.</div>
-                          ) : (
-                            <div className="group-wizard-team-list">
-                              {teams.map((teamUnit) => (
-                                <div className="group-wizard-team-card" key={teamUnit.id}>
-                                  <div className="group-wizard-team-card-header">
-                                    <div>
-                                      <span>Equipe</span>
-                                      <strong>{teamUnit.name || "Sem nome"}</strong>
-                                    </div>
-                                    <div className="group-wizard-team-actions">
-                                      <button className="icon-button" type="button" onClick={() => {
-                                        const duplicate = {
-                                          ...teamUnit,
-                                          id: crypto.randomUUID(),
-                                          name: `${teamUnit.name || "Equipe"} (cópia)`,
-                                          parentUnitId: teamUnit.parentUnitId || unit.id,
-                                        };
-                                        setGroupWizardDraft((current) => ({ ...current, units: [...current.units, duplicate] }));
-                                      }} aria-label="Duplicar equipe">
-                                        <Copy size={15} />
-                                      </button>
-                                      <button className="icon-button" type="button" onClick={() => removeGroupUnit(teamUnit.id)} aria-label="Remover equipe">
-                                        <Trash2 size={15} />
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="group-wizard-team-fields">
-                                    <label className="field">
-                                      <span>Nome da equipe</span>
-                                      <input
-                                        value={teamUnit.name}
-                                        onChange={(event) => updateGroupUnit(teamUnit.id, { name: event.target.value })}
-                                        placeholder="Ex.: Equipe de Atendimento"
-                                      />
-                                    </label>
-
-                                    <label className="field">
-                                      <span>Responsável</span>
-                                      <select
-                                        value={teamUnit.coordinatorEmployeeId}
-                                        onChange={(event) => updateGroupUnit(teamUnit.id, { coordinatorEmployeeId: event.target.value })}
-                                      >
-                                        <option value="">Definir depois</option>
-                                        {data.employees
-                                          .filter((employee) => groupWizardDraft.companyIds.includes(employee.companyId))
-                                          .map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
-                                      </select>
-                                    </label>
-
-                                    <label className="field">
-                                      <span>Vincular a</span>
-                                      <select
-                                        value={teamUnit.parentUnitId || unit.id}
-                                        onChange={(event) => updateGroupUnit(teamUnit.id, { parentUnitId: event.target.value })}
-                                      >
-                                        {availableMoveTargets.map((target) => (
-                                          <option key={target.id} value={target.id}>{groupUnitTypeLabels[target.type]} · {target.name || "Sem nome"}</option>
-                                        ))}
-                                      </select>
-                                    </label>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                <GroupTeamsStep
+                  units={groupWizardDisplayUnits}
+                  sectors={data.sectors}
+                  subsectors={data.subsectors}
+                  employees={data.employees.filter((employee) => (groupWizardDraft.companyIds.includes(employee.companyId) || employee.groupId === groupWizardDraft.id))}
+                  employeeTeamIds={Object.fromEntries(groupWizardDraft.employeeAssignments.map(assignment => [assignment.employeeId, assignment.teamUnitId || ""]))}
+                  groupName={groupWizardDraft.name}
+                  onAdd={(parentId) => addManualGroupUnit("team", parentId)}
+                  onUpdate={updateGroupUnit}
+                  onRemove={removeGroupUnit}
+                />
               )}
             </div>
 
+            {groupWizardError && <p role="alert" className="field-error">{groupWizardError}</p>}
+            {modalDrafts.error && <p role="alert">{modalDrafts.error}</p>}{modalDrafts.notice && <p role="status">{modalDrafts.notice}</p>}
             <div className="group-wizard-footer">
-              <button className="btn btn-secondary" type="button" onClick={groupWizardStep === 1 ? closeGroupWizard : () => setGroupWizardStep((Math.max(1, groupWizardStep - 1)) as GroupWizardStep)}>
+              <button className="btn btn-secondary" type="button" disabled={groupWizardSaving} onClick={modalDrafts.save}>Salvar rascunho</button>
+              <button className="btn btn-secondary" type="button" disabled={groupWizardSaving} onClick={groupWizardStep === 1 ? closeGroupWizard : () => setGroupWizardStep((Math.max(1, groupWizardStep - 1)) as GroupWizardStep)}>
                 {groupWizardStep === 1 ? "Cancelar" : <><ChevronLeft size={15} /> Voltar</>}
               </button>
               <div>
@@ -6195,10 +6157,10 @@ function clearDatabaseFromScreen() {
                 <button
                   className="btn btn-primary"
                   type="button"
-                  disabled={!groupWizardCanContinue && groupWizardStep !== 4}
+                  disabled={groupWizardSaving || (!groupWizardCanContinue && groupWizardStep !== 4)}
                   onClick={groupWizardStep === 4 ? saveGroupWizard : () => setGroupWizardStep((Math.min(4, groupWizardStep + 1)) as GroupWizardStep)}
                 >
-                  {groupWizardStep === 4 ? (groupWizardDraft.id ? "Salvar alterações" : "Criar grupo") : <>Continuar <ChevronRight size={15} /></>}
+                  {groupWizardSaving ? "Salvando..." : groupWizardStep === 4 ? (groupWizardDraft.id ? "Salvar alterações" : "Criar grupo") : <>Continuar <ChevronRight size={15} /></>}
                 </button>
               </div>
             </div>
@@ -6862,6 +6824,7 @@ Departamento: Qualidade e Segurança
       )}
 
       <div className="wizard-footer">
+        <button className="btn btn-secondary" type="button" onClick={modalDrafts.save}>Salvar rascunho</button>{modalDrafts.notice && <small role="status">{modalDrafts.notice}</small>}{modalDrafts.error && <small role="alert">{modalDrafts.error}</small>}
         <button
           className="btn btn-secondary"
           type="button"

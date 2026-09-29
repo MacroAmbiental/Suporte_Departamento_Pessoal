@@ -1,4 +1,6 @@
+import "./employeeStructure.css";
 import ModalPortal from "@/modules/shared/ModalPortal";
+import { resolveTeamHierarchy, teamsForDepartment } from "@/modules/companies/utils/teamHierarchy";
 import { EXPERIENCE_DURATION_DAYS } from "@/modules/employeeProcesses/utils/experience";
 import {
   Check,
@@ -14,6 +16,7 @@ import {
   Search,
   Trash2,
   UserPlus,
+  UserCheck,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
@@ -708,7 +711,7 @@ export default function Employees({
       name: group.name,
       active: group.active,
       companyIds,
-      units,
+      units: resolveTeamHierarchy(units, data.sectors, data.subsectors),
       employeeAssignments: data.companyGroupEmployeeAssignments.filter((item) => item.groupId === group.id),
     };
   }), [
@@ -717,6 +720,8 @@ export default function Employees({
     data.companyGroupUnits,
     data.companyGroupUnitLinks,
     data.companyGroupEmployeeAssignments,
+    data.sectors,
+    data.subsectors,
   ]);
 
   useEffect(() => {
@@ -797,7 +802,7 @@ export default function Employees({
     () => structureScopePayload(selectedDomainGroup, data.companyGroupCompanies, data.companies),
     [data.companies, data.companyGroupCompanies, selectedDomainGroup],
   );
-  const selectedFormUsesGroupStructure = false;
+  const selectedFormUsesGroupStructure = Boolean(selectedFormGroup?.units.length);
   const structureFieldsDisabled = form.employeeKind === "diarist" && !form.diaristUseStructure;
 
   function groupUnitNameForEmployee(employee: Employee, type: CompanyGroupUnitType) {
@@ -815,9 +820,10 @@ export default function Employees({
       const unitId = selection.teamUnitId;
       const unit = group.units.find((item) => item.id === unitId && item.type === "team");
       if (unit) {
+        const parentName = group.units.find((item) => item.id === unit.parentUnitId)?.name;
         return {
           value: `group:${group.id}:${unit.id}`,
-          label: `${unit.name} · ${group.name}`,
+          label: [unit.name, parentName, group.name].filter(Boolean).join(" · "),
         };
       }
     }
@@ -837,13 +843,17 @@ export default function Employees({
   const sectorSelectValue = selectedFormUsesGroupStructure ? groupUnitSelection.sectorUnitId : form.sectorId || "";
   const subsectorSelectValue = selectedFormUsesGroupStructure ? groupUnitSelection.subsectorUnitId : form.subsectorId || "";
   const teamSelectValue = selectedFormUsesGroupStructure ? groupUnitSelection.teamUnitId : form.teamId || "";
+  const selectedTeamOwnerId = selectedFormUsesGroupStructure
+    ? data.companyGroupUnits.find(unit => unit.id === teamSelectValue && unit.active !== false)?.coordinatorEmployeeId
+    : undefined;
+  const selectedTeamOwner = data.employees.find(employee => employee.id === selectedTeamOwnerId);
 
-  const departments = structureItemsForGroup(data.departments, selectedDomainGroup, data.companyGroupCompanies, data.companies);
-  const sectors = structureItemsForGroup(data.sectors, selectedDomainGroup, data.companyGroupCompanies, data.companies)
+  const departments = selectedFormUsesGroupStructure ? selectedFormGroup!.units.filter((unit) => unit.type === "department") : structureItemsForGroup(data.departments, selectedDomainGroup, data.companyGroupCompanies, data.companies);
+  const sectors = selectedFormUsesGroupStructure ? selectedFormGroup!.units.filter((unit) => unit.type === "sector" && Boolean(selectedDepartmentId) && unit.parentUnitId === selectedDepartmentId) : structureItemsForGroup(data.sectors, selectedDomainGroup, data.companyGroupCompanies, data.companies)
     .filter((item) => !form.departmentId || item.departmentId === form.departmentId);
-  const subsectors = structureItemsForGroup(data.subsectors, selectedDomainGroup, data.companyGroupCompanies, data.companies)
+  const subsectors = selectedFormUsesGroupStructure ? selectedFormGroup!.units.filter((unit) => unit.type === "subsector" && Boolean(selectedSectorId) && unit.parentUnitId === selectedSectorId) : structureItemsForGroup(data.subsectors, selectedDomainGroup, data.companyGroupCompanies, data.companies)
     .filter((item) => !form.sectorId || item.sectorId === form.sectorId);
-  const teams = structureItemsForGroup(data.teams, selectedDomainGroup, data.companyGroupCompanies, data.companies);
+  const teams = selectedFormUsesGroupStructure ? teamsForDepartment(selectedFormGroup!.units, selectedDepartmentId) : structureItemsForGroup(data.teams, selectedDomainGroup, data.companyGroupCompanies, data.companies).filter(team => Boolean(selectedDepartmentId) && team.departmentId === selectedDepartmentId);
 
   function handleCompanyChange(companyId: string) {
     const group = domainGroupForCompany(companyId);
@@ -853,7 +863,8 @@ export default function Employees({
 
   function handleDepartmentChange(departmentId: string) {
     if (selectedFormUsesGroupStructure) {
-      setGroupUnitSelection((current) => ({ ...current, departmentUnitId: departmentId, sectorUnitId: "", subsectorUnitId: "" }));
+      setGroupUnitSelection((current) => ({ ...current, departmentUnitId: departmentId, sectorUnitId: "", subsectorUnitId: "", teamUnitId: "" }));
+      setForm((current) => ({ ...current, isTeamLead: false }));
       return;
     }
     setForm({ ...form, departmentId, sectorId: "", subsectorId: "" });
@@ -861,7 +872,8 @@ export default function Employees({
 
   function handleSectorChange(sectorId: string) {
     if (selectedFormUsesGroupStructure) {
-      setGroupUnitSelection((current) => ({ ...current, sectorUnitId: sectorId, subsectorUnitId: "" }));
+      setGroupUnitSelection((current) => ({ ...current, sectorUnitId: sectorId, subsectorUnitId: "", teamUnitId: "" }));
+      setForm((current) => ({ ...current, isTeamLead: false }));
       return;
     }
     setForm({ ...form, sectorId, subsectorId: "" });
@@ -869,7 +881,8 @@ export default function Employees({
 
   function handleSubsectorChange(subsectorId: string) {
     if (selectedFormUsesGroupStructure) {
-      setGroupUnitSelection((current) => ({ ...current, subsectorUnitId: subsectorId }));
+      setGroupUnitSelection((current) => ({ ...current, subsectorUnitId: subsectorId, teamUnitId: "" }));
+      setForm((current) => ({ ...current, isTeamLead: false }));
       return;
     }
     setForm({ ...form, subsectorId });
@@ -878,7 +891,7 @@ export default function Employees({
   function handleTeamChange(teamId: string) {
     if (selectedFormUsesGroupStructure) {
       setGroupUnitSelection((current) => ({ ...current, teamUnitId: teamId }));
-      setForm({ ...form, isTeamLead: teamId ? Boolean(form.isTeamLead) : false });
+      setForm({ ...form, isTeamLead: Boolean(editingEmployeeId && data.companyGroupUnits.find(unit => unit.id === teamId)?.coordinatorEmployeeId === editingEmployeeId) });
       return;
     }
     setForm({ ...form, teamId, isTeamLead: teamId ? Boolean(form.isTeamLead) : false });
@@ -1691,6 +1704,7 @@ export default function Employees({
     setForm({
       ...emptyEmployee,
       ...draftPayload,
+      isTeamLead: draftGroup ? Boolean(draftPayload?.id && data.companyGroupUnits.find(unit => unit.id === employeeGroupUnitSelection(draftGroup, draftPayload).teamUnitId)?.coordinatorEmployeeId === draftPayload.id) : Boolean(draftPayload?.isTeamLead),
       groupId: draftPayload?.groupId || draftDomainGroup?.id || "",
       employeeKind: asPromotion ? "company" : registrationData.employeeKind === "company" ? "company" : registrationData.employeeKind === "diarist" ? "diarist" : "contract",
       diaristUseStructure: registrationData.diaristUseStructure === "true",
@@ -2018,32 +2032,6 @@ export default function Employees({
     };
   }
 
-  async function syncEmployeeGroupStructureAssignment(employee: Employee, now: string) {
-    if (!selectedFormUsesGroupStructure) return;
-    const group = employee.companyId ? groupForCompany(employee.companyId) : undefined;
-    if (!group?.units.length) return;
-
-    const unitIdFor = (type: CompanyGroupUnitType) => {
-      const key = groupUnitSelectionKey(type);
-      const selectedUnitId = groupUnitSelection[key];
-      // Mudanca: selecao vazia no grupo tambem remove o vinculo salvo no grupo empresarial.
-      return groupUnitExists(group, selectedUnitId, type) ? selectedUnitId : "";
-    };
-    const existing = group.employeeAssignments.find((item) => item.employeeId === employee.id);
-
-    await data.upsertCompanyGroupEmployeeAssignment({
-      id: existing?.id,
-      groupId: group.id,
-      employeeId: employee.id,
-      departmentUnitId: unitIdFor("department"),
-      sectorUnitId: unitIdFor("sector"),
-      subsectorUnitId: unitIdFor("subsector"),
-      teamUnitId: unitIdFor("team"),
-      createdAt: existing?.createdAt || now,
-      updatedAt: now,
-    });
-  }
-
   async function submitEmployee(event: FormEvent) {
     event.preventDefault();
     if (step < finalWizardStep) {
@@ -2094,8 +2082,7 @@ export default function Employees({
         },
         createdAt: previous?.createdAt || now,
         updatedAt: now,
-      });
-      await syncEmployeeGroupStructureAssignment(saved, now);
+      }, selectedFormUsesGroupStructure && selectedFormGroup ? { groupId: selectedFormGroup.id, ...groupUnitSelection } : undefined);
 
       if (form.employeeKind !== "diarist") {
         await saveRegistrationPdfDocument(saved, now);
@@ -2585,6 +2572,10 @@ export default function Employees({
               const group = groupForCompany(employee.companyId);
               const groupSectorName = groupUnitNameForEmployee(employee, "sector");
               const groupTeamName = groupUnitNameForEmployee(employee, "team");
+              const responsibilityGroup = (employee.groupId ? storedGroupById.get(employee.groupId) : undefined) || group;
+              const responsibilityTeamId = employeeGroupUnitSelection(responsibilityGroup, employee).teamUnitId;
+              const responsibilityTeam = data.companyGroupUnits.find(unit => unit.id === responsibilityTeamId && unit.type === "team" && unit.active !== false);
+
 
               return (
                 <tr key={employee.id} data-employee-terminated={displayStatus === "terminated" ? "true" : undefined} style={displayStatus === "terminated" ? { background: "rgba(220, 38, 38, 0.09)" } : undefined}>
@@ -2597,7 +2588,12 @@ export default function Employees({
                       </div>
                     </div>
                   </td>
-                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{sector?.name || groupSectorName || "-"}</span><br /><span className="muted">Equipe: {team?.name || groupTeamName || "-"}{employee.isTeamLead ? " · Encarregado" : ""}</span></td>
+                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{sector?.name || groupSectorName || "-"}</span><br /><span className="muted">Equipe: {team?.name || groupTeamName || "-"}</span>
+                    {responsibilityTeam?.coordinatorEmployeeId === employee.id ? <div className="employee-team-owner is-assigned">
+                      <UserCheck size={14} aria-hidden="true" />
+                      <span>Encarregado da equipe</span>
+                    </div> : null}
+                  </td>
                   <td>{employee.role || "-"}<br /><span className="muted">{employee.position || "-"}</span></td>
                   <td>{renderSensitiveValue(<>{employee.workSchedule || "-"}<br /><span className="muted">{employee.weeklyHours || 0}h semanais</span></>, "Jornada")}</td>
                   <td>{renderSensitiveValue(formatCurrency(Number(employee.salary || 0)), "Salário")}</td>
@@ -2791,7 +2787,7 @@ export default function Employees({
             </div>
 
             {step === 2 ? (
-              <div className="form-grid">
+              <div className="form-grid employee-structure-grid">
                 {form.employeeKind === "diarist" ? (
                   <label className="check-field is-wide-field"><input type="checkbox" checked={form.diaristUseStructure} onChange={(e) => setForm({ ...form, diaristUseStructure: e.target.checked, companyId: e.target.checked ? form.companyId : "", departmentId: e.target.checked ? form.departmentId : "", sectorId: e.target.checked ? form.sectorId : "", subsectorId: e.target.checked ? form.subsectorId : "", teamId: e.target.checked ? form.teamId : "" })} /> Vincular este diarista à estrutura da empresa</label>
                 ) : null}
@@ -2800,8 +2796,17 @@ export default function Employees({
                 <label className="field">Departamento<select disabled={structureFieldsDisabled} value={departmentSelectValue} onChange={(e) => handleDepartmentChange(e.target.value)}><option value="">Selecione</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="field">Setor<select disabled={structureFieldsDisabled} value={sectorSelectValue} onChange={(e) => handleSectorChange(e.target.value)}><option value="">Selecione</option>{sectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                 <label className="field">Subsetor<select disabled={structureFieldsDisabled} value={subsectorSelectValue} onChange={(e) => handleSubsectorChange(e.target.value)}><option value="">Nenhum</option>{subsectors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="field">Equipe<select disabled={structureFieldsDisabled} value={teamSelectValue} onChange={(e) => handleTeamChange(e.target.value)}><option value="">Sem equipe</option>{teams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="check-field"><input type="checkbox" checked={Boolean(form.isTeamLead)} disabled={!teamSelectValue} onChange={(e) => setForm({ ...form, isTeamLead: e.target.checked })} /> Encarregado da equipe</label>
+                <div className="employee-team-field">
+                  <label className="field">Equipe<select disabled={structureFieldsDisabled} value={teamSelectValue} onChange={(e) => handleTeamChange(e.target.value)}><option value="">Sem equipe</option>{teams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                  {teamSelectValue && selectedFormUsesGroupStructure ? (
+                    <div role="status" className={`employee-team-owner${selectedTeamOwnerId ? " is-assigned" : ""}`} title="Definido na etapa 4 do grupo, em Empresas.">
+                      <UserCheck size={15} aria-hidden="true" />
+                      <span>{selectedTeamOwnerId
+                        ? <><span className="employee-team-owner-label">Encarregado: </span>{selectedTeamOwner?.name || "Responsável não disponível"}{selectedTeamOwnerId === editingEmployeeId ? <span className="employee-team-owner-badge">Este funcionário</span> : null}</>
+                        : "Sem encarregado definido"}</span>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 

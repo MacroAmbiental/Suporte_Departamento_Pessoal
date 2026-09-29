@@ -237,6 +237,7 @@ export interface Subsector {
 
 
 export interface Team {
+  departmentId?: string;
   id: string;
   companyId: string;
   groupId?: string;
