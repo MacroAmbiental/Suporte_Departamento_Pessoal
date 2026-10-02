@@ -1107,36 +1107,14 @@ function automaticScheduleTimeValue(
   return shouldApplyDefault ? configuredTime : "00:00";
 }
 
-// function diffSecullumMinutes(start?: string, end?: string) {
-//   const startMinutes = secullumTimeToMinutes(start);
-//   let endMinutes = secullumTimeToMinutes(end);
-
-//   if (startMinutes == null || endMinutes == null) return 0;
-//   if (endMinutes < startMinutes) endMinutes += 24 * 60;
-
-//   return Math.max(0, endMinutes - startMinutes);
-// }
-
 function diffSecullumMinutes(start?: string, end?: string) {
   const startMinutes = secullumTimeToMinutes(start);
-  const endMinutes = secullumTimeToMinutes(end);
+  let endMinutes = secullumTimeToMinutes(end);
 
   if (startMinutes == null || endMinutes == null) return 0;
+  if (endMinutes < startMinutes) endMinutes += 24 * 60;
 
-  // Durante a edição manual, uma saída anterior à entrada
-  // não deve gerar automaticamente uma jornada atravessando 24h.
-  //
-  // Exemplo:
-  // ENT. 1 = 13:46
-  // SAÍ. 1 = 11:00
-  //
-  // Antes isso era interpretado como:
-  // 13:46 -> 11:00 do dia seguinte = 21h14 trabalhadas.
-  //
-  // Enquanto o par estiver inconsistente, ele não entra no cálculo.
-  if (endMinutes < startMinutes) return 0;
-
-  return endMinutes - startMinutes;
+  return Math.max(0, endMinutes - startMinutes);
 }
 
 function isWeekendDate(date?: string) {
@@ -1424,15 +1402,57 @@ function calculateSecullumMetrics(
     };
   }
 
-  const accountedMinutes =
-    diffSecullumMinutes(ent1, sai1) +
-    diffSecullumMinutes(ent2, sai2) +
-    diffSecullumMinutes(ent3, sai3);
+  const punchPairs = [
+  [ent1, sai1],
+  [ent2, sai2],
+  [ent3, sai3],
+] as const;
 
-  const normalMinutes = Math.min(accountedMinutes, normalLimitMinutes);
-  const faltaMinutes = Math.max(normalLimitMinutes - accountedMinutes, 0);
-  const extraMinutes = Math.max(accountedMinutes - normalLimitMinutes, 0);
+let accountedMinutes = 0;
+let hasInvalidPair = false;
 
+for (const [entry, exit] of punchPairs) {
+  const entryMinutes = secullumTimeToMinutes(entry);
+  const exitMinutes = secullumTimeToMinutes(exit);
+
+  // Par totalmente vazio: ignora.
+  if (entryMinutes == null && exitMinutes == null) {
+    continue;
+  }
+
+  // Par incompleto: ainda está sendo digitado.
+  if (entryMinutes == null || exitMinutes == null) {
+    hasInvalidPair = true;
+    continue;
+  }
+
+  // Saída anterior à entrada.
+  //
+  // Neste cálculo diário não devemos assumir automaticamente
+  // que a saída ocorreu no dia seguinte, pois durante a edição
+  // manual isso gera jornadas artificiais de 20h+.
+  if (exitMinutes < entryMinutes) {
+    hasInvalidPair = true;
+    continue;
+  }
+
+  accountedMinutes += exitMinutes - entryMinutes;
+}
+
+const normalMinutes = Math.min(accountedMinutes, normalLimitMinutes);
+
+// Enquanto existir um par cronologicamente inválido/incompleto,
+// não transforma essa inconsistência temporária em falta ou hora extra.
+const faltaMinutes = hasInvalidPair
+  ? 0
+  : Math.max(normalLimitMinutes - accountedMinutes, 0);
+
+const extraMinutes = hasInvalidPair
+  ? 0
+  : Math.max(accountedMinutes - normalLimitMinutes, 0);
+
+// Fim correção para calcular hora extra corretamente.
+  
   return {
     normais: normalMinutes > 0 ? minutesToSecullumTime(normalMinutes) : "00:00",
     faltas: minutesToSecullumTime(faltaMinutes, true),
