@@ -1107,14 +1107,36 @@ function automaticScheduleTimeValue(
   return shouldApplyDefault ? configuredTime : "00:00";
 }
 
+// function diffSecullumMinutes(start?: string, end?: string) {
+//   const startMinutes = secullumTimeToMinutes(start);
+//   let endMinutes = secullumTimeToMinutes(end);
+
+//   if (startMinutes == null || endMinutes == null) return 0;
+//   if (endMinutes < startMinutes) endMinutes += 24 * 60;
+
+//   return Math.max(0, endMinutes - startMinutes);
+// }
+
 function diffSecullumMinutes(start?: string, end?: string) {
   const startMinutes = secullumTimeToMinutes(start);
-  let endMinutes = secullumTimeToMinutes(end);
+  const endMinutes = secullumTimeToMinutes(end);
 
   if (startMinutes == null || endMinutes == null) return 0;
-  if (endMinutes < startMinutes) endMinutes += 24 * 60;
 
-  return Math.max(0, endMinutes - startMinutes);
+  // Durante a edição manual, uma saída anterior à entrada
+  // não deve gerar automaticamente uma jornada atravessando 24h.
+  //
+  // Exemplo:
+  // ENT. 1 = 13:46
+  // SAÍ. 1 = 11:00
+  //
+  // Antes isso era interpretado como:
+  // 13:46 -> 11:00 do dia seguinte = 21h14 trabalhadas.
+  //
+  // Enquanto o par estiver inconsistente, ele não entra no cálculo.
+  if (endMinutes < startMinutes) return 0;
+
+  return endMinutes - startMinutes;
 }
 
 function isWeekendDate(date?: string) {
