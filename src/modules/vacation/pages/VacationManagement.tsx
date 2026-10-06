@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { CalendarDays, Pencil, Plane, Search, Trash2, X } from "lucide-react";
 import { useDomainData } from "@/hooks/useDomainData";
@@ -373,7 +374,7 @@ export default function VacationManagement() {
         />
       ) : null}
 
-      {reportOpen ? (
+      {reportOpen ? createPortal(
         <div className="modal-overlay" data-testid="vacation-report-modal" style={overlayStyle} onClick={() => setReportOpen(false)}>
           <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ ...dialogStyle, maxWidth: 720 }}>
             <h3 style={{ margin: "0 0 12px", fontSize: 18, color: "#0f172a" }}>Relatório de férias por período</h3>
@@ -424,7 +425,8 @@ export default function VacationManagement() {
               <button className="btn btn-secondary" onClick={() => setReportOpen(false)}>Fechar</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </section>
   );
@@ -573,6 +575,16 @@ function VacationEditorModal({
     [periods, absences, vacations],
   );
 
+  const selectedPeriodRow = periodRows.find((r) => r.period.year === Number(acqYear));
+  const rightDays = selectedPeriodRow?.right.days ?? 0;
+  const rightLost = selectedPeriodRow?.right.lost ?? false;
+  const otherYearEntries = (selectedPeriodRow?.periodVacations || []).filter((v) => v.id !== editingId);
+  const gozadosOutros = otherYearEntries.reduce((s, v) => s + (v.days || 0), 0);
+  const vendidosOutros = otherYearEntries.reduce((s, v) => s + (v.daysSold || 0), 0);
+  const alocadosOutros = gozadosOutros + vendidosOutros;
+  const restante = rightDays - alocadosOutros - days - soldDays;
+  const maxVenda = Math.floor(rightDays / 3);
+
   function printEmployee() {
     const rowsHtml = periodRows
       .map(({ period, count, right, gozados, vendidos, pendentes, periodVacations }) => {
@@ -657,6 +669,34 @@ function VacationEditorModal({
         }
       }
     }
+    if (rightLost) {
+      setError("O funcionário perdeu o direito às férias deste período (mais de 32 faltas).");
+      return;
+    }
+    if (rightDays > 0) {
+      const gozoFractions = otherYearEntries.filter((v) => (v.days || 0) > 0).map((v) => v.days as number);
+      if (days > 0) gozoFractions.push(days);
+      if (days > 0 && days < 5) {
+        setError("Cada período de férias fracionado deve ter no mínimo 5 dias corridos (CLT art. 134, §1º).");
+        return;
+      }
+      if (gozoFractions.length > 3) {
+        setError("As férias podem ser fracionadas em no máximo 3 períodos (CLT art. 134, §1º).");
+        return;
+      }
+      if (gozoFractions.length >= 2 && Math.max(...gozoFractions) < 14) {
+        setError("Ao fracionar, um dos períodos deve ter no mínimo 14 dias corridos (CLT art. 134, §1º).");
+        return;
+      }
+      if (vendidosOutros + soldDays > maxVenda) {
+        setError(`A venda de férias (abono) não pode exceder 1/3 do direito do período (máx. ${maxVenda} dias).`);
+        return;
+      }
+      if (alocadosOutros + days + soldDays > rightDays) {
+        setError(`O total de dias gozados + vendidos (${alocadosOutros + days + soldDays}) excede o direito do período (${rightDays} dias).`);
+        return;
+      }
+    }
     setBusy(true);
     setError("");
     try {
@@ -699,7 +739,7 @@ function VacationEditorModal({
 
   const sorted = [...vacations].sort((a, b) => b.startDate.localeCompare(a.startDate));
 
-  return (
+  return createPortal(
     <div className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle}>
       <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ ...dialogStyle, maxWidth: 940, maxHeight: "92vh" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -743,6 +783,22 @@ function VacationEditorModal({
               <p style={{ fontSize: 12, color: "#b45309", margin: "6px 0 0" }} data-testid="vacation-clt-hint">
                 CLT art. 134, §3º: as férias não podem iniciar nos 2 dias que antecedem a folga/repouso semanal do funcionário.
               </p>
+            ) : null}
+
+            {selectedPeriodRow ? (
+              <div data-testid="vacation-alloc-summary" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0", fontSize: 13, color: "#334155" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 18px" }}>
+                  <span>Direito: <strong>{rightDays} dias</strong></span>
+                  <span>Já alocado: <strong>{alocadosOutros} dias</strong></span>
+                  <span>Esta inclusão: <strong>{days + soldDays} dias</strong></span>
+                  <span style={{ fontWeight: 700, color: restante < 0 ? "#b91c1c" : restante === 0 ? "#047857" : "#b45309" }}>
+                    {restante < 0 ? `Excede em ${Math.abs(restante)} dias` : restante === 0 ? "Tudo alocado" : `Restam ${restante} dias`}
+                  </span>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
+                  Fracionamento (CLT art. 134, §1º): até 3 períodos, um com no mínimo 14 dias e os demais com no mínimo 5 dias. Venda (abono) limitada a 1/3 (máx. {maxVenda} dias).
+                </div>
+              </div>
             ) : null}
 
             <div style={{ marginTop: 12, padding: "10px 12px", border: "1px dashed #cbd5e1", borderRadius: 10 }}>
@@ -840,26 +896,33 @@ function VacationEditorModal({
                         {loadingAbsences ? "…" : right.lost ? "—" : pendentes}
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
-                        {periodVacations.length > 0 ? (
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: "4px 10px", fontSize: 12 }}
-                            data-testid={`vacation-edit-${period.year}`}
-                            onClick={() => editVacation(periodVacations[0])}
-                          >
-                            Editar
-                          </button>
-                        ) : period.complete ? (
-                          <button
-                            className="btn btn-primary"
-                            style={{ padding: "4px 10px", fontSize: 12 }}
-                            data-testid={`vacation-launch-${period.year}`}
-                            onClick={() => launchForPeriod(period.year)}
-                          >
-                            Lançar férias
-                          </button>
-                        ) : (
+                        {!period.complete ? (
                           <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>Não vencido</span>
+                        ) : right.lost ? (
+                          <span style={{ fontSize: 11, color: "#b91c1c", fontWeight: 700 }}>Direito perdido</span>
+                        ) : pendentes > 0 ? (
+                          <span style={{ display: "inline-flex", gap: 6 }}>
+                            {periodVacations.length > 0 ? (
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: "4px 10px", fontSize: 12 }}
+                                data-testid={`vacation-edit-${period.year}`}
+                                onClick={() => editVacation(periodVacations[0])}
+                              >
+                                Editar
+                              </button>
+                            ) : null}
+                            <button
+                              className="btn btn-primary"
+                              style={{ padding: "4px 10px", fontSize: 12 }}
+                              data-testid={`vacation-launch-${period.year}`}
+                              onClick={() => launchForPeriod(period.year)}
+                            >
+                              {periodVacations.length > 0 ? "Fracionar" : "Lançar férias"}
+                            </button>
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, color: "#047857", fontWeight: 700 }}>Concluído</span>
                         )}
                       </td>
                     </tr>
@@ -903,6 +966,7 @@ function VacationEditorModal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
