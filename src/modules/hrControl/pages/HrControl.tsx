@@ -490,7 +490,10 @@ function formatDecimal(value: number, digits = 1) {
 }
 
 function formatCompact(value: number, digits = 0) {
-  return Number(value || 0).toFixed(digits);
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(Number(value || 0));
 }
 
 function formatCurrencyCompact(value: number) {
