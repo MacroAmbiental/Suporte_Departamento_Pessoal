@@ -7,7 +7,7 @@ import {
   primaryCompanyGroup,
   structureItemsForGroup,
 } from "@/common/utils/groupStructure";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDomainData } from "@/hooks/useDomainData";
 import { useAuth } from "@/hooks/useAuth";
 import { cidDetailsFromValue } from "@/modules/timekeeping/data/cidCatalog";
@@ -889,7 +889,6 @@ export function useHrControl() {
   }, [data.employees, detailFilterSets, employeeById, monthAnchorDate, monthlyFilteredRecords,
     restrictCompanyScope, selectedCompanyIds, selectedTeamIds]);
 
-  const isMonitoringView = activeView === "absenceMonitoring";
   const monitoringReferenceDate = useMemo(() => {
     const savedDates = [...savedDayTables, ...annualSavedDayTables]
       .map((table) => table.date)
@@ -898,12 +897,13 @@ export function useHrControl() {
     return savedDates[0] || endDate;
   }, [annualSavedDayTables, endDate, savedDayTables]);
 
-  // A sequência é apurada somente quando a aba de monitoramento estiver aberta,
-  // para evitar que a tela inteira fique bloqueada por listeners de todos os dias
-  // salvos da empresa.
+  // A sequência de faltas confirmadas do card de absenteísmo é ancorada na
+  // data final filtrada. Assim a exclusão acompanha o recorte selecionado,
+  // mesmo quando existirem pontos salvos depois dele.
   const streakDatesByEmployee = useMemo(() => {
-    if (!isMonitoringView) return new Map<string, string[]>();
-    const tables = [...savedDayTables, ...annualSavedDayTables].sort((left, right) => right.date.localeCompare(left.date));
+    const tables = [...savedDayTables, ...annualSavedDayTables]
+      .filter((table) => table.date <= endDate)
+      .sort((left, right) => right.date.localeCompare(left.date));
     const byEmployee = new Map<string, string[]>();
     baseEmployees.forEach((employee) => {
       const dates: string[] = [];
@@ -919,13 +919,13 @@ export function useHrControl() {
       if (dates.length === 11) byEmployee.set(employee.id, dates);
     });
     return byEmployee;
-  }, [annualSavedDayTables, baseEmployees, isMonitoringView, savedDayTables, timekeepingSettingsByCompanyId]);
+  }, [annualSavedDayTables, baseEmployees, endDate, savedDayTables, timekeepingSettingsByCompanyId]);
   const streakDates = useMemo(() =>
-    isMonitoringView ? Array.from(new Set(Array.from(streakDatesByEmployee.values()).flat())).sort() : [],
-  [isMonitoringView, streakDatesByEmployee]);
+    Array.from(new Set(Array.from(streakDatesByEmployee.values()).flat())).sort(),
+  [streakDatesByEmployee]);
   const streakDatesKey = streakDates.join(",");
   useEffect(() => {
-    if (!savedDayTablesReady || !isMonitoringView) return undefined;
+    if (!savedDayTablesReady) return undefined;
     if (streakPointData.key !== streakDatesKey || streakPointData.status !== "ready") {
       setStreakPointData({ key: streakDatesKey, status: streakDates.length ? "loading" : "ready", records: [] });
     }
@@ -944,12 +944,12 @@ export function useHrControl() {
       setStreakPointData({ key: streakDatesKey, status: "error", records: [] });
     }));
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-  }, [isMonitoringView, savedDayTablesReady, streakDatesKey, streakDates, streakPointData.key, streakPointData.status]);
+  }, [savedDayTablesReady, streakDatesKey, streakDates, streakPointData.key, streakPointData.status]);
   const excludedFromAbsenteeism = useMemo(() => {
-    if (!savedDayTablesReady || !isMonitoringView || streakPointData.status !== "ready" || streakPointData.key !== streakDatesKey) return new Set<string>();
+    if (!savedDayTablesReady || streakPointData.status !== "ready" || streakPointData.key !== streakDatesKey) return new Set<string>();
     return employeesWithElevenConfirmedAbsences(streakDatesByEmployee, streakPointData.records);
-  }, [isMonitoringView, savedDayTablesReady, streakDatesByEmployee, streakDatesKey, streakPointData]);
-  const absenteeismStreakReady = savedDayTablesReady && isMonitoringView && streakPointData.status === "ready" && streakPointData.key === streakDatesKey;
+  }, [savedDayTablesReady, streakDatesByEmployee, streakDatesKey, streakPointData]);
+  const absenteeismStreakReady = savedDayTablesReady && streakPointData.status === "ready" && streakPointData.key === streakDatesKey;
 
   const recordByEmployeeDate = useMemo(() => {
     const map = new Map<string, TimeRecord>();
@@ -1427,16 +1427,29 @@ export function useHrControl() {
     return matchesCardRecord(record, settings) && matchesEmployeeKindSelection(settings.kinds, employee)
       ? sum + absenceLossValue(record, employee) : sum;
   }, 0);
-  const absenteeismEmployees = (settings: CardPreferences) => baseEmployees.filter((employee) =>
-    matchesEmployeeKindSelection(settings.kinds, employee) && !excludedFromAbsenteeism.has(employee.id));
-  const countAbsenteeismRecords = (settings: CardPreferences) => {
-    const eligible = new Set(absenteeismEmployees(settings).map((employee) => employee.id));
-    return baseFilteredRecords.filter((record) => eligible.has(record.employeeId) && matchesCardRecord(record, settings)).length;
+  const shouldExcludeConsecutiveConfirmedAbsences = useCallback((settings: CardPreferences) =>
+    settings.types.includes("confirmed") && !settings.types.includes("certificate") &&
+    !settings.considerConsecutiveAbsences, []);
+  const matchesAbsenteeismRecord = useCallback((record: TimeRecord, settings: CardPreferences) => {
+    if (!matchesCardRecord(record, settings)) return false;
+    const employee = employeeById.get(record.employeeId);
+    if (!matchesEmployeeKindSelection(settings.kinds, employee)) return false;
+    return !shouldExcludeConsecutiveConfirmedAbsences(settings) || !excludedFromAbsenteeism.has(record.employeeId);
+  }, [employeeById, excludedFromAbsenteeism, shouldExcludeConsecutiveConfirmedAbsences]);
+  const absenteeismEmployees = (settings: CardPreferences) => {
+    const excludeStreakedEmployees = shouldExcludeConsecutiveConfirmedAbsences(settings);
+    return baseEmployees.filter((employee) =>
+      matchesEmployeeKindSelection(settings.kinds, employee) &&
+      (!excludeStreakedEmployees || !excludedFromAbsenteeism.has(employee.id)));
   };
-  const absenteeismDenominator = (settings: CardPreferences) =>
-    settings.absenteeismBase === "planned" ? annualPlannedDays
-      : settings.absenteeismBase === "worked" ? (annualDaysReady ? annualWorkedPeriod.days : null)
-        : absenteeismEmployees(settings).reduce((sum, employee) => sum + (expectedWorkDays.byEmployee.get(employee.id) || 0), 0);
+  const countAbsenteeismRecords = (settings: CardPreferences) =>
+    baseFilteredRecords.filter((record) => matchesAbsenteeismRecord(record, settings)).length;
+  const absenteeismDenominator = (settings: CardPreferences) => {
+    if (settings.absenteeismBase === "planned") return annualPlannedDays;
+    if (settings.absenteeismBase === "worked") return annualDaysReady ? annualWorkedPeriod.days : null;
+    if (!startDate || !endDate) return 0;
+    return countCalendarDaysBetween(startDate, endDate, settings.plannedWeekdays, annualHolidayDates);
+  };
   const absenteeismBaseLabels: Record<CardPreferences["absenteeismBase"], string> = {
     period: "Dias previstos no período", worked: "Dias Trabalhados-Ano", planned: "Dias Previstos-Ano",
   };
@@ -1487,10 +1500,8 @@ export function useHrControl() {
       const employees = employeesAt(end, monthRecords);
       const absenteeismEmployees = employees.filter((employee) =>
         matchesEmployeeKindSelection(cardSettings.absenteeism.kinds, employee) &&
-        !excludedFromAbsenteeism.has(employee.id));
-      const eligible = new Set(absenteeismEmployees.map((employee) => employee.id));
-      const missed = monthRecords.filter((record) => eligible.has(record.employeeId) &&
-        matchesCardRecord(record, cardSettings.absenteeism)).length;
+        (!shouldExcludeConsecutiveConfirmedAbsences(cardSettings.absenteeism) || !excludedFromAbsenteeism.has(employee.id)));
+      const missed = monthRecords.filter((record) => matchesAbsenteeismRecord(record, cardSettings.absenteeism)).length;
       const denominator = cardSettings.absenteeism.absenteeismBase === "planned"
         ? countCalendarDaysBetween(start, end, cardSettings.planned.plannedWeekdays, annualHolidayDates)
         : cardSettings.absenteeism.absenteeismBase === "worked"
@@ -1542,8 +1553,10 @@ export function useHrControl() {
     };
   }, [absenteeismStreakReady, annualDaysReady, annualHolidayDates, annualSavedDayTables, cardSettings,
     comparisonDayTablesScoped, comparisonFilteredRecords, comparisonReady, comparisonWindow,
-    data.employees, detailFilterSets, employeeById, endDate, excludedFromAbsenteeism, plannedYear,
-    restrictCompanyScope, selectedCompanyIds, selectedTeamIds, timekeepingSettingsByCompanyId]);
+    data.employees, detailFilterSets, employeeById, employeeRegistrySource, endDate,
+    excludedFromAbsenteeism, matchesAbsenteeismRecord, plannedYear, restrictCompanyScope,
+    selectedCompanyIds, selectedTeamIds, shouldExcludeConsecutiveConfirmedAbsences,
+    timekeepingSettingsByCompanyId]);
   const annualTrendEnd = shiftMonthClamped(`${plannedYear}-${endDate.slice(5)}`, 0);
   const annualTrendStart = monthStartISO(annualTrendEnd);
   const annualTrendPreviousStart = shiftMonthClamped(annualTrendStart, -1);
@@ -1597,14 +1610,17 @@ export function useHrControl() {
     }).length : 0;
   const draftAbsenteeismCount = draftCard && editingCard === "absenteeism" ? countAbsenteeismRecords(draftCard) : 0;
   const draftAbsenteeismDays = draftCard && editingCard === "absenteeism" ? absenteeismDenominator(draftCard) : null;
-  const draftExcludedCount = draftCard && editingCard === "absenteeism" ? baseEmployees.filter((employee) =>
+  const draftAbsenteeismExclusionActive = draftCard && editingCard === "absenteeism"
+    ? draftCard.types.includes("confirmed") && !draftCard.types.includes("certificate") && !draftCard.considerConsecutiveAbsences
+    : false;
+  const draftExcludedCount = draftCard && editingCard === "absenteeism" && draftAbsenteeismExclusionActive ? baseEmployees.filter((employee) =>
     matchesEmployeeKindSelection(draftCard.kinds, employee) && excludedFromAbsenteeism.has(employee.id)).length : 0;
   const draftAbsenteeismPreview = draftCard && editingCard === "absenteeism" ?
     `${absenteeismStreakReady ? `${formatInteger(draftAbsenteeismCount)} falta(s) no período ÷ ` : "consultando faltas consecutivas…"}${!absenteeismStreakReady ? "" : draftAbsenteeismDays === null
       ? annualDaysStatus === "error" && draftCard.absenteeismBase === "worked" ? "consulta dos pontos indisponível" : "consultando pontos…"
       : draftAbsenteeismDays
         ? `${formatInteger(draftAbsenteeismDays)} dia(s) (${absenteeismBaseLabels[draftCard.absenteeismBase]}) = ${formatPercent(draftAbsenteeismCount / draftAbsenteeismDays * 100)}`
-        : `0 dia(s) (${absenteeismBaseLabels[draftCard.absenteeismBase]}) = —`}${absenteeismStreakReady ? ` · ${formatInteger(draftExcludedCount)} funcionário(s) excluído(s) por mais de 10 faltas seguidas` : ""}` : "";
+        : `0 dia(s) (${absenteeismBaseLabels[draftCard.absenteeismBase]}) = —`}${absenteeismStreakReady && draftAbsenteeismExclusionActive ? ` · ${formatInteger(draftExcludedCount)} funcionário(s) excluído(s) por mais de 10 faltas seguidas` : ""}` : "";
   const draftMonthlyRows = draftChart && editingChart ? buildMonthlyRows(draftChart) : [];
   function openMonthlySettings(id: MonthlyChartId) {
     const settings = chartSettings[id];

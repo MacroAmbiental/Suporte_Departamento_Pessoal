@@ -11,7 +11,7 @@ export const defaultUsefulMinutesByWeekday: Record<string, number> = {
 };
 
 export const absenceTypeLabels: Record<string, string> = {
-  confirmed: "Falta Confirmada",
+  confirmed: "Falta",
   certificate: "Atestado",
   leave: "Afastado",
   vacation: "Férias",

@@ -58,7 +58,7 @@ export function labelStatus(value: AlertStatus | AlertPriority | AttendanceStatu
     justified: "Justificado",
     medical_certificate: "Atestado",
     absence_pending: "Falta / Pendência",
-    absence_confirmed: "Falta Confirmada",
+    absence_confirmed: "Falta",
     vacation: "Férias",
     leave: "Afastado",
     day_off: "Folga",

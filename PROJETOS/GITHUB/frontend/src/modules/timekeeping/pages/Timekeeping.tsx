@@ -467,7 +467,7 @@ const defaultStatusConditions: StatusCondition[] = [
   {
     id: "absence_confirmed",
     value: "absence_confirmed",
-    label: "Falta Confirmada",
+    label: "Falta",
     rowColor: "#ffe2e4",
     textColor: "#9f1f2a",
     active: true,
@@ -1428,6 +1428,13 @@ function isAbsenceStatus(status?: string) {
     status === "absent" ||
     status === "absence_pending" ||
     status === "absence_confirmed"
+  );
+}
+
+function isPointAbsenceStatus(status?: string) {
+  return (
+    isAbsenceStatus(status) ||
+    status === "medical_certificate"
   );
 }
 
@@ -3907,7 +3914,7 @@ export default function Timekeeping() {
         companyIds: Array.from(new Set(mergedRecords.map((record) => record.companyId).filter(Boolean))).sort(),
         employeeCount: mergedRecords.length,
         recordCount: mergedRecords.length,
-        absenceCount: mergedRecords.filter((record) => isAbsenceStatus(record.status)).length,
+        absenceCount: mergedRecords.filter((record) => isPointAbsenceStatus(record.status)).length,
         savedByUserId: user.id,
         savedByUsername: user.username,
         savedByName: user.name,
@@ -4875,6 +4882,33 @@ export default function Timekeeping() {
     return String(value || "");
   }
 
+  function reportDisplayRecordForDate(
+    employee: Employee,
+    date: string,
+    reportRecordMap: Map<string, TimeRecord>,
+  ) {
+    // Mantém o relatório sincronizado com a tabela aberta no dia atual,
+    // incluindo rascunhos locais e substituições vindas do Secullum.
+    if (date === filters.date) {
+      return (
+        displayRecordByEmployeeId.get(employee.id) ||
+        createDisplayRecord(
+          employee,
+          date,
+          reportRecordMap.get(`${employee.id}:${date}`),
+          calculationSettings,
+        )
+      );
+    }
+
+    return createDisplayRecord(
+      employee,
+      date,
+      reportRecordMap.get(`${employee.id}:${date}`),
+      calculationSettings,
+    );
+  }
+
   async function exportReport() {
     if (reportFormat === "pdf") {
       await exportPdfReport();
@@ -4904,7 +4938,9 @@ export default function Timekeeping() {
     }
 
     const [reportRecords, XLSX] = await Promise.all([
-      loadTimeRecordsRange(reportStartDate, reportEndDate),
+      loadTimeRecordsRange(reportStartDate, reportEndDate, {
+        forceRefresh: true,
+      }),
       loadXlsxModule(),
     ]);
     const reportRecordMap = new Map(
@@ -4914,12 +4950,7 @@ export default function Timekeeping() {
       ]),
     );
     const displayReportRecordForDate = (employee: Employee, date: string) =>
-      createDisplayRecord(
-        employee,
-        date,
-        reportRecordMap.get(`${employee.id}:${date}`),
-        calculationSettings,
-      );
+      reportDisplayRecordForDate(employee, date, reportRecordMap);
 
     const workbook = XLSX.utils.book_new();
     const emittedAt = new Date();
@@ -5262,6 +5293,7 @@ export default function Timekeeping() {
     const reportRecords = await loadTimeRecordsRange(
       reportStartDate,
       reportEndDate,
+      { forceRefresh: true },
     );
     const reportRecordMap = new Map(
       reportRecords.map((record) => [
@@ -5281,11 +5313,10 @@ export default function Timekeeping() {
       .map((date) => {
         const rows = sortEmployeesForDate(employees, date)
           .map((employee) => {
-            const record = createDisplayRecord(
+            const record = reportDisplayRecordForDate(
               employee,
               date,
-              reportRecordMap.get(`${employee.id}:${date}`),
-              calculationSettings,
+              reportRecordMap,
             );
             const cells = selectedColumns
               .map(
@@ -6685,7 +6716,7 @@ export default function Timekeeping() {
 
   const absentCount = sortedEmployees.reduce(
     (sum, employee) =>
-      sum + (isAbsenceStatus(displayRecord(employee).status) ? 1 : 0),
+      sum + (isPointAbsenceStatus(displayRecord(employee).status) ? 1 : 0),
     0,
   );
   const isCurrentDateHoliday = isHoliday(filters.date, calculationSettings);

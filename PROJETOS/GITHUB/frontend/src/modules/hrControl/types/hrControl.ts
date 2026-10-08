@@ -21,9 +21,10 @@ export type CardPreferences = {
   dayOffDays: string[];
   plannedWeekdays: string[];
   absenteeismBase: "period" | "worked" | "planned";
+  considerConsecutiveAbsences: boolean;
 };
 
-export type CardChoiceField = Exclude<keyof CardPreferences, "absenteeismBase" | "totalSystem">;
+export type CardChoiceField = Exclude<keyof CardPreferences, "absenteeismBase" | "totalSystem" | "considerConsecutiveAbsences">;
 export type CardSettings = Record<SettingsCardId, CardPreferences>;
 export type MonthlyChartId = "monthlyCount" | "monthlyPercent";
 export type MonthlyChartPreferences = Pick<CardPreferences, "types" | "leaveReasons" | "licenses" | "dayOffDays">;

@@ -17,6 +17,7 @@ export const defaultCardSettings: CardSettings = Object.fromEntries(cardIds.map(
   dayOffDays: ["1", "2", "3", "4", "5"],
   plannedWeekdays: ["1", "2", "3", "4", "5"],
   absenteeismBase: "period",
+  considerConsecutiveAbsences: false,
 }])) as CardSettings;
 
 export const defaultMonthlyChartSettings: MonthlyChartSettings = Object.fromEntries(monthlyChartIds.map((id) => [id, {
@@ -55,6 +56,7 @@ export function sanitizeCardSettings(value: unknown): CardSettings {
       absenteeismBase: item?.absenteeismBase === "planned" || item?.absenteeismBase === "worked"
         ? item.absenteeismBase
         : "period",
+      considerConsecutiveAbsences: Boolean(item?.considerConsecutiveAbsences ?? defaults.considerConsecutiveAbsences),
     }];
   })) as CardSettings;
 }

@@ -631,15 +631,22 @@ export function HrControlView(props: HrControlController) {
                 ]} /> : null}
                 <CardChoices title="Tipos de falta" field="types" value={draftCard} onChange={setDraftCard}
                   options={Object.entries(absenceLabels).map(([value, label]) => ({ value, label }))} />
-                {editingCard === "absenteeism" ? <details className="hr-card-choice-group">
-                  <summary>Base de cálculo<span>{absenteeismBaseLabels[draftCard.absenteeismBase]}</span></summary>
-                  <div className="hr-card-choice-list" role="radiogroup" aria-label="Base de cálculo do absenteísmo">
-                    {(["period", "worked", "planned"] as const).map((base) => <label key={base}>
-                      <input type="radio" name="hr-absenteeism-base" checked={draftCard.absenteeismBase === base}
-                        onChange={() => setDraftCard({ ...draftCard, absenteeismBase: base })} />{absenteeismBaseLabels[base]}
-                    </label>)}
-                  </div>
-                </details> : null}
+                {editingCard === "absenteeism" ? <>
+                  <details className="hr-card-choice-group">
+                    <summary>Base de cálculo<span>{absenteeismBaseLabels[draftCard.absenteeismBase]}</span></summary>
+                    <div className="hr-card-choice-list" role="radiogroup" aria-label="Base de cálculo do absenteísmo">
+                      {(["period", "worked", "planned"] as const).map((base) => <label key={base}>
+                        <input type="radio" name="hr-absenteeism-base" checked={draftCard.absenteeismBase === base}
+                          onChange={() => setDraftCard({ ...draftCard, absenteeismBase: base })} />{absenteeismBaseLabels[base]}
+                      </label>)}
+                    </div>
+                  </details>
+                  <label className="hr-card-choice-group hr-card-choice-toggle" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
+                    <span>Considerar funcionários com mais de 10 faltas consecutivas</span>
+                    <input type="checkbox" checked={draftCard.considerConsecutiveAbsences}
+                      onChange={(event) => setDraftCard({ ...draftCard, considerConsecutiveAbsences: event.target.checked })} />
+                  </label>
+                </> : null}
                 {draftCard.types.includes("leave") ? <CardChoices title="Afastado · motivo" field="leaveReasons" value={draftCard} onChange={setDraftCard}
                   options={[...leaveReasons, "Não especificado"].map((label) => ({ value: label, label }))} /> : null}
                 {draftCard.types.includes("license") ? <CardChoices title="Licença · modalidade" field="licenses" value={draftCard} onChange={setDraftCard}
@@ -655,7 +662,7 @@ export function HrControlView(props: HrControlController) {
               <button type="button" onClick={() => setEditingCard(null)}>Cancelar</button>
               <button type="button" className="hr-card-apply-button" onClick={applyCardSettings}>Aplicar filtros</button>
             </div>
-            <small>{editingCard === "planned" || editingCard === "worked" ? "O ano volta ao ano vigente ao sair desta tela. No grupo, feriados de qualquer empresa selecionada são excluídos. " : editingCard === "absenteeism" ? "Quem faltou em mais de 10 dias úteis de ponto seguidos, terminando no último ponto salvo da empresa, sai da conta. Uma presença no último ponto zera a sequência. As faltas seguem o período filtrado; as bases anuais seguem o ano e os feriados dos cards de dias. " : ""}Aplicar filtros dura até sair do Controle RH. Visualização Padrão salva os critérios para todos, sem fixar o ano.</small>
+            <small>{editingCard === "planned" || editingCard === "worked" ? "O ano volta ao ano vigente ao sair desta tela. No grupo, feriados de qualquer empresa selecionada são excluídos. " : editingCard === "absenteeism" ? "Quem faltou em mais de 10 dias úteis de ponto seguidos, terminando na data final filtrada, sai da conta. Uma presença no último ponto salvo até essa data zera a sequência. As faltas seguem o período filtrado; as bases anuais seguem o ano e os feriados dos cards de dias. " : ""}Aplicar filtros dura até sair do Controle RH. Visualização Padrão salva os critérios para todos, sem fixar o ano.</small>
           </section>
         </div>
       ) : null}
@@ -834,8 +841,8 @@ export function HrControlView(props: HrControlController) {
           <section className="hr-chart-panel">
             <header className="hr-chart-header">
               <div>
-                <h2><HeartPulse size={18} /> Faltas confirmadas</h2>
-                <span>Funcionários com status de falta confirmada</span>
+                <h2><HeartPulse size={18} /> Faltas</h2>
+                <span>Funcionários com status de falta</span>
               </div>
             </header>
             <HorizontalBarChart rows={warningRows} />
@@ -863,7 +870,7 @@ export function HrControlView(props: HrControlController) {
             <header className="hr-chart-header">
               <div>
                 <h2><Users size={18} /> Funcionários com faltas consecutivas</h2>
-                <span>Último ponto salvo da empresa e sequência de ausências consecutivas</span>
+                <span>Monitoramento pelo último ponto salvo da empresa; no absenteísmo, a sequência segue a data final filtrada</span>
               </div>
             </header>
 

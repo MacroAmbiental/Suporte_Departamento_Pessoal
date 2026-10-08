@@ -16,7 +16,7 @@ export const defaultUsefulMinutesByWeekday: Record<string, number> = {
   "0": 0,
 };
 export const absenceTypeLabels: Record<string, string> = {
-  confirmed: "Falta Confirmada",
+  confirmed: "Falta",
   certificate: "Atestado",
   leave: "Afastado",
   vacation: "Férias",
@@ -48,8 +48,9 @@ export type CardPreferences = {
   dayOffDays: string[];
   plannedWeekdays: string[];
   absenteeismBase: "period" | "worked" | "planned";
+  considerConsecutiveAbsences: boolean;
 };
-export type CardChoiceField = Exclude<keyof CardPreferences, "absenteeismBase" | "totalSystem">;
+export type CardChoiceField = Exclude<keyof CardPreferences, "absenteeismBase" | "totalSystem" | "considerConsecutiveAbsences">;
 export const cardChoiceFields: CardChoiceField[] = ["kinds", "statuses", "types", "leaveReasons", "licenses", "dayOffDays", "plannedWeekdays"];
 export type CardSettings = Record<SettingsCardId, CardPreferences>;
 export type MonthlyChartId = "monthlyCount" | "monthlyPercent";
@@ -89,6 +90,7 @@ export const defaultCardSettings: CardSettings = Object.fromEntries(cardIds.map(
   dayOffDays: ["1", "2", "3", "4", "5"],
   plannedWeekdays: ["1", "2", "3", "4", "5"],
   absenteeismBase: "period",
+  considerConsecutiveAbsences: false,
 }])) as CardSettings;
 export const defaultMonthlyChartSettings: MonthlyChartSettings = Object.fromEntries(monthlyChartIds.map((id) => [id, {
   types: ["confirmed", "certificate"],
@@ -115,8 +117,13 @@ export function sanitizeCardSettings(value: unknown): CardSettings {
     const arrays = Object.fromEntries(cardChoiceFields.map((key) => [
       key, Array.isArray(item?.[key]) ? item[key].filter((entry): entry is string => typeof entry === "string") : [...defaults[key]],
     ]));
-    return [id, { ...arrays, totalSystem: Boolean(item?.totalSystem ?? defaults.totalSystem), absenteeismBase: item?.absenteeismBase === "planned" || item?.absenteeismBase === "worked"
-      ? item.absenteeismBase : "period" }];
+    return [id, {
+      ...arrays,
+      totalSystem: Boolean(item?.totalSystem ?? defaults.totalSystem),
+      absenteeismBase: item?.absenteeismBase === "planned" || item?.absenteeismBase === "worked"
+        ? item.absenteeismBase : "period",
+      considerConsecutiveAbsences: Boolean(item?.considerConsecutiveAbsences ?? defaults.considerConsecutiveAbsences),
+    }];
   })) as CardSettings;
 }
 export function recordSubtype(record: TimeRecord) {
