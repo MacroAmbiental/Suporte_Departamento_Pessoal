@@ -662,7 +662,7 @@ export function HrControlView(props: HrControlController) {
               <button type="button" onClick={() => setEditingCard(null)}>Cancelar</button>
               <button type="button" className="hr-card-apply-button" onClick={applyCardSettings}>Aplicar filtros</button>
             </div>
-            <small>{editingCard === "planned" || editingCard === "worked" ? "O ano volta ao ano vigente ao sair desta tela. No grupo, feriados de qualquer empresa selecionada são excluídos. " : editingCard === "absenteeism" ? "Quem faltou em mais de 10 dias úteis de ponto seguidos, terminando na data final filtrada, sai da conta. Uma presença no último ponto salvo até essa data zera a sequência. As faltas seguem o período filtrado; as bases anuais seguem o ano e os feriados dos cards de dias. " : ""}Aplicar filtros dura até sair do Controle RH. Visualização Padrão salva os critérios para todos, sem fixar o ano.</small>
+            <small>{editingCard === "planned" || editingCard === "worked" ? "O ano volta ao ano vigente ao sair desta tela. No grupo, feriados de qualquer empresa selecionada são excluídos. " : editingCard === "absenteeism" ? "Com esta opção marcada, quem faltou em mais de 10 dias úteis de ponto seguidos, terminando na data final filtrada, sai da conta. Uma presença no último ponto salvo até essa data zera a sequência. As faltas seguem o período filtrado; as bases anuais seguem o ano e os feriados dos cards de dias. " : ""}Aplicar filtros dura até sair do Controle RH. Visualização Padrão salva os critérios para todos, sem fixar o ano.</small>
           </section>
         </div>
       ) : null}

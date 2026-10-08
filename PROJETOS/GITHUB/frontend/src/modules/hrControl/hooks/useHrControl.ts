@@ -1429,7 +1429,7 @@ export function useHrControl() {
   }, 0);
   const shouldExcludeConsecutiveConfirmedAbsences = useCallback((settings: CardPreferences) =>
     settings.types.includes("confirmed") && !settings.types.includes("certificate") &&
-    !settings.considerConsecutiveAbsences, []);
+    settings.considerConsecutiveAbsences, []);
   const matchesAbsenteeismRecord = useCallback((record: TimeRecord, settings: CardPreferences) => {
     if (!matchesCardRecord(record, settings)) return false;
     const employee = employeeById.get(record.employeeId);
@@ -1611,7 +1611,7 @@ export function useHrControl() {
   const draftAbsenteeismCount = draftCard && editingCard === "absenteeism" ? countAbsenteeismRecords(draftCard) : 0;
   const draftAbsenteeismDays = draftCard && editingCard === "absenteeism" ? absenteeismDenominator(draftCard) : null;
   const draftAbsenteeismExclusionActive = draftCard && editingCard === "absenteeism"
-    ? draftCard.types.includes("confirmed") && !draftCard.types.includes("certificate") && !draftCard.considerConsecutiveAbsences
+    ? draftCard.types.includes("confirmed") && !draftCard.types.includes("certificate") && draftCard.considerConsecutiveAbsences
     : false;
   const draftExcludedCount = draftCard && editingCard === "absenteeism" && draftAbsenteeismExclusionActive ? baseEmployees.filter((employee) =>
     matchesEmployeeKindSelection(draftCard.kinds, employee) && excludedFromAbsenteeism.has(employee.id)).length : 0;
