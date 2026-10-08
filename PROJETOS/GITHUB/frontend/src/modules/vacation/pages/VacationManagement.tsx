@@ -1,9 +1,8 @@
-import ModalPortal from "@/modules/shared/ModalPortal";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import { CalendarDays, Pencil, Plane, Search, Trash2, X } from "lucide-react";
 import { useDomainData } from "@/hooks/useDomainData";
-import { employeeKindOf, employeeKindLabels, type EmployeeKind } from "@/common/utils/employeeKind";
 import type { Employee } from "@/types/domain";
 import { formatDate, todayISO } from "@/utils/format";
 import {
@@ -33,14 +32,14 @@ const cardOrder: {
   bg: string;
   border: string;
 }[] = [
-  { key: "critico", ...bucketMeta.critico },
-  { key: "limite", ...bucketMeta.limite },
-  { key: "vencidas", ...bucketMeta.vencidas },
-  { key: "emdia", ...bucketMeta.emdia, label: "Férias em dia" },
-  { key: "todos", label: "Todos os funcionários", color: "#334155", bg: "#f1f5f9", border: "#cbd5e1" },
-  { key: "feriasnow", label: "Funcionários de férias", sub: "De férias atualmente", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
-  { key: "programadas", label: "Férias programadas", sub: "Início futuro", color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
-];
+    { key: "critico", ...bucketMeta.critico },
+    { key: "limite", ...bucketMeta.limite },
+    { key: "vencidas", ...bucketMeta.vencidas },
+    { key: "emdia", ...bucketMeta.emdia, label: "Férias em dia" },
+    { key: "todos", label: "Todos os funcionários", color: "#334155", bg: "#f1f5f9", border: "#cbd5e1" },
+    { key: "feriasnow", label: "Funcionários de férias", sub: "De férias atualmente", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
+    { key: "programadas", label: "Férias programadas", sub: "Início futuro", color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
+  ];
 
 function daysBetweenInclusive(startISO: string, endISO: string): number {
   if (!startISO || !endISO) return 0;
@@ -50,6 +49,18 @@ function daysBetweenInclusive(startISO: string, endISO: string): number {
   return diff > 0 ? diff : 0;
 }
 
+type EmployeeKind = "contract" | "company" | "diarist";
+const employeeKindLabels: Record<EmployeeKind, string> = {
+  company: "Funcionário da empresa",
+  contract: "Funcionário de contrato",
+  diarist: "Diarista",
+};
+function employeeKindOf(employee: Employee): EmployeeKind {
+  const kind = employee.registrationData?.employeeKind;
+  if (kind === "company" || kind === "diarist") return kind;
+  return "contract";
+}
+
 export default function VacationManagement() {
   const { employees: allEmployees } = useDomainData();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -57,7 +68,9 @@ export default function VacationManagement() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<EmployeeKind | "todos">("todos");
-  const [activeCard, setActiveCard] = useState<CardKey>((searchParams.get("card") as CardKey) || "todos");
+  const [activeCard, setActiveCard] = useState<CardKey>(
+    (searchParams.get("card") as CardKey) || "todos",
+  );
   const [editing, setEditing] = useState<Employee | null>(null);
   const [reportFrom, setReportFrom] = useState("");
   const [reportTo, setReportTo] = useState("");
@@ -80,47 +93,37 @@ export default function VacationManagement() {
 
   const vacationsByEmployee = useMemo(() => {
     const map = new Map<string, Vacation[]>();
-    vacations.forEach((vacation) => {
-      const list = map.get(vacation.employeeId) || [];
-      list.push(vacation);
-      map.set(vacation.employeeId, list);
+    vacations.forEach((v) => {
+      const list = map.get(v.employeeId) || [];
+      list.push(v);
+      map.set(v.employeeId, list);
     });
     return map;
   }, [vacations]);
 
   const rows = useMemo(() => {
     return allEmployees
-      .filter((employee) => employee.status !== "terminated")
+      .filter((e) => e.status !== "terminated")
       .map((employee) => {
         const empVacations = vacationsByEmployee.get(employee.id) || [];
         const onVacationNow = isOnVacation(today, empVacations);
         const hasScheduled = hasScheduledVacation(today, empVacations);
         const reference = vacationReferenceDate(employee.admissionDate, empVacations, today);
         const months = reference ? monthsBetween(reference, today) : 0;
+        // De férias agora → não conta como vencida (está resolvendo/gozando).
         const bucket: VacationBucket = onVacationNow ? "emdia" : vacationBucket(months);
-        const lastVacation = [...empVacations].sort((left, right) =>
-          (right.endDate || "").localeCompare(left.endDate || ""),
+        const lastVacation = [...empVacations].sort((a, b) =>
+          (b.endDate || "").localeCompare(a.endDate || ""),
         )[0];
         const limiteEmCurso = buildAcquisitionPeriods(employee.admissionDate, today)[0]?.limitISO || "";
-        return {
-          employee,
-          kind: employeeKindOf(employee),
-          empVacations,
-          reference,
-          months,
-          bucket,
-          onVacationNow,
-          hasScheduled,
-          lastVacation,
-          limiteEmCurso,
-        };
+        return { employee, kind: employeeKindOf(employee), empVacations, reference, months, bucket, onVacationNow, hasScheduled, lastVacation, limiteEmCurso };
       })
-      .sort((left, right) => right.months - left.months);
+      .sort((a, b) => b.months - a.months);
   }, [allEmployees, vacationsByEmployee, today]);
 
   const counts = useMemo(() => {
-    const scoped = rows.filter((row) => kindFilter === "todos" || row.kind === kindFilter);
-    const result = {
+    const scoped = rows.filter((r) => kindFilter === "todos" || r.kind === kindFilter);
+    const c = {
       critico: 0,
       limite: 0,
       vencidas: 0,
@@ -129,49 +132,49 @@ export default function VacationManagement() {
       programadas: 0,
       feriasnow: 0,
     } as Record<CardKey, number>;
-    scoped.forEach((row) => {
-      if (row.bucket === "critico") result.critico += 1;
-      else if (row.bucket === "limite") result.limite += 1;
-      else if (row.bucket === "vencidas") result.vencidas += 1;
-      else if (row.bucket === "emdia") result.emdia += 1;
-      if (row.onVacationNow) result.feriasnow += 1;
-      if (row.hasScheduled) result.programadas += 1;
+    scoped.forEach((r) => {
+      if (r.bucket === "critico") c.critico += 1;
+      else if (r.bucket === "limite") c.limite += 1;
+      else if (r.bucket === "vencidas") c.vencidas += 1;
+      else if (r.bucket === "emdia") c.emdia += 1;
+      if (r.onVacationNow) c.feriasnow += 1;
+      if (r.hasScheduled) c.programadas += 1;
     });
-    return result;
+    return c;
   }, [rows, kindFilter]);
 
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return rows.filter((row) => {
-      if (kindFilter !== "todos" && row.kind !== kindFilter) return false;
+    return rows.filter((r) => {
+      if (kindFilter !== "todos" && r.kind !== kindFilter) return false;
       if (activeCard === "programadas") {
-        if (!row.hasScheduled) return false;
+        if (!r.hasScheduled) return false;
       } else if (activeCard === "feriasnow") {
-        if (!row.onVacationNow) return false;
-      } else if (activeCard !== "todos" && row.bucket !== activeCard) {
+        if (!r.onVacationNow) return false;
+      } else if (activeCard !== "todos" && r.bucket !== activeCard) {
         return false;
       }
-      if (term && !row.employee.name.toLowerCase().includes(term)) return false;
+      if (term && !r.employee.name.toLowerCase().includes(term)) return false;
       return true;
     });
   }, [rows, activeCard, search, kindFilter]);
 
   const reportRows = useMemo(() => {
     if (!reportFrom || !reportTo) return [];
-    const employeesById = new Map(allEmployees.map((employee) => [employee.id, employee]));
+    const empById = new Map(allEmployees.map((e) => [e.id, e]));
     return vacations
       .filter(
-        (vacation) =>
-          (vacation.startDate >= reportFrom && vacation.startDate <= reportTo) ||
-          (vacation.endDate >= reportFrom && vacation.endDate <= reportTo),
+        (v) =>
+          (v.startDate >= reportFrom && v.startDate <= reportTo) ||
+          (v.endDate >= reportFrom && v.endDate <= reportTo),
       )
-      .map((vacation) => ({
-        vacation,
-        employee: employeesById.get(vacation.employeeId),
-        entrou: vacation.startDate >= reportFrom && vacation.startDate <= reportTo,
-        voltou: vacation.endDate >= reportFrom && vacation.endDate <= reportTo,
+      .map((v) => ({
+        vacation: v,
+        employee: empById.get(v.employeeId),
+        entrou: v.startDate >= reportFrom && v.startDate <= reportTo,
+        voltou: v.endDate >= reportFrom && v.endDate <= reportTo,
       }))
-      .sort((left, right) => left.vacation.startDate.localeCompare(right.vacation.startDate));
+      .sort((a, b) => a.vacation.startDate.localeCompare(b.vacation.startDate));
   }, [vacations, reportFrom, reportTo, allEmployees]);
 
   function selectCard(key: CardKey) {
@@ -183,14 +186,14 @@ export default function VacationManagement() {
   }
 
   function printProgramacao() {
-    const empById = new Map(allEmployees.map((employee) => [employee.id, employee]));
+    const empById = new Map(allEmployees.map((e) => [e.id, e]));
     const rowsHtml = [...vacations]
-      .sort((left, right) =>
-        (empById.get(left.employeeId)?.name || "").localeCompare(empById.get(right.employeeId)?.name || ""),
+      .sort((a, b) =>
+        (empById.get(a.employeeId)?.name || "").localeCompare(empById.get(b.employeeId)?.name || ""),
       )
-      .map((vacation) => {
-        const name = empById.get(vacation.employeeId)?.name || "—";
-        return `<tr><td>${name}</td><td>${vacation.acquisitionYear || "—"}</td><td>${vacation.startDate ? formatDate(vacation.startDate) : "—"}</td><td>${vacation.endDate ? formatDate(vacation.endDate) : "—"}</td><td style="text-align:center">${vacation.days || 0}</td><td style="text-align:center">${vacation.daysSold || 0}</td><td>${vacation.motivo || vacation.notes || ""}</td></tr>`;
+      .map((v) => {
+        const name = empById.get(v.employeeId)?.name || "—";
+        return `<tr><td>${name}</td><td>${v.acquisitionYear || "—"}</td><td>${v.startDate ? formatDate(v.startDate) : "—"}</td><td>${v.endDate ? formatDate(v.endDate) : "—"}</td><td style="text-align:center">${v.days || 0}</td><td style="text-align:center">${v.daysSold || 0}</td><td>${v.motivo || v.notes || ""}</td></tr>`;
       })
       .join("");
     const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Programação de Férias — Macro Ambiental</title>
@@ -201,15 +204,15 @@ export default function VacationManagement() {
 <table><thead><tr><th>Funcionário</th><th>Período aquisitivo</th><th>Início gozo</th><th>Fim gozo</th><th>Dias</th><th>Vendidos</th><th>Motivo/Obs.</th></tr></thead>
 <tbody>${rowsHtml || '<tr><td colspan="7">Nenhuma férias registrada.</td></tr>'}</tbody></table>
 <div class="foot">Relatório gerado pelo sistema de Gestão da Macro Ambiental.</div></body></html>`;
-    const popup = window.open("", "_blank");
-    if (!popup) {
+    const w = window.open("", "_blank");
+    if (!w) {
       window.alert("Permita pop-ups para gerar o relatório de programação.");
       return;
     }
-    popup.document.write(html);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
   }
 
   return (
@@ -236,7 +239,7 @@ export default function VacationManagement() {
             data-testid="vacation-search"
             placeholder="Pesquisar por nome…"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             style={{ width: "100%", padding: "10px 12px 10px 36px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 14 }}
           />
         </div>
@@ -245,7 +248,7 @@ export default function VacationManagement() {
           <select
             data-testid="vacation-kind-filter"
             value={kindFilter}
-            onChange={(event) => setKindFilter(event.target.value as EmployeeKind | "todos")}
+            onChange={(e) => setKindFilter(e.target.value as EmployeeKind | "todos")}
             style={{ padding: "9px 12px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 14, background: "#fff" }}
           >
             <option value="todos">Todos</option>
@@ -308,27 +311,27 @@ export default function VacationManagement() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => {
-                const meta = bucketMeta[row.bucket];
+              {filteredRows.map((r) => {
+                const meta = bucketMeta[r.bucket];
                 return (
                   <tr
-                    key={row.employee.id}
+                    key={r.employee.id}
                     className="vacation-list-row"
-                    data-testid={`vacation-row-${row.employee.id}`}
-                    onClick={() => setEditing(row.employee)}
+                    data-testid={`vacation-row-${r.employee.id}`}
+                    onClick={() => setEditing(r.employee)}
                     style={{ borderTop: "1px solid #f1f5f9", cursor: "pointer" }}
                   >
                     <td style={{ padding: "10px 12px", fontWeight: 600, color: "#0f172a" }}>
-                      {row.employee.name}
-                      {row.onVacationNow ? (
+                      {r.employee.name}
+                      {r.onVacationNow ? (
                         <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "2px 8px" }}>
                           Em férias hoje
                         </span>
                       ) : null}
                     </td>
                     <td style={{ padding: "10px 12px", color: "#475569", fontSize: 12 }}>
-                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: row.kind === "company" ? "#eef2ff" : row.kind === "diarist" ? "#fef9c3" : "#f1f5f9", border: "1px solid #e2e8f0", fontWeight: 600 }}>
-                        {employeeKindLabels[row.kind]}
+                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: r.kind === "company" ? "#eef2ff" : r.kind === "diarist" ? "#fef9c3" : "#f1f5f9", border: "1px solid #e2e8f0", fontWeight: 600 }}>
+                        {employeeKindLabels[r.kind]}
                       </span>
                     </td>
                     <td style={{ padding: "10px 12px" }}>
@@ -336,18 +339,18 @@ export default function VacationManagement() {
                         {meta.label}
                       </span>
                     </td>
-                    <td style={{ padding: "10px 12px", color: "#334155" }}>{row.reference ? `${row.months} meses` : "—"}</td>
-                    <td style={{ padding: "10px 12px", color: "#334155" }}>{row.reference ? formatDate(row.reference) : "—"}</td>
+                    <td style={{ padding: "10px 12px", color: "#334155" }}>{r.reference ? `${r.months} meses` : "—"}</td>
+                    <td style={{ padding: "10px 12px", color: "#334155" }}>{r.reference ? formatDate(r.reference) : "—"}</td>
                     <td style={{ padding: "10px 12px", color: "#334155" }}>
-                      {row.limiteEmCurso ? (
+                      {r.limiteEmCurso ? (
                         <span>
-                          {formatDate(row.limiteEmCurso)}
+                          {formatDate(r.limiteEmCurso)}
                           <span style={{ marginLeft: 6, fontSize: 10, color: "#0891b2", fontWeight: 700 }}>(em curso)</span>
                         </span>
                       ) : "—"}
                     </td>
                     <td style={{ padding: "10px 12px", color: "#334155" }}>
-                      {row.lastVacation ? `${formatDate(row.lastVacation.startDate)} a ${formatDate(row.lastVacation.endDate)}` : "Nunca registrado"}
+                      {r.lastVacation ? `${formatDate(r.lastVacation.startDate)} a ${formatDate(r.lastVacation.endDate)}` : "Nunca registrado"}
                     </td>
                     <td style={{ padding: "10px 12px", textAlign: "right", color: "#2563eb", fontSize: 13, fontWeight: 600 }}>
                       Lançar/editar
@@ -371,18 +374,18 @@ export default function VacationManagement() {
         />
       ) : null}
 
-      {reportOpen ? (
-        <ModalPortal className="modal-overlay" data-testid="vacation-report-modal" style={overlayStyle} onClick={() => setReportOpen(false)}>
-          <div role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()} style={{ ...dialogStyle, maxWidth: 720 }}>
+      {reportOpen ? createPortal(
+        <div className="modal-overlay" data-testid="vacation-report-modal" style={overlayStyle} onClick={() => setReportOpen(false)}>
+          <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ ...dialogStyle, maxWidth: 720 }}>
             <h3 style={{ margin: "0 0 12px", fontSize: 18, color: "#0f172a" }}>Relatório de férias por período</h3>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
               <label style={{ fontSize: 13, color: "#475569" }}>
                 De<br />
-                <input type="date" data-testid="vacation-report-from" value={reportFrom} onChange={(event) => setReportFrom(event.target.value)} style={inputStyle} />
+                <input type="date" data-testid="vacation-report-from" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} style={inputStyle} />
               </label>
               <label style={{ fontSize: 13, color: "#475569" }}>
                 Até<br />
-                <input type="date" data-testid="vacation-report-to" value={reportTo} onChange={(event) => setReportTo(event.target.value)} style={inputStyle} />
+                <input type="date" data-testid="vacation-report-to" value={reportTo} onChange={(e) => setReportTo(e.target.value)} style={inputStyle} />
               </label>
             </div>
             <div style={{ maxHeight: "50vh", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 10 }}>
@@ -401,13 +404,13 @@ export default function VacationManagement() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reportRows.map((row) => (
-                      <tr key={row.vacation.id} style={{ borderTop: "1px solid #f1f5f9" }}>
-                        <td style={{ padding: "8px 10px", fontWeight: 600 }}>{row.employee?.name || "—"}</td>
-                        <td style={{ padding: "8px 10px" }}>{formatDate(row.vacation.startDate)}</td>
-                        <td style={{ padding: "8px 10px" }}>{formatDate(row.vacation.endDate)}</td>
+                    {reportRows.map((r) => (
+                      <tr key={r.vacation.id} style={{ borderTop: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "8px 10px", fontWeight: 600 }}>{r.employee?.name || "—"}</td>
+                        <td style={{ padding: "8px 10px" }}>{formatDate(r.vacation.startDate)}</td>
+                        <td style={{ padding: "8px 10px" }}>{formatDate(r.vacation.endDate)}</td>
                         <td style={{ padding: "8px 10px" }}>
-                          {row.entrou ? "Entrou" : ""}{row.entrou && row.voltou ? " / " : ""}{row.voltou ? "Voltou" : ""}
+                          {r.entrou ? "Entrou" : ""}{r.entrou && r.voltou ? " / " : ""}{r.voltou ? "Voltou" : ""}
                         </td>
                       </tr>
                     ))}
@@ -422,7 +425,8 @@ export default function VacationManagement() {
               <button className="btn btn-secondary" onClick={() => setReportOpen(false)}>Fechar</button>
             </div>
           </div>
-        </ModalPortal>
+        </div>,
+        document.body,
       ) : null}
     </section>
   );
@@ -438,7 +442,6 @@ const overlayStyle = {
   zIndex: 1000,
   padding: 16,
 };
-
 const dialogStyle = {
   background: "#fff",
   borderRadius: 14,
@@ -449,7 +452,6 @@ const dialogStyle = {
   overflowY: "auto" as const,
   boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
 };
-
 const inputStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginTop: 4 };
 
 function VacationEditorModal({
@@ -496,15 +498,15 @@ function VacationEditorModal({
     setShowForm(true);
   }
 
-  function editVacation(vacation: Vacation) {
-    setEditingId(vacation.id);
-    setStart(vacation.startDate || "");
-    setEnd(vacation.endDate || "");
-    setAcqYear(vacation.acquisitionYear ? String(vacation.acquisitionYear) : "");
-    setSoldStart(vacation.soldStartDate || "");
-    setSoldEnd(vacation.soldEndDate || "");
-    setMotivo(vacation.motivo || "");
-    setNotes(vacation.notes || "");
+  function editVacation(v: Vacation) {
+    setEditingId(v.id);
+    setStart(v.startDate || "");
+    setEnd(v.endDate || "");
+    setAcqYear(v.acquisitionYear ? String(v.acquisitionYear) : "");
+    setSoldStart(v.soldStartDate || "");
+    setSoldEnd(v.soldEndDate || "");
+    setMotivo(v.motivo || "");
+    setNotes(v.notes || "");
     setError("");
     setShowForm(true);
   }
@@ -517,10 +519,10 @@ function VacationEditorModal({
       domingo: 0, segunda: 1, terça: 2, terca: 2, quarta: 3, quinta: 4, sexta: 5, sábado: 6, sabado: 6,
     };
     const set = new Set<number>();
-    (employee.workScheduleDays || []).forEach((day) => {
-      if (!day.enabled) {
-        const weekDay = map[day.day.trim().toLowerCase()];
-        if (weekDay !== undefined) set.add(weekDay);
+    (employee.workScheduleDays || []).forEach((d) => {
+      if (!d.enabled) {
+        const wd = map[d.day.trim().toLowerCase()];
+        if (wd !== undefined) set.add(wd);
       }
     });
     return set;
@@ -541,8 +543,8 @@ function VacationEditorModal({
       }
       setLoadingAbsences(true);
       try {
-        const records = await loadConfirmedAbsencesForEmployee(employee.id, employee.admissionDate, today);
-        if (!cancelled) setAbsences(records.map((record) => record.date));
+        const recs = await loadConfirmedAbsencesForEmployee(employee.id, employee.admissionDate, today);
+        if (!cancelled) setAbsences(recs.map((r) => r.date));
       } catch {
         if (!cancelled) setAbsences([]);
       } finally {
@@ -557,34 +559,44 @@ function VacationEditorModal({
 
   const periodRows = useMemo(
     () =>
-      periods.map((period) => {
-        const count = absences.filter((date) => date >= period.startISO && date <= period.endISO).length;
+      periods.map((p) => {
+        const count = absences.filter((d) => d >= p.startISO && d <= p.endISO).length;
         const right = cltRightForAbsences(count);
         const periodVacations = vacations.filter(
-          (vacation) =>
-            vacation.acquisitionYear === period.year ||
-            (!vacation.acquisitionYear && vacation.startDate && vacation.startDate >= period.startISO && vacation.startDate <= period.limitISO),
+          (v) =>
+            v.acquisitionYear === p.year ||
+            (!v.acquisitionYear && v.startDate && v.startDate >= p.startISO && v.startDate <= p.limitISO),
         );
-        const gozados = periodVacations.reduce((sum, vacation) => sum + (vacation.days || 0), 0);
-        const vendidos = periodVacations.reduce((sum, vacation) => sum + (vacation.daysSold || 0), 0);
+        const gozados = periodVacations.reduce((s, v) => s + (v.days || 0), 0);
+        const vendidos = periodVacations.reduce((s, v) => s + (v.daysSold || 0), 0);
         const pendentes = right.lost ? 0 : Math.max(0, right.days - gozados - vendidos);
-        return { period, count, right, periodVacations, gozados, vendidos, pendentes };
+        return { period: p, count, right, periodVacations, gozados, vendidos, pendentes };
       }),
     [periods, absences, vacations],
   );
+
+  const selectedPeriodRow = periodRows.find((r) => r.period.year === Number(acqYear));
+  const rightDays = selectedPeriodRow?.right.days ?? 0;
+  const rightLost = selectedPeriodRow?.right.lost ?? false;
+  const otherYearEntries = (selectedPeriodRow?.periodVacations || []).filter((v) => v.id !== editingId);
+  const gozadosOutros = otherYearEntries.reduce((s, v) => s + (v.days || 0), 0);
+  const vendidosOutros = otherYearEntries.reduce((s, v) => s + (v.daysSold || 0), 0);
+  const alocadosOutros = gozadosOutros + vendidosOutros;
+  const restante = rightDays - alocadosOutros - days - soldDays;
+  const maxVenda = Math.floor(rightDays / 3);
 
   function printEmployee() {
     const rowsHtml = periodRows
       .map(({ period, count, right, gozados, vendidos, pendentes, periodVacations }) => {
         const feriasTxt =
           periodVacations
-            .filter((vacation) => vacation.startDate && vacation.endDate)
-            .map((vacation) => `${formatDate(vacation.startDate)} a ${formatDate(vacation.endDate)}`)
+            .filter((v) => v.startDate && v.endDate)
+            .map((v) => `${formatDate(v.startDate)} a ${formatDate(v.endDate)}`)
             .join("; ") || "—";
         const vendidasTxt =
           periodVacations
-            .filter((vacation) => vacation.soldStartDate && vacation.soldEndDate)
-            .map((vacation) => `${formatDate(vacation.soldStartDate!)} a ${formatDate(vacation.soldEndDate!)}`)
+            .filter((v) => v.soldStartDate && v.soldEndDate)
+            .map((v) => `${formatDate(v.soldStartDate!)} a ${formatDate(v.soldEndDate!)}`)
             .join("; ") || (vendidos ? `${vendidos} dias` : "—");
         const direito = right.lost ? "0 — Direito perdido" : `${right.days} dias`;
         const tdStyle = right.lost ? ' style="color:#b91c1c;font-weight:700"' : "";
@@ -599,15 +611,15 @@ function VacationEditorModal({
 <table><thead><tr><th>Período aquisitivo</th><th>Limite de gozo</th><th>Faltas</th><th>Dias de direito</th><th>Gozados</th><th>Vendidas (período)</th><th>Pendentes</th><th>Férias lançadas</th></tr></thead>
 <tbody>${rowsHtml || '<tr><td colspan="8">Sem períodos aquisitivos.</td></tr>'}</tbody></table>
 <div class="foot">Dias de direito conforme art. 130 da CLT (faltas injustificadas no período aquisitivo). Pendentes = dias de direito − gozados − vendidos. Relatório gerado pelo sistema de Gestão da Macro Ambiental.</div></body></html>`;
-    const popup = window.open("", "_blank");
-    if (!popup) {
+    const w = window.open("", "_blank");
+    if (!w) {
       window.alert("Permita pop-ups para gerar a ficha de férias.");
       return;
     }
-    popup.document.write(html);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
   }
 
   async function handleSave() {
@@ -640,27 +652,55 @@ function VacationEditorModal({
       }
     }
     if (!editingId) {
-      const period = periods.find((item) => item.year === Number(acqYear));
-      if (period && !period.complete) {
+      const p = periods.find((x) => x.year === Number(acqYear));
+      if (p && !p.complete) {
         setError("Este período aquisitivo ainda não venceu (menos de 1 ano). Só é possível lançar férias de períodos vencidos.");
         return;
       }
     }
     if (start && folgaWeekdays.size > 0) {
-      const startDate = new Date(`${start}T00:00:00`);
+      const s = new Date(`${start}T00:00:00`);
       for (const offset of [1, 2]) {
-        const date = new Date(startDate);
-        date.setDate(date.getDate() + offset);
-        if (folgaWeekdays.has(date.getDay())) {
+        const d = new Date(s);
+        d.setDate(d.getDate() + offset);
+        if (folgaWeekdays.has(d.getDay())) {
           setError("Pela CLT (art. 134, §3º), as férias não podem iniciar nos 2 dias que antecedem a folga/repouso semanal do funcionário. Escolha outra data de início.");
           return;
         }
       }
     }
+    if (rightLost) {
+      setError("O funcionário perdeu o direito às férias deste período (mais de 32 faltas).");
+      return;
+    }
+    if (rightDays > 0) {
+      const gozoFractions = otherYearEntries.filter((v) => (v.days || 0) > 0).map((v) => v.days as number);
+      if (days > 0) gozoFractions.push(days);
+      if (days > 0 && days < 5) {
+        setError("Cada período de férias fracionado deve ter no mínimo 5 dias corridos (CLT art. 134, §1º).");
+        return;
+      }
+      if (gozoFractions.length > 3) {
+        setError("As férias podem ser fracionadas em no máximo 3 períodos (CLT art. 134, §1º).");
+        return;
+      }
+      if (gozoFractions.length >= 2 && Math.max(...gozoFractions) < 14) {
+        setError("Ao fracionar, um dos períodos deve ter no mínimo 14 dias corridos (CLT art. 134, §1º).");
+        return;
+      }
+      if (vendidosOutros + soldDays > maxVenda) {
+        setError(`A venda de férias (abono) não pode exceder 1/3 do direito do período (máx. ${maxVenda} dias).`);
+        return;
+      }
+      if (alocadosOutros + days + soldDays > rightDays) {
+        setError(`O total de dias gozados + vendidos (${alocadosOutros + days + soldDays}) excede o direito do período (${rightDays} dias).`);
+        return;
+      }
+    }
     setBusy(true);
     setError("");
     try {
-      const existing = editingId ? vacations.find((vacation) => vacation.id === editingId) : undefined;
+      const existing = editingId ? vacations.find((v) => v.id === editingId) : undefined;
       await saveVacation({
         id: editingId || undefined,
         createdAt: existing?.createdAt,
@@ -679,8 +719,8 @@ function VacationEditorModal({
       resetForm();
       await onSaved();
       window.alert(wasEditing ? "Alterações salvas com sucesso!" : "Férias registradas com sucesso!");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Falha ao salvar as férias.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao salvar as férias.");
     } finally {
       setBusy(false);
     }
@@ -697,11 +737,11 @@ function VacationEditorModal({
     }
   }
 
-  const sorted = [...vacations].sort((left, right) => right.startDate.localeCompare(left.startDate));
+  const sorted = [...vacations].sort((a, b) => b.startDate.localeCompare(a.startDate));
 
-  return (
-    <ModalPortal className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle}>
-      <div role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()} style={{ ...dialogStyle, maxWidth: 940, maxHeight: "92vh" }}>
+  return createPortal(
+    <div className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle}>
+      <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ ...dialogStyle, maxWidth: 940, maxHeight: "92vh" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: "#0f172a" }}>Férias — {employee.name}</h3>
           <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button>
@@ -725,11 +765,11 @@ function VacationEditorModal({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <label style={{ fontSize: 13, color: "#475569" }}>
                 Início das férias
-                <input type="date" data-testid="vacation-start" value={start} min={admission || undefined} onChange={(event) => setStart(event.target.value)} style={{ ...inputStyle, width: "100%" }} />
+                <input type="date" data-testid="vacation-start" value={start} min={admission || undefined} onChange={(e) => setStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
               </label>
               <label style={{ fontSize: 13, color: "#475569" }}>
                 Retorno (último dia)
-                <input type="date" data-testid="vacation-end" value={end} min={start || admission || undefined} onChange={(event) => setEnd(event.target.value)} style={{ ...inputStyle, width: "100%" }} />
+                <input type="date" data-testid="vacation-end" value={end} min={start || admission || undefined} onChange={(e) => setEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
               </label>
               <label style={{ fontSize: 13, color: "#475569" }}>
                 Período aquisitivo (ano)
@@ -745,16 +785,32 @@ function VacationEditorModal({
               </p>
             ) : null}
 
+            {selectedPeriodRow ? (
+              <div data-testid="vacation-alloc-summary" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0", fontSize: 13, color: "#334155" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 18px" }}>
+                  <span>Direito: <strong>{rightDays} dias</strong></span>
+                  <span>Já alocado: <strong>{alocadosOutros} dias</strong></span>
+                  <span>Esta inclusão: <strong>{days + soldDays} dias</strong></span>
+                  <span style={{ fontWeight: 700, color: restante < 0 ? "#b91c1c" : restante === 0 ? "#047857" : "#b45309" }}>
+                    {restante < 0 ? `Excede em ${Math.abs(restante)} dias` : restante === 0 ? "Tudo alocado" : `Restam ${restante} dias`}
+                  </span>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
+                  Fracionamento (CLT art. 134, §1º): até 3 períodos, um com no mínimo 14 dias e os demais com no mínimo 5 dias. Venda (abono) limitada a 1/3 (máx. {maxVenda} dias).
+                </div>
+              </div>
+            ) : null}
+
             <div style={{ marginTop: 12, padding: "10px 12px", border: "1px dashed #cbd5e1", borderRadius: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginBottom: 6 }}>Férias vendidas (abono) — período</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <label style={{ fontSize: 13, color: "#475569" }}>
                   Início da venda
-                  <input type="date" data-testid="vacation-sold-start" value={soldStart} min={admission || undefined} onChange={(event) => setSoldStart(event.target.value)} style={{ ...inputStyle, width: "100%" }} />
+                  <input type="date" data-testid="vacation-sold-start" value={soldStart} min={admission || undefined} onChange={(e) => setSoldStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
                 </label>
                 <label style={{ fontSize: 13, color: "#475569" }}>
                   Fim da venda
-                  <input type="date" data-testid="vacation-sold-end" value={soldEnd} min={soldStart || admission || undefined} onChange={(event) => setSoldEnd(event.target.value)} style={{ ...inputStyle, width: "100%" }} />
+                  <input type="date" data-testid="vacation-sold-end" value={soldEnd} min={soldStart || admission || undefined} onChange={(e) => setSoldEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
                 </label>
               </div>
               <p style={{ fontSize: 12, color: "#334155", margin: "8px 0 0" }}>
@@ -764,11 +820,11 @@ function VacationEditorModal({
 
             <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
               Motivo {!start && !end && !soldStart && !soldEnd ? <strong style={{ color: "#b45309" }}>(obrigatório sem gozo/venda)</strong> : "(opcional)"}
-              <input type="text" data-testid="vacation-motivo" value={motivo} onChange={(event) => setMotivo(event.target.value)} placeholder="ex.: sem histórico, afastamento, etc." style={{ ...inputStyle, width: "100%" }} />
+              <input type="text" data-testid="vacation-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: sem histórico, afastamento, etc." style={{ ...inputStyle, width: "100%" }} />
             </label>
             <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
               Observações
-              <input type="text" data-testid="vacation-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="opcional" style={{ ...inputStyle, width: "100%" }} />
+              <input type="text" data-testid="vacation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="opcional" style={{ ...inputStyle, width: "100%" }} />
             </label>
 
             {error ? <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 10 }}>{error}</div> : null}
@@ -840,26 +896,33 @@ function VacationEditorModal({
                         {loadingAbsences ? "…" : right.lost ? "—" : pendentes}
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
-                        {periodVacations.length > 0 ? (
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: "4px 10px", fontSize: 12 }}
-                            data-testid={`vacation-edit-${period.year}`}
-                            onClick={() => editVacation(periodVacations[0])}
-                          >
-                            Editar
-                          </button>
-                        ) : period.complete ? (
-                          <button
-                            className="btn btn-primary"
-                            style={{ padding: "4px 10px", fontSize: 12 }}
-                            data-testid={`vacation-launch-${period.year}`}
-                            onClick={() => launchForPeriod(period.year)}
-                          >
-                            Lançar férias
-                          </button>
-                        ) : (
+                        {!period.complete ? (
                           <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>Não vencido</span>
+                        ) : right.lost ? (
+                          <span style={{ fontSize: 11, color: "#b91c1c", fontWeight: 700 }}>Direito perdido</span>
+                        ) : pendentes > 0 ? (
+                          <span style={{ display: "inline-flex", gap: 6 }}>
+                            {periodVacations.length > 0 ? (
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: "4px 10px", fontSize: 12 }}
+                                data-testid={`vacation-edit-${period.year}`}
+                                onClick={() => editVacation(periodVacations[0])}
+                              >
+                                Editar
+                              </button>
+                            ) : null}
+                            <button
+                              className="btn btn-primary"
+                              style={{ padding: "4px 10px", fontSize: 12 }}
+                              data-testid={`vacation-launch-${period.year}`}
+                              onClick={() => launchForPeriod(period.year)}
+                            >
+                              {periodVacations.length > 0 ? "Fracionar" : "Lançar férias"}
+                            </button>
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, color: "#047857", fontWeight: 700 }}>Concluído</span>
                         )}
                       </td>
                     </tr>
@@ -877,23 +940,23 @@ function VacationEditorModal({
           <div style={{ marginTop: 20 }}>
             <h4 style={{ fontSize: 14, color: "#0f172a", margin: "0 0 8px" }}>Histórico</h4>
             <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
-              {sorted.map((vacation) => (
-                <div key={vacation.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderTop: "1px solid #f1f5f9", fontSize: 13 }}>
+              {sorted.map((v) => (
+                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderTop: "1px solid #f1f5f9", fontSize: 13 }}>
                   <span>
-                    <strong>{vacation.acquisitionYear ? `Férias ${vacation.acquisitionYear}` : "Férias"}</strong>{" — "}
-                    {vacation.startDate && vacation.endDate
-                      ? `${formatDate(vacation.startDate)} a ${formatDate(vacation.endDate)} (${vacation.days} dias)`
-                      : (vacation.motivo || "sem período informado")}
-                    {vacation.daysSold
-                      ? ` · vendidas: ${vacation.soldStartDate && vacation.soldEndDate ? `${formatDate(vacation.soldStartDate)} a ${formatDate(vacation.soldEndDate)} (${vacation.daysSold} dias)` : `${vacation.daysSold} dias`}`
+                    <strong>{v.acquisitionYear ? `Férias ${v.acquisitionYear}` : "Férias"}</strong>{" — "}
+                    {v.startDate && v.endDate
+                      ? `${formatDate(v.startDate)} a ${formatDate(v.endDate)} (${v.days} dias)`
+                      : (v.motivo || "sem período informado")}
+                    {v.daysSold
+                      ? ` · vendidas: ${v.soldStartDate && v.soldEndDate ? `${formatDate(v.soldStartDate)} a ${formatDate(v.soldEndDate)} (${v.daysSold} dias)` : `${v.daysSold} dias`}`
                       : ""}
-                    {vacation.notes ? ` · ${vacation.notes}` : ""}
+                    {v.notes ? ` · ${v.notes}` : ""}
                   </span>
                   <span style={{ display: "flex", gap: 4 }}>
-                    <button className="icon-button" data-testid={`vacation-edit-hist-${vacation.id}`} onClick={() => editVacation(vacation)} aria-label="Editar" disabled={busy}>
+                    <button className="icon-button" data-testid={`vacation-edit-hist-${v.id}`} onClick={() => editVacation(v)} aria-label="Editar" disabled={busy}>
                       <Pencil size={14} color="#2563eb" />
                     </button>
-                    <button className="icon-button" data-testid={`vacation-delete-${vacation.id}`} onClick={() => void handleDelete(vacation.id)} aria-label="Excluir" disabled={busy}>
+                    <button className="icon-button" data-testid={`vacation-delete-${v.id}`} onClick={() => void handleDelete(v.id)} aria-label="Excluir" disabled={busy}>
                       <Trash2 size={14} color="#b91c1c" />
                     </button>
                   </span>
@@ -903,6 +966,7 @@ function VacationEditorModal({
           </div>
         ) : null}
       </div>
-    </ModalPortal>
+    </div>,
+    document.body,
   );
 }

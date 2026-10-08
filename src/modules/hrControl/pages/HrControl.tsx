@@ -490,15 +490,19 @@ function formatDecimal(value: number, digits = 1) {
 }
 
 function formatCompact(value: number, digits = 0) {
-  const number = Number(value || 0);
-  if (Math.abs(number) >= 1000) return `${formatDecimal(number / 1000, digits)} Mil`;
-  return formatInteger(number);
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(Number(value || 0));
 }
 
 function formatCurrencyCompact(value: number) {
-  const number = Number(value || 0);
-  if (Math.abs(number) >= 1000) return `R$ ${formatDecimal(number / 1000, 2)} Mil`;
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(number);
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
 }
 
 function formatHours(value: number) {

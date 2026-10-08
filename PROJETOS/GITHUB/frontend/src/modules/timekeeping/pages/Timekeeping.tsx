@@ -1107,6 +1107,19 @@ function automaticScheduleTimeValue(
   return shouldApplyDefault ? configuredTime : "00:00";
 }
 
+function isTimeBefore(previous?: string, current?: string) {
+  if (!hasFilledTimeValue(previous) || !hasFilledTimeValue(current)) {
+    return false;
+  }
+
+  const previousMinutes = secullumTimeToMinutes(previous);
+  const currentMinutes = secullumTimeToMinutes(current);
+
+  if (previousMinutes == null || currentMinutes == null) return false;
+
+  return currentMinutes < previousMinutes;
+}
+
 function diffSecullumMinutes(start?: string, end?: string) {
   const startMinutes = secullumTimeToMinutes(start);
   let endMinutes = secullumTimeToMinutes(end);
@@ -1410,7 +1423,7 @@ function calculateSecullumMetrics(
   const normalMinutes = Math.min(accountedMinutes, normalLimitMinutes);
   const faltaMinutes = Math.max(normalLimitMinutes - accountedMinutes, 0);
   const extraMinutes = Math.max(accountedMinutes - normalLimitMinutes, 0);
-
+  
   return {
     normais: normalMinutes > 0 ? minutesToSecullumTime(normalMinutes) : "00:00",
     faltas: minutesToSecullumTime(faltaMinutes, true),
@@ -6324,13 +6337,22 @@ export default function Timekeeping() {
       );
     }
     if (column.key === "checkOut") {
+      const hasTimeSequenceWarning = isTimeBefore(
+        record.checkIn,
+        record.checkOut,
+      );
+
       return (
         <td key={column.key} style={{ minWidth: width, width }}>
           <input
             className="table-input"
             type="time"
             disabled={busy}
-            style={{ color: secullumFieldColor(employee, "saida1", record.checkOut || "00:00"), fontWeight: secullumFieldColor(employee, "saida1", record.checkOut || "00:00") ? 700 : undefined }}
+            style={{
+              color: secullumFieldColor(employee, "saida1", record.checkOut || "00:00"),
+              fontWeight: secullumFieldColor(employee, "saida1", record.checkOut || "00:00") ? 700 : undefined,
+              border: hasTimeSequenceWarning ? "1px solid #eab308" : undefined,
+            }}
             value={record.checkOut || "00:00"}
             onChange={(event) =>
               void saveRecord(employee, {
@@ -6381,6 +6403,13 @@ export default function Timekeeping() {
         ? secullumFieldColor(employee, secField, value)
         : undefined;
 
+      const hasTimeSequenceWarning =
+        column.key === "ent2"
+          ? isTimeBefore(record.checkOut, value)
+          : column.key === "sai2"
+            ? isTimeBefore(record.customFields?.ent2, value)
+            : false;
+
       return (
         <td key={column.key} style={{ minWidth: width, width }}>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -6388,7 +6417,11 @@ export default function Timekeeping() {
               className="table-input"
               type="time"
               disabled={busy}
-              style={{ color: secColor, fontWeight: secColor ? 700 : undefined }}
+              style={{
+                color: secColor,
+                fontWeight: secColor ? 700 : undefined,
+                border: hasTimeSequenceWarning ? "1px solid #eab308" : undefined,
+              }}
               title={
                 isManualMetric
                   ? "Calculado automaticamente. Pode ser substituído manualmente após a confirmação do aviso."

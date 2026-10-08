@@ -23,6 +23,7 @@ export type AppScreen =
   | "employees"
   | "benefits"
   | "timekeeping"
+  | "afastados"
   | "hrControl"
   | "talentBank"
   | "notifications"
