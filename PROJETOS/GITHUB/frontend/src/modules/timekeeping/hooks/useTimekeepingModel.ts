@@ -1,3 +1,4 @@
+import { timekeepingTeamStructure } from "@/modules/timekeeping/utils/teamStructure";
 import { useMemo, useState } from "react";
 import { useDomainData } from "@/hooks/useDomainData";
 import { useAuth } from "@/hooks/useAuth";
@@ -118,6 +119,8 @@ export function useTimekeepingModel() {
     loading: domainData.loading || timeRecordsLoading,
   }), [domainData, monthlyTimeRecords, timeRecordsLoading]);
 
+  const { employeeTeamId } = useMemo(() => timekeepingTeamStructure(data), [data]);
+
   const canCreateTimekeeping = can("timekeeping", "create");
   const canEditTimekeeping = can("timekeeping", "edit");
   const canDeleteTimekeeping = can("timekeeping", "delete");
@@ -176,7 +179,7 @@ export function useTimekeepingModel() {
       (!filterSets.companies.size || filterSets.companies.has(record.companyId))
       && (!filterSets.departments.size || filterSets.departments.has(employee?.departmentId || ""))
       && (!filterSets.sectors.size || filterSets.sectors.has(employee?.sectorId || ""))
-      && (!filterSets.realTeams.size || filterSets.realTeams.has(record.realTeamId || ""))
+      && (!filterSets.realTeams.size || filterSets.realTeams.has(employee ? employeeTeamId(employee) : record.realTeamId || ""))
       && (!filterSets.dayTeams.size || filterSets.dayTeams.has(record.dayTeamId || ""))
       && (!filterSets.employees.size || filterSets.employees.has(record.employeeId))
       && (!filterSets.cpfs.size || filterSets.cpfs.has(employee?.cpf?.trim() || ""))
@@ -184,9 +187,9 @@ export function useTimekeepingModel() {
       && (!filterSets.search || searchText.includes(filterSets.search))
       && (!filters.date || record.date === filters.date)
     );
-  }), [data.timeRecords, employeeById, filterSets, filters.date]);
+  }), [data.timeRecords, employeeById, employeeTeamId, filterSets, filters.date]);
 
-  const filteredEmployees = useMemo(() => employeesForTimekeeping.filter((employee) => {
+  const employeesBeforeTeamFilters = useMemo(() => employeesForTimekeeping.filter((employee) => {
     const effectiveStatus = employeeEffectiveStatusForDate(employee, filters.date);
     const belongsToSelectedDate = effectiveStatus !== "terminated"
       || recordEmployeeIdsForSelectedDate.has(employee.id);
@@ -202,12 +205,19 @@ export function useTimekeepingModel() {
       && (!filterSets.sectors.size || filterSets.sectors.has(employee.sectorId))
       && (!filterSets.statuses.size || filterSets.statuses.has(effectiveStatus))
       && (!filterSets.terminationModes.size || filterSets.terminationModes.has(employeeProcessModalityLabel(employee, filters.date)))
-      && (!filterSets.teams.size || filterSets.teams.has(employee.teamId ?? ""))
       && (!filterSets.employees.size || filterSets.employees.has(employee.id))
       && (!filterSets.cpfs.size || filterSets.cpfs.has(employee.cpf?.trim() || ""))
       && (!filterSets.search || employee.name.toLowerCase().includes(filterSets.search))
     );
   }), [employeesForTimekeeping, recordEmployeeIdsForSelectedDate, filterSets, filters.date]);
+
+  const dayTeamByEmployee = useMemo(() => new Map(data.timeRecords
+    .filter(record => record.date === filters.date)
+    .map(record => [record.employeeId, record.dayTeamId])), [data.timeRecords, filters.date]);
+  const filteredEmployees = useMemo(() => employeesBeforeTeamFilters.filter(employee =>
+    (!filterSets.realTeams.size || filterSets.realTeams.has(employeeTeamId(employee))) &&
+    (!filterSets.dayTeams.size || filterSets.dayTeams.has(dayTeamByEmployee.get(employee.id) ?? employeeTeamId(employee))),
+  ), [employeesBeforeTeamFilters, filterSets.realTeams, filterSets.dayTeams, employeeTeamId, dayTeamByEmployee]);
 
   const employeeOptions = useMemo(
     () => sortOptions(employeesForTimekeeping.map((item) => ({ value: item.id, label: item.name }))),
@@ -227,6 +237,8 @@ export function useTimekeepingModel() {
     setFilters,
     filteredRecords,
     filteredEmployees,
+    employeesBeforeTeamFilters,
+    dayTeamByEmployee,
     employeeOptions,
     cpfOptions,
   };

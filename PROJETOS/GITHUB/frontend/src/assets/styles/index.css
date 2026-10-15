@@ -4,7 +4,7 @@
   --app-density-viewport-height: calc(100vh / var(--app-density-scale));
   color: #132434;
   background: #f4f7fa;
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-family: sans-serif ,Inter, "Segoe UI", Arial ;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

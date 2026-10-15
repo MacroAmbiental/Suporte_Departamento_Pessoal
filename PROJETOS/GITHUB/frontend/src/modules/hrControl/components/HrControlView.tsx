@@ -52,6 +52,8 @@ import {
 } from "@/modules/hrControl/components/hrControlCharts";
 import type { HrControlController } from "@/modules/hrControl/hooks/useHrControl";
 
+import "./HrControlView.css";
+
 export function HrControlView(props: HrControlController) {
   const {
     setPeriodMode,
@@ -329,7 +331,29 @@ export function HrControlView(props: HrControlController) {
           <h1 className="page-title">Controle RH</h1>
           <p className="page-subtitle">Indicadores de ponto, absenteísmo e atestados por categoria de CID.</p>
         </div>
-        <div className="hr-header-actions">
+        
+      </div>
+<div className="hr-control-content d-flex align-items-center gap-2">
+      <div className="hr-screen-tabs" role="tablist" aria-label="Telas do Controle RH">
+        {microScreens.map((screen) => {
+          const Icon = screen.icon;
+          return (
+            <button
+              key={screen.key}
+              type="button"
+              className={activeView === screen.key ? "is-active" : ""}
+              onClick={() => setActiveView(screen.key)}
+              role="tab"
+              aria-selected={activeView === screen.key}
+            >
+              <Icon size={16} />
+              {screen.label}
+            </button>
+          );
+        })}
+      </div>
+      
+      <div className="hr-header-actions">
           <div className="hr-scope-controls" aria-label="Escopo da análise">
             <label className="field">
               Analisar por
@@ -385,27 +409,7 @@ export function HrControlView(props: HrControlController) {
             {recordsLoading || savedDaysLoading || (data.loading && !warmSession) || !periodReady ? "Atualizando dados" : recordsError ? "Não foi possível atualizar os pontos" : `${formatInteger(baseFilteredRecords.length)} registro(s) de ${formatInteger(savedActiveDates.length)} dia(s) salvo(s)`}
           </span>
         </div>
-      </div>
-
-      <div className="hr-screen-tabs" role="tablist" aria-label="Telas do Controle RH">
-        {microScreens.map((screen) => {
-          const Icon = screen.icon;
-          return (
-            <button
-              key={screen.key}
-              type="button"
-              className={activeView === screen.key ? "is-active" : ""}
-              onClick={() => setActiveView(screen.key)}
-              role="tab"
-              aria-selected={activeView === screen.key}
-            >
-              <Icon size={16} />
-              {screen.label}
-            </button>
-          );
-        })}
-      </div>
-
+</div>
       <div className="filters-panel hr-control-filters">
         <Search size={18} />
         <div className="hr-date-picker" ref={startCalendarRef}>
@@ -770,8 +774,8 @@ export function HrControlView(props: HrControlController) {
             <section className="hr-chart-panel" onDoubleClick={() => openMonthlySettings("monthlyPercent")}>
               <header className="hr-chart-header">
                 <div>
-                <h2><ChartColumn size={18} /> Faltas e atestados por mês (%)</h2>
-                  <span>Tipos selecionados / dias previstos do mês · 12 meses</span>
+                <h2><ChartColumn size={18} />Tipos selecionados / dias previstos do mês (%)</h2>
+                  <span> · 12 meses</span>
                 </div>
                 <button type="button" className="hr-chart-settings-button" onClick={() => openMonthlySettings("monthlyPercent")}><Settings2 size={16} /> Personalizar</button>
               </header>

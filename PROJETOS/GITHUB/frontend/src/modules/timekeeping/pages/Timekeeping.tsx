@@ -1,3 +1,4 @@
+import { timekeepingTeamOptions, timekeepingTeamStructure } from "@/modules/timekeeping/utils/teamStructure";
 import ModalPortal from "@/modules/shared/ModalPortal";
 import { employeeKindOf, employeeKindLabels } from "@/common/utils/employeeKind";
 import { noticeAdjustedMinutes, noticeWorkAdjustment } from "../utils/noticeWorkAdjustment";
@@ -26,6 +27,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -1303,9 +1305,10 @@ function findTeamLead(
   teamName: string,
   members: Employee[],
   allEmployees: Employee[],
+  employeeTeamId: (employee: Employee) => string,
 ): Employee | undefined {
   const byFlag = allEmployees.find(
-    (employee) => employee.teamId === teamId && employee.isTeamLead,
+    (employee) => employeeTeamId(employee) === teamId && employee.isTeamLead,
   );
   if (byFlag) return byFlag;
 
@@ -1805,7 +1808,7 @@ function metricValue(
   return manualFields.has(key) ? customFields[key] || "00:00" : automaticValue;
 }
 
-function createDisplayRecord(
+function createBaseDisplayRecord(
   employee: Employee,
   date: string,
   existing?: TimeRecord,
@@ -2007,10 +2010,25 @@ export default function Timekeeping() {
     filters,
     setFilters,
     filteredEmployees: employees,
+    employeesBeforeTeamFilters,
+    dayTeamByEmployee,
     employeeOptions,
     cpfOptions,
   } = useTimekeepingContext();
   const { user } = useAuth();
+  const { teams: resolvedTeams, employeeTeamId, teamsForCompany } = useMemo(
+    () => timekeepingTeamStructure({
+      teams: data.teams,
+      companyGroupUnits: data.companyGroupUnits,
+      companyGroupUnitLinks: data.companyGroupUnitLinks,
+      companyGroupEmployeeAssignments: data.companyGroupEmployeeAssignments,
+      companyGroupCompanies: data.companyGroupCompanies,
+    }),
+    [data.teams, data.companyGroupUnits, data.companyGroupUnitLinks, data.companyGroupEmployeeAssignments, data.companyGroupCompanies],
+  );
+  const createDisplayRecord = useCallback((employee: Employee, date: string, existing?: TimeRecord, settings: CalculationSettings = defaultCalculationSettings) => {
+    return createBaseDisplayRecord({ ...employee, teamId: employeeTeamId(employee) }, date, existing, settings);
+  }, [employeeTeamId]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
@@ -2309,25 +2327,6 @@ export default function Timekeeping() {
       structureGroupsForFilters,
     ],
   );
-  const structureTeams = useMemo(
-    () =>
-      dedupeStructureItems(
-        structureGroupsForFilters.flatMap((group) =>
-          structureItemsForGroup(
-            data.teams,
-            group,
-            data.companyGroupCompanies,
-            data.companies,
-          ),
-        ),
-      ),
-    [
-      data.companies,
-      data.companyGroupCompanies,
-      data.teams,
-      structureGroupsForFilters,
-    ],
-  );
   const departmentById = useMemo(
     () => new Map(data.departments.map((department) => [department.id, department])),
     [data.departments],
@@ -2341,8 +2340,8 @@ export default function Timekeeping() {
     [data.subsectors],
   );
   const teamById = useMemo(
-    () => new Map(data.teams.map((team) => [team.id, team])),
-    [data.teams],
+    () => new Map(resolvedTeams.map((team) => [team.id, team])),
+    [resolvedTeams],
   );
   const employeeById = useMemo(
     () => new Map(data.employees.map((employee) => [employee.id, employee])),
@@ -2355,7 +2354,7 @@ export default function Timekeeping() {
 
     const membersByTeam = new Map<string, Employee[]>();
     employees.forEach((employee) => {
-      const teamId = employee.teamId || "";
+      const teamId = employeeTeamId(employee) || "";
       if (!teamId || !selected.includes(teamId)) return;
       const list = membersByTeam.get(teamId) || [];
       list.push(employee);
@@ -2366,7 +2365,7 @@ export default function Timekeeping() {
       .map((teamId) => {
         const members = membersByTeam.get(teamId) || [];
         const teamName = teamById.get(teamId)?.name || "-";
-        const lead = findTeamLead(teamId, teamName, members, data.employees);
+        const lead = findTeamLead(teamId, teamName, members, data.employees, employeeTeamId);
         const schedule = lead ? scheduleForDate(lead, filters.date) : undefined;
         const punches = scheduleToTeamPunches(schedule);
         const collaborators = members.filter(
@@ -2384,7 +2383,7 @@ export default function Timekeeping() {
         };
       })
       .filter((group) => group.lead || group.collaborators.length);
-  }, [employees, data.employees, filters.realTeamIds, filters.date, teamById]);
+  }, [employees, data.employees, filters.realTeamIds, filters.date, teamById, employeeTeamId]);
 
   const teamScheduleSelectedCount = useMemo(
     () =>
@@ -2613,44 +2612,15 @@ export default function Timekeeping() {
     [columns],
   );
 
-  const teamFilterOptions = useMemo(() => {
-    const visibleTeams = structureTeams;
-    const companyById = new Map(
-      data.companies.map((company) => [company.id, company.name] as const),
-    );
-    const memberCountByTeam = new Map<string, number>();
-    data.employees.forEach((employee) => {
-      if (!employee.teamId) return;
-      memberCountByTeam.set(
-        employee.teamId,
-        (memberCountByTeam.get(employee.teamId) || 0) + 1,
-      );
-    });
-    const nameCount = new Map<string, number>();
-    visibleTeams.forEach((team) => {
-      const key = normalizeKey(team.name);
-      nameCount.set(key, (nameCount.get(key) || 0) + 1);
-    });
-    let options = visibleTeams.map((team) => {
-      const duplicated = (nameCount.get(normalizeKey(team.name)) || 0) > 1;
-      const company = companyById.get(team.companyId) || "";
-      const count = memberCountByTeam.get(team.id) || 0;
-      const label = duplicated
-        ? `${team.name}${company ? ` — ${company}` : ""} (${count})`
-        : `${team.name} (${count})`;
-      return { value: team.id, label };
-    });
-    const labelCount = new Map<string, number>();
-    options.forEach((option) =>
-      labelCount.set(option.label, (labelCount.get(option.label) || 0) + 1),
-    );
-    options = options.map((option) =>
-      (labelCount.get(option.label) || 0) > 1
-        ? { ...option, label: `${option.label} · ${option.value.slice(0, 4)}` }
-        : option,
-    );
-    return options;
-  }, [data.companies, data.employees, structureTeams]);
+  const teamFilterOptions = useMemo(
+    () => timekeepingTeamOptions(resolvedTeams, employeesBeforeTeamFilters, employeeTeamId),
+    [resolvedTeams, employeesBeforeTeamFilters, employeeTeamId],
+  );
+  const dayTeamFilterOptions = useMemo(
+    () => timekeepingTeamOptions(resolvedTeams, employeesBeforeTeamFilters,
+      employee => dayTeamByEmployee.get(employee.id) ?? employeeTeamId(employee)),
+    [resolvedTeams, employeesBeforeTeamFilters, dayTeamByEmployee, employeeTeamId],
+  );
   const selectedReportColumnKeys = useMemo(
     () => sanitizeColumnSelection(
       reportColumnKeys,
@@ -2732,6 +2702,7 @@ export default function Timekeeping() {
     });
     return map;
   }, [
+    createDisplayRecord,
     calculationSettings,
     draftRecordsByEmployeeId,
     employees,
@@ -2798,6 +2769,7 @@ export default function Timekeeping() {
       isSavedWithoutUpdates: Boolean(isListedAsSaved && !hasLocalDraftUpdates),
     };
   }, [
+    createDisplayRecord,
     calculationSettings,
     data.timeRecords,
     draftRecordsByEmployeeId,
@@ -3537,8 +3509,8 @@ export default function Timekeeping() {
       status,
       source: patch.source || current.source || "manual",
       functionName: employee.role || employee.position || "",
-      realTeamId: employee.teamId || "",
-      dayTeamId: patch.dayTeamId ?? current.dayTeamId ?? employee.teamId ?? "",
+      realTeamId: employeeTeamId(employee) || "",
+      dayTeamId: patch.dayTeamId ?? current.dayTeamId ?? employeeTeamId(employee) ?? "",
       usefulHours,
       baseHours,
       intervalHours:
@@ -4018,7 +3990,7 @@ export default function Timekeeping() {
     if (key === "functionName")
       return record?.functionName || employee.role || employee.position || "-";
     if (key === "realTeam")
-      return record?.realTeamName || teamName(record?.realTeamId || employee.teamId);
+      return teamName(employeeTeamId(employee));
     if (key === "companyGroup") return companyGroupName(employee.companyId);
     if (key === "company") return record?.companyName || companyName(record?.companyId || employee.companyId);
     if (key === "department")
@@ -4129,8 +4101,7 @@ export default function Timekeeping() {
 
     if (column.linkedModule === "teams") {
       return sortOptions(
-        data.teams
-          .filter((item) => !companyId || item.companyId === companyId)
+        (companyId ? teamsForCompany(companyId) : resolvedTeams)
           .map((item) => ({
             value: item.id,
             label: item.name,
@@ -4583,8 +4554,8 @@ export default function Timekeeping() {
           status: importedStatus,
           source: "seculum",
           functionName: employee.role || employee.position || "",
-          realTeamId: employee.teamId || "",
-          dayTeamId: existing?.dayTeamId ?? employee.teamId ?? "",
+          realTeamId: employeeTeamId(employee) || "",
+          dayTeamId: existing?.dayTeamId ?? employeeTeamId(employee) ?? "",
           checkIn: row.ent1,
           checkOut:
             row.sai1 ||
@@ -4662,7 +4633,7 @@ export default function Timekeeping() {
     if (column.key === "status") return statusDisplayText(record.status);
     if (column.key === "cid") return record.cid || "";
     if (column.key === "dayTeamId")
-      return teamName(record.dayTeamId || employee.teamId);
+      return teamName(record.dayTeamId ?? employeeTeamId(employee));
     if (["normais", "faltas", "extras", "carga"].includes(column.key))
       return record.customFields?.[column.key] || "00:00";
     if (["ent2", "sai2", "ent3", "sai3"].includes(column.key))
@@ -6638,15 +6609,14 @@ export default function Timekeeping() {
         <td key={column.key} style={{ minWidth: width, width }}>
           <select
             className="table-input"
-            value={record.dayTeamId || employee.teamId || ""}
+            value={record.dayTeamId ?? employeeTeamId(employee)}
             onChange={(event) =>
               void saveRecord(employee, { dayTeamId: event.target.value })
             }
           >
             <option value="">Sem equipe</option>
             {sortOptions(
-              data.teams
-                .filter((team) => team.companyId === employee.companyId)
+              teamsForCompany(employee.companyId)
                 .map((team) => ({ value: team.id, label: team.name })),
             ).map((team) => (
               <option key={team.value} value={team.value}>
@@ -6922,7 +6892,7 @@ export default function Timekeeping() {
           placeholder="Equipe do dia"
           value={filters.dayTeamIds}
           onChange={(dayTeamIds) => setFilters({ ...filters, dayTeamIds })}
-          options={sortOptions(teamFilterOptions)}
+          options={sortOptions(dayTeamFilterOptions)}
         />
         <MultiSelect
           label="Funcionários"
