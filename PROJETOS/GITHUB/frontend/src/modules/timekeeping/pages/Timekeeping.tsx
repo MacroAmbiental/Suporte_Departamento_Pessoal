@@ -1580,10 +1580,6 @@ function dateRange(start: string, end: string) {
   return dates;
 }
 
-function safeSheetName(value: string) {
-  return value.replace(/[\\/?*[\]:]/g, "-").slice(0, 31);
-}
-
 function isHoliday(date: string, settings: CalculationSettings) {
   return settings.holidays.some((holiday) => holiday.trim() === date);
 }
@@ -4962,8 +4958,10 @@ export default function Timekeeping() {
       kind: reportColumnKind(column),
     }));
 
-    const maxColumn = Math.max(0, reportColumns.length - 1);
-    const columnWidths = reportColumns.map((column) => column.width);
+    // Todos os dias ficam numa tabela só; a coluna Data identifica o dia de cada linha.
+    const dateColumnOffset = 1;
+    const maxColumn = reportColumns.length - 1 + dateColumnOffset;
+    const columnWidths = [12, ...reportColumns.map((column) => column.width)];
 
     function hexToRgb(value: string, fallback: string) {
       const normalized = String(value || "").replace(/[^0-9a-f]/gi, "");
@@ -5121,12 +5119,32 @@ export default function Timekeeping() {
         setCell(worksheet, row, col, col === firstCol ? value : "", style);
     }
 
-    function buildDailyWorksheet(date: string) {
+    function setDateCell(
+      worksheet: XLSXTypes.WorkSheet,
+      row: number,
+      col: number,
+      date: string,
+      style?: object,
+    ) {
+      const [year, month, day] = date.split("-").map(Number);
+      // Data como número serial do Excel, para filtrar e ordenar como data.
+      const serial = (Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86400000;
+      const address = XLSX.utils.encode_cell({ r: row, c: col });
+      worksheet[address] = { t: "n", v: serial, z: "dd/mm/yyyy" } as XLSXTypes.CellObject;
+      if (style)
+        (worksheet[address] as XLSXTypes.CellObject & { s?: object }).s = style;
+    }
+
+    function buildReportWorksheet() {
       const worksheet: XLSXTypes.WorkSheet = {};
-      const employeesForDate = sortEmployeesForDate(employees, date);
+      const rowsByDate = dates.map((date) => ({
+        date,
+        employees: sortEmployeesForDate(employees, date),
+      }));
+      const totalRows = rowsByDate.reduce((sum, group) => sum + group.employees.length, 0);
       const headerRow = 5;
       const firstDataRow = 6;
-      const footerRow = firstDataRow + employeesForDate.length + 1;
+      const footerRow = firstDataRow + totalRows + 1;
 
       worksheet["!cols"] = columnWidths.map((wch) => ({ wch }));
       worksheet["!rows"] = [];
@@ -5153,7 +5171,9 @@ export default function Timekeeping() {
         2,
         0,
         maxColumn,
-        `Dia de referência: ${dayReferenceText(date)}`,
+        dates.length === 1
+          ? `Dia de referência: ${dayReferenceText(dates[0])}`
+          : `Dias no relatório: ${dates.length}`,
         infoValueStyle,
       );
       paintMerge(
@@ -5174,29 +5194,35 @@ export default function Timekeeping() {
         },
       );
 
+      setCell(worksheet, headerRow, 0, "Data", headerStyle);
       reportColumns.forEach((column, columnIndex) => {
-        setCell(worksheet, headerRow, columnIndex, column.label, headerStyle);
+        setCell(worksheet, headerRow, columnIndex + dateColumnOffset, column.label, headerStyle);
       });
 
-      employeesForDate.forEach((employee, employeeIndex) => {
-        const row = firstDataRow + employeeIndex;
-        const record = displayReportRecordForDate(employee, date);
-        const rowFill = employeeIndex % 2 === 0 ? "FFFFFF" : stripeBg;
-        worksheet["!rows"]![row] = { hpt: 17 };
+      let row = firstDataRow;
+      rowsByDate.forEach(({ date, employees: employeesForDate }, dateIndex) => {
+        // Zebrado por dia, para separar visualmente um dia do outro.
+        const rowFill = dateIndex % 2 === 0 ? "FFFFFF" : stripeBg;
+        employeesForDate.forEach((employee) => {
+          const record = displayReportRecordForDate(employee, date);
+          worksheet["!rows"]![row] = { hpt: 17 };
+          setDateCell(worksheet, row, 0, date, buildBodyStyle("center", rowFill));
 
-        reportColumns.forEach((column, columnIndex) => {
-          const value = column.value(employee, record, date) || "";
-          const condition =
-            column.kind === "status"
-              ? statusConditionFor(record.status)
-              : undefined;
-          const style =
-            column.kind === "name"
-              ? buildBodyStyle("left", rowFill)
-              : column.kind === "status"
-                ? buildStatusStyle(condition, rowFill)
-                : buildBodyStyle("center", rowFill);
-          setCell(worksheet, row, columnIndex, value, style);
+          reportColumns.forEach((column, columnIndex) => {
+            const value = column.value(employee, record, date) || "";
+            const condition =
+              column.kind === "status"
+                ? statusConditionFor(record.status)
+                : undefined;
+            const style =
+              column.kind === "name"
+                ? buildBodyStyle("left", rowFill)
+                : column.kind === "status"
+                  ? buildStatusStyle(condition, rowFill)
+                  : buildBodyStyle("center", rowFill);
+            setCell(worksheet, row, columnIndex + dateColumnOffset, value, style);
+          });
+          row += 1;
         });
       });
 
@@ -5229,19 +5255,18 @@ export default function Timekeeping() {
         fitToHeight: 0,
       } as any;
       worksheet["!freeze"] = { xSplit: 0, ySplit: firstDataRow } as any;
+      if (totalRows > 0) {
+        worksheet["!autofilter"] = {
+          ref: XLSX.utils.encode_range({
+            s: { r: headerRow, c: 0 },
+            e: { r: firstDataRow + totalRows - 1, c: maxColumn },
+          }),
+        };
+      }
       return worksheet;
     }
 
-    dates.forEach((date, index) => {
-      const worksheet = buildDailyWorksheet(date);
-      const sheetName =
-        dates.length === 1
-          ? "Ponto"
-          : safeSheetName(
-            `${String(index + 1).padStart(2, "0")} ${formatDateForDisplay(date).replace(/\//g, "-")}`,
-          );
-      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-    });
+    XLSX.utils.book_append_sheet(workbook, buildReportWorksheet(), "Ponto");
 
     const fileName =
       dates.length === 1
