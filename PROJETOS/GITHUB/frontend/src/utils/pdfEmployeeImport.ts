@@ -95,6 +95,12 @@ type PdfObjectInfo = {
 
 type FontMap = Record<number, string>;
 
+type FontWidths = {
+  widths: Record<number, number>;
+  defaultWidth: number;
+  codeLength: number;
+};
+
 type PositionedText = {
   pageIndex: number;
   order: number;
@@ -102,6 +108,7 @@ type PositionedText = {
   y: number;
   fontSize: number;
   text: string;
+  width?: number;
 };
 
 type PdfLine = {
@@ -315,10 +322,16 @@ function parsePdfObjects(bytes: Uint8Array) {
     if (!streamMatch || streamMatch.index == null) return { id: entry.id, header: chunk };
 
     const header = chunk.slice(0, streamMatch.index);
-    const lengthMatch = header.match(/\/Length\s+(\d+)/);
+    // O Domínio grava "/Length 8 0 R" (tamanho em outro objeto); ler só o "8" cortava a página inteira.
+    const directLength = header.match(/\/Length\s+(\d+)(?!\d|\s+\d+\s+R)/)?.[1];
+    const indirectLengthId = header.match(/\/Length\s+(\d+)\s+\d+\s+R/)?.[1];
+    const indirectLength = indirectLengthId
+      ? binary.match(new RegExp(`(?:^|\\s)${indirectLengthId}\\s+0\\s+obj\\s*(\\d+)\\s*endobj`))?.[1]
+      : undefined;
+    const length = directLength ?? indirectLength;
     const streamStart = entry.afterHeader + streamMatch.index + streamMatch[0].length;
-    const streamEnd = lengthMatch
-      ? streamStart + Number(lengthMatch[1])
+    const streamEnd = length
+      ? streamStart + Number(length)
       : binary.indexOf("endstream", streamStart);
 
     return {
@@ -413,6 +426,81 @@ function buildFontMaps(objects: PdfObjectInfo[]) {
   return fontMaps;
 }
 
+function parseCidWidths(value: string) {
+  const widths: Record<number, number> = {};
+  const tokens = Array.from(value.matchAll(/\[|\]|[-+]?\d*\.?\d+/g)).map((match) => match[0]);
+  let index = 0;
+  while (index < tokens.length) {
+    const first = Number(tokens[index]);
+    if (tokens[index + 1] === "[") {
+      index += 2;
+      let code = first;
+      while (index < tokens.length && tokens[index] !== "]") {
+        widths[code] = Number(tokens[index]);
+        code += 1;
+        index += 1;
+      }
+      index += 1;
+    } else if (index + 2 < tokens.length) {
+      const last = Number(tokens[index + 1]);
+      const width = Number(tokens[index + 2]);
+      for (let code = first; code <= last && code - first <= 4096; code += 1) widths[code] = width;
+      index += 3;
+    } else {
+      break;
+    }
+  }
+  return widths;
+}
+
+// Larguras reais das letras (/W e /Widths). Sem elas o espaço entre trechos é estimado e quebra palavras como "SER VICO".
+function buildFontWidths(objects: PdfObjectInfo[]) {
+  const byId = new Map(objects.map((object) => [object.id, object]));
+  const fontWidths: Record<string, FontWidths> = {};
+
+  for (const object of objects) {
+    const name = object.header.match(/\/Name\s*\/([^\s/<>[\]]+)/)?.[1];
+    if (!name || !/\/Type\s*\/Font\b/.test(object.header)) continue;
+
+    const descendantId = Number(object.header.match(/\/DescendantFonts\s*\[\s*(\d+)\s+0\s+R/)?.[1] || 0);
+    const descendant = descendantId ? byId.get(descendantId) : undefined;
+    const cidWidths = descendant?.header.match(/\/W\s*(\[[\s\S]*?\]\s*\])/)?.[1];
+    if (descendant && cidWidths) {
+      fontWidths[name] = {
+        widths: parseCidWidths(cidWidths.slice(1, -1)),
+        defaultWidth: Number(descendant.header.match(/\/DW\s+(\d+)/)?.[1] || 1000),
+        codeLength: 4,
+      };
+      continue;
+    }
+
+    const firstChar = object.header.match(/\/FirstChar\s+(\d+)/)?.[1];
+    const simpleWidths = object.header.match(/\/Widths\s*\[([\s\S]*?)\]/)?.[1];
+    if (firstChar && simpleWidths) {
+      const widths: Record<number, number> = {};
+      Array.from(simpleWidths.matchAll(/[-+]?\d*\.?\d+/g)).forEach((match, offset) => {
+        widths[Number(firstChar) + offset] = Number(match[0]);
+      });
+      fontWidths[name] = { widths, defaultWidth: 0, codeLength: 2 };
+    }
+  }
+
+  return fontWidths;
+}
+
+function measureHexWidth(hex: string, font: FontWidths | undefined, fontSize: number, charSpacing: number) {
+  if (!font) return undefined;
+  const clean = hex.replace(/\s+/g, "");
+  let total = 0;
+  let count = 0;
+  for (let index = 0; index + font.codeLength <= clean.length; index += font.codeLength) {
+    const code = parseInt(clean.slice(index, index + font.codeLength), 16);
+    total += font.widths[code] ?? font.defaultWidth;
+    count += 1;
+  }
+  return (total / 1000) * fontSize + charSpacing * count;
+}
+
 function decodeHexWithFont(hex: string, fontMap: FontMap | undefined) {
   const clean = hex.replace(/\s+/g, "");
   if (!clean) return "";
@@ -430,10 +518,12 @@ function decodeHexWithFont(hex: string, fontMap: FontMap | undefined) {
   return decodeUnicodeHex(clean);
 }
 
-function extractTextFromContentStream(stream: string, pageIndex: number, fontMaps: Record<string, FontMap>) {
+function extractTextFromContentStream(stream: string, pageIndex: number, fontMaps: Record<string, FontMap>, fontWidths: Record<string, FontWidths> = {}) {
   const positioned: PositionedText[] = [];
   let currentFont: FontMap | undefined;
+  let currentFontWidths: FontWidths | undefined;
   let currentFontSize = 8;
+  let charSpacing = 0;
   let x = 0;
   let y = 0;
   let order = 0;
@@ -449,12 +539,19 @@ function extractTextFromContentStream(stream: string, pageIndex: number, fontMap
     "<([0-9A-Fa-f\\s]{4,})>\\s*Tj",
     "\\((?:\\\\.|[^\\\\)])*\\)\\s*Tj",
     "\\[([\\s\\S]*?)\\]\\s*TJ",
+    `(${number})\\s+Tc`,
   ].join("|"), "g");
 
   for (const match of stream.matchAll(tokenRegex)) {
     if (match[1]) {
       currentFont = fontMaps[match[1]] || currentFont;
+      currentFontWidths = fontWidths[match[1]];
       currentFontSize = Number(match[2]) || currentFontSize;
+      continue;
+    }
+
+    if (match[11]) {
+      charSpacing = Number(match[11]) || 0;
       continue;
     }
 
@@ -476,14 +573,14 @@ function extractTextFromContentStream(stream: string, pageIndex: number, fontMap
       continue;
     }
 
-    const addText = (value: string) => {
+    const addText = (value: string, width?: number) => {
       const text = value.replace(/[\u0000-\u001f]+/g, " ");
       if (!text.trim()) return;
-      positioned.push({ pageIndex, order, x, y, fontSize: currentFontSize, text });
+      positioned.push({ pageIndex, order, x, y, fontSize: currentFontSize, text, width });
       order += 1;
     };
 
-    if (match[9]) addText(decodeHexWithFont(match[9], currentFont));
+    if (match[9]) addText(decodeHexWithFont(match[9], currentFont), measureHexWidth(match[9], currentFontWidths, currentFontSize, charSpacing));
 
     if (match[0].startsWith("(")) addText(decodePdfLiteral(match[0].replace(/\s*Tj$/, "").slice(1, -1)));
 
@@ -497,6 +594,7 @@ function extractTextFromContentStream(stream: string, pageIndex: number, fontMap
 }
 
 function estimateTextWidth(item: PositionedText) {
+  if (item.width != null) return item.width;
   const cleaned = item.text.replace(/\s+/g, " ");
   return cleaned.length * item.fontSize * 0.42;
 }
@@ -668,7 +766,8 @@ function parsePositionedRegistration(lines: PdfLine[]): ParsedEmployeePdf {
 
   const fgtsLine = findExactLine(page1, "FGTS") || page1.find((line) => lineIncludes(line, "FGTS") && line.y < 535 && line.y > 515);
   const fgtsValue = fgtsLine ? nextLineBelow(page1, fgtsLine, 2, 14) : undefined;
-  parsed.fgts = fgtsLine ? "FGTS" : "";
+  // A célula "FGTS" da ficha é só rótulo, não tem número; não copiar o rótulo pro campo.
+  parsed.fgts = "";
   parsed.fgtsDate = normalizeDate(textByX(fgtsValue, 45, 145));
   parsed.bankAccount = textByX(fgtsValue, 145, 460);
   parsed.rectificationDate = normalizeDate(textByX(fgtsValue, 460, 590));
@@ -769,13 +868,14 @@ async function extractPositionedTextFromPdf(file: File) {
   const objects = parsePdfObjects(bytes);
   await decodeObjectStreams(objects);
   const fontMaps = buildFontMaps(objects);
+  const fontWidths = buildFontWidths(objects);
 
   let pageIndex = 0;
   const positioned: PositionedText[] = [];
   for (const object of objects) {
     if (!object.decodedStream || !/\bBT\b/.test(object.decodedStream) || !/\bET\b/.test(object.decodedStream)) continue;
     if (!/\bTj\b|\bTJ\b/.test(object.decodedStream)) continue;
-    const pieces = extractTextFromContentStream(object.decodedStream, pageIndex, fontMaps);
+    const pieces = extractTextFromContentStream(object.decodedStream, pageIndex, fontMaps, fontWidths);
     if (pieces.length) {
       positioned.push(...pieces);
       pageIndex += 1;
