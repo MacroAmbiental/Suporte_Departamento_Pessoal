@@ -3983,8 +3983,13 @@ export default function Timekeeping() {
     column: ColumnDescriptor,
   ) {
     const key = "systemField" in column ? column.systemField : "";
-    if (key === "functionName")
-      return record?.functionName || employee.role || employee.position || "-";
+    if (key === "functionName") {
+      if (record?.functionName) return record.functionName;
+      const nextPromotion = data.employeePromotions
+        .filter((change) => change.employeeId === employee.id && change.effectiveDate > filters.date)
+        .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))[0];
+      return nextPromotion?.previousRole || employee.role || employee.position || "-";
+    }
     if (key === "realTeam")
       return teamName(employeeTeamId(employee));
     if (key === "companyGroup") return companyGroupName(employee.companyId);
