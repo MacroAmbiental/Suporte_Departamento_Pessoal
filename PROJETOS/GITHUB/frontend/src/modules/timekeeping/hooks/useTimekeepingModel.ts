@@ -190,34 +190,40 @@ export function useTimekeepingModel() {
   }), [data.timeRecords, employeeById, employeeTeamId, filterSets, filters.date]);
 
   const employeesBeforeTeamFilters = useMemo(() => employeesForTimekeeping.filter((employee) => {
+    const recordForDate = data.timeRecords.find((record) => record.date === filters.date && record.employeeId === employee.id);
     const effectiveStatus = employeeEffectiveStatusForDate(employee, filters.date);
     const belongsToSelectedDate = effectiveStatus !== "terminated"
       || recordEmployeeIdsForSelectedDate.has(employee.id);
+    // Preserva a consulta de pontos efetivamente salvos antes de uma mudança
+    // cadastral/admissão; não cria pontos em períodos sem vínculo.
     const admittedForSelectedDate = !employee.admissionDate
       || !filters.date
-      || employee.admissionDate <= filters.date;
+      || employee.admissionDate <= filters.date
+      || recordEmployeeIdsForSelectedDate.has(employee.id);
 
     return (
       belongsToSelectedDate
       && admittedForSelectedDate
-      && (!filterSets.companies.size || filterSets.companies.has(employee.companyId))
-      && (!filterSets.departments.size || filterSets.departments.has(employee.departmentId))
-      && (!filterSets.sectors.size || filterSets.sectors.has(employee.sectorId))
+      && (!filterSets.companies.size || filterSets.companies.has(recordForDate?.companyId || employee.companyId))
+      && (!filterSets.departments.size || filterSets.departments.has(recordForDate?.departmentId || employee.departmentId))
+      && (!filterSets.sectors.size || filterSets.sectors.has(recordForDate?.sectorId || employee.sectorId))
       && (!filterSets.statuses.size || filterSets.statuses.has(effectiveStatus))
       && (!filterSets.terminationModes.size || filterSets.terminationModes.has(employeeProcessModalityLabel(employee, filters.date)))
       && (!filterSets.employees.size || filterSets.employees.has(employee.id))
       && (!filterSets.cpfs.size || filterSets.cpfs.has(employee.cpf?.trim() || ""))
       && (!filterSets.search || employee.name.toLowerCase().includes(filterSets.search))
     );
-  }), [employeesForTimekeeping, recordEmployeeIdsForSelectedDate, filterSets, filters.date]);
+  }), [employeesForTimekeeping, data.timeRecords, recordEmployeeIdsForSelectedDate, filterSets, filters.date]);
 
   const dayTeamByEmployee = useMemo(() => new Map(data.timeRecords
     .filter(record => record.date === filters.date)
     .map(record => [record.employeeId, record.dayTeamId])), [data.timeRecords, filters.date]);
   const filteredEmployees = useMemo(() => employeesBeforeTeamFilters.filter(employee =>
-    (!filterSets.realTeams.size || filterSets.realTeams.has(employeeTeamId(employee))) &&
+    (!filterSets.realTeams.size || filterSets.realTeams.has(
+      data.timeRecords.find(record => record.date === filters.date && record.employeeId === employee.id)?.realTeamId || employeeTeamId(employee)
+    )) &&
     (!filterSets.dayTeams.size || filterSets.dayTeams.has(dayTeamByEmployee.get(employee.id) ?? employeeTeamId(employee))),
-  ), [employeesBeforeTeamFilters, filterSets.realTeams, filterSets.dayTeams, employeeTeamId, dayTeamByEmployee]);
+  ), [employeesBeforeTeamFilters, data.timeRecords, filters.date, filterSets.realTeams, filterSets.dayTeams, employeeTeamId, dayTeamByEmployee]);
 
   const employeeOptions = useMemo(
     () => sortOptions(employeesForTimekeeping.map((item) => ({ value: item.id, label: item.name }))),
