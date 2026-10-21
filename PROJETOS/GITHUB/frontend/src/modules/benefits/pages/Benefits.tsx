@@ -13,6 +13,8 @@ import {
   GripVertical,
   History,
   MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   PlusCircle,
   RefreshCcw,
@@ -43,6 +45,15 @@ import { loadTimeRecordsRange } from "@/modules/timekeeping/data/timeRecordsRepo
 import type { BenefitContract, BenefitType, Employee, EmployeeBenefit, TimekeepingColumn, TimeRecord } from "@/types/domain";
 import { createId, formatCurrency, normalizeUrl, todayISO } from "@/utils/format";
 import { parseBenefitExcelFile } from "@/utils/benefitExcelImport";
+import BenefitCalculationSheet from "@/modules/benefits/components/BenefitCalculationSheet";
+import BenefitRuleEditor from "@/modules/benefits/components/BenefitRuleEditor";
+import {
+  calcRuleFieldKey,
+  readCalcRule,
+  serializeCalcRule,
+  suggestedCalcRule,
+  type BenefitCalcRule,
+} from "@/modules/benefits/calculation/benefitCalculation";
 
 type TableRow = Record<string, string>;
 type FormulaMap = Record<string, string>;
@@ -90,7 +101,9 @@ type BenefitTableSnapshot = {
   fileName?: string;
 };
 
-type BenefitsTab = "employees" | "table" | "settings" | "history";
+const navigationCollapsedStorageKey = "benefits:navigationCollapsed";
+
+type BenefitsTab = "employees" | "calc" | "rule" | "table" | "settings" | "history";
 type EmployeeQuickFilter = "selected" | "unselected" | "ineligible";
 type BenefitSurveyPeriod = "15" | "30";
 type BenefitSystemPeriod = "first_half" | "second_half" | "month" | "custom";
@@ -1037,6 +1050,24 @@ export default function Benefits() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [undoToast, setUndoToast] = useState<UndoToast | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
+  const [navigationCollapsed, setNavigationCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem(navigationCollapsedStorageKey) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleNavigation() {
+    setNavigationCollapsed((current) => {
+      try {
+        window.localStorage.setItem(navigationCollapsedStorageKey, String(!current));
+      } catch {
+        // Preferência só local; sem storage a lista apenas volta aberta.
+      }
+      return !current;
+    });
+  }
 
   const benefits = useMemo(() => data.benefitContracts.filter((benefit) => {
     const haystack = `${benefit.name} ${benefit.providerName}`.toLowerCase();
@@ -1089,6 +1120,26 @@ export default function Benefits() {
   const assignedEmployees = useMemo(() => (
     benefitCompanyEmployees.filter((employee) => assignedEmployeeIds.has(employee.id))
   ), [assignedEmployeeIds, benefitCompanyEmployees]);
+  // Apuração: todo vinculado, inclusive de outra empresa do grupo e desligados (a tela filtra pelo ponto do mês).
+  const calcEmployees = useMemo(() => data.employees
+    .filter((employee) => assignedEmployeeIds.has(employee.id))
+    .sort((a, b) => a.name.localeCompare(b.name)), [assignedEmployeeIds, data.employees]);
+  const savedCalcRule = useMemo(() => readCalcRule(selectedBenefit), [selectedBenefit]);
+  const calcRule = useMemo(() => savedCalcRule || suggestedCalcRule(selectedBenefit), [savedCalcRule, selectedBenefit]);
+  const [calcRuleError, setCalcRuleError] = useState("");
+
+  async function saveCalcRule(rule: BenefitCalcRule) {
+    if (!selectedBenefit) return;
+    setCalcRuleError("");
+    try {
+      await data.upsertBenefitContract({
+        ...selectedBenefit,
+        customFields: { ...selectedBenefit.customFields, [calcRuleFieldKey]: serializeCalcRule(rule) },
+      });
+    } catch (error) {
+      setCalcRuleError(error instanceof Error ? error.message : "Não foi possível salvar a regra.");
+    }
+  }
   const activeSystemColumnConfigs = useMemo(() => (
     Object.fromEntries(Object.entries(systemColumnConfigs).filter(([column]) => columns.includes(column))) as BenefitSystemColumnConfigMap
   ), [columns, systemColumnConfigs]);
@@ -2252,8 +2303,6 @@ export default function Benefits() {
     setColumnMenuPosition(null);
   }
 
-  const totalColumn = columns.find((column) => normalizeKey(column) === "total");
-  const grandTotal = totalColumn ? displayRows.reduce((sum, row) => sum + toNumber(row[totalColumn]), 0) : 0;
   const storedImportMessage = selectedBenefit?.customFields?.lastExcelImportInfo || lastImportMessage;
   const storedDivergenceMessage = selectedBenefit?.customFields?.lastEmployeeDivergenceInfo;
   const hasDivergence = Boolean(divergenceDetails.missingAssigned.length || divergenceDetails.extraImported.length);
@@ -2298,14 +2347,17 @@ export default function Benefits() {
         </div>
       </div>
 
-      <div className="benefits-workspace">
-        <aside className="benefits-navigation" aria-label="Lista de benefícios">
+      <div className={`benefits-workspace ${navigationCollapsed ? "is-navigation-collapsed" : ""}`}>
+        <aside className="benefits-navigation" aria-label="Lista de benefícios" hidden={navigationCollapsed}>
           <div className="benefits-navigation-header">
             <div>
               <span className="benefits-navigation-eyebrow">BENEFÍCIOS</span>
               <strong>{benefits.length} cadastrado(s)</strong>
             </div>
-            <button className="icon-button" type="button" disabled={savingBenefit} onClick={() => setBenefitModalOpen(true)} aria-label="Novo benefício"><Plus size={17} /></button>
+            <div className="benefits-navigation-header-actions">
+              <button className="icon-button" type="button" disabled={savingBenefit} onClick={() => setBenefitModalOpen(true)} aria-label="Novo benefício"><Plus size={17} /></button>
+              <button className="icon-button" type="button" onClick={toggleNavigation} aria-label="Recolher lista de benefícios" title="Recolher lista"><PanelLeftClose size={17} /></button>
+            </div>
           </div>
           <div className="benefits-navigation-list">
             {benefits.map((benefit) => {
@@ -2331,19 +2383,20 @@ export default function Benefits() {
           </div>
         </aside>
 
-        <main className="benefits-detail">
+        <main className={`benefits-detail ${activeTab === "calc" || activeTab === "rule" ? "is-calculation" : ""}`}>
           {selectedBenefit ? (
             <>
               <header className="benefits-detail-header">
                 <div className="benefits-detail-title">
+                  {navigationCollapsed ? (
+                    <button className="icon-button benefits-navigation-open" type="button" onClick={toggleNavigation} aria-label="Mostrar lista de benefícios" title="Mostrar lista de benefícios"><PanelLeftOpen size={18} /></button>
+                  ) : null}
                   <span className="benefits-detail-icon"><Gift size={22} /></span>
                   <div>
                     <h2>{selectedBenefit.name}</h2>
                     <p>{selectedCompany?.name || "Empresa não informada"}</p>
                     <div className="benefits-detail-meta">
                       <span>{assignedEmployees.length} {assignedEmployees.length === 1 ? "funcionário" : "funcionários"}</span>
-                      <span>•</span>
-                      <span>Total {formatCurrency(grandTotal)}</span>
                       <span>•</span>
                       <span>Atualizado em {formatDateTime(lastUpdate)}</span>
                     </div>
@@ -2358,9 +2411,6 @@ export default function Benefits() {
                     </button>
                     {moreActionsOpen ? (
                       <div className="benefits-more-menu">
-                        <button type="button" onClick={() => { setMoreActionsOpen(false); openModelEditor(); }}><RefreshCcw size={15} /> Refazer tabela</button>
-                        <button type="button" onClick={() => { setMoreActionsOpen(false); setActiveTab("settings"); }}><Settings2 size={15} /> Configurações</button>
-                        <button type="button" onClick={() => { setMoreActionsOpen(false); setActiveTab("history"); }}><History size={15} /> Histórico de atualizações</button>
                         <button type="button" className="is-danger" onClick={() => { setMoreActionsOpen(false); deleteBenefit(selectedBenefit); }}><Trash2 size={15} /> Excluir benefício</button>
                       </div>
                     ) : null}
@@ -2370,9 +2420,8 @@ export default function Benefits() {
 
               <nav className="benefits-tabs" aria-label="Seções do benefício">
                 <button type="button" className={activeTab === "employees" ? "is-active" : ""} onClick={() => setActiveTab("employees")}><Users size={16} /> Funcionários</button>
-                <button type="button" className={activeTab === "table" ? "is-active" : ""} onClick={() => setActiveTab("table")}><Calculator size={16} /> Tabela de valores</button>
-                <button type="button" className={activeTab === "settings" ? "is-active" : ""} onClick={() => setActiveTab("settings")}><Settings2 size={16} /> Configurações</button>
-                <button type="button" className={activeTab === "history" ? "is-active" : ""} onClick={() => setActiveTab("history")}><FileClock size={16} /> Histórico</button>
+                <button type="button" className={activeTab === "calc" ? "is-active" : ""} onClick={() => setActiveTab("calc")}><Calculator size={16} /> Apuração</button>
+                <button type="button" className={activeTab === "rule" ? "is-active" : ""} onClick={() => setActiveTab("rule")}><Settings2 size={16} /> Regra de cálculo</button>
               </nav>
 
               <div className="benefits-tab-content">
@@ -2460,6 +2509,29 @@ export default function Benefits() {
                       />
                     ) : null}
                   </section>
+                ) : null}
+
+                {calcRuleError && (activeTab === "calc" || activeTab === "rule") ? <p className="benefit-sheet-error">{calcRuleError}</p> : null}
+
+                {activeTab === "calc" ? (
+                  <BenefitCalculationSheet
+                    key={selectedBenefit.id}
+                    benefit={selectedBenefit}
+                    rule={calcRule}
+                    ruleSaved={Boolean(savedCalcRule)}
+                    employees={calcEmployees}
+                    onSaveRule={saveCalcRule}
+                  />
+                ) : null}
+
+                {activeTab === "rule" ? (
+                  <BenefitRuleEditor
+                    key={selectedBenefit.id}
+                    benefit={selectedBenefit}
+                    rule={calcRule}
+                    ruleSaved={Boolean(savedCalcRule)}
+                    onSaveRule={saveCalcRule}
+                  />
                 ) : null}
 
                 {activeTab === "table" ? (

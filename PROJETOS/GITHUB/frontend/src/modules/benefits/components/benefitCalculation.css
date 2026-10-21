@@ -1,0 +1,98 @@
+/* Benefícios — apuração estilo planilha e regra de cálculo */
+
+/* Layout da tela: lista lateral mais estreita e recolhível; abas de cálculo com menos margem. */
+.benefits-redesign .benefits-workspace { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
+.benefits-redesign .benefits-workspace.is-navigation-collapsed { grid-template-columns: minmax(0, 1fr); }
+.benefits-navigation-header-actions { display: flex; gap: 6px; }
+.benefits-redesign .benefits-navigation-item { grid-template-columns: 4px minmax(0, 1fr); row-gap: 2px; min-height: 0; }
+.benefits-redesign .benefits-navigation-accent { grid-row: span 2; }
+.benefits-redesign .benefits-navigation-copy strong { white-space: normal; }
+.benefits-redesign .benefits-navigation-count { grid-column: 2; font-size: 11px; }
+.benefits-navigation-open { flex: none; align-self: center; }
+.benefits-detail.is-calculation .benefits-detail-header { padding: 12px 18px; }
+.benefits-detail.is-calculation .benefits-detail-icon { display: none; }
+.benefits-detail.is-calculation .benefits-detail-title h2 { font-size: 19px; }
+.benefits-detail.is-calculation .benefits-detail-meta { margin-top: 4px; }
+.benefits-detail.is-calculation .benefits-tabs { padding: 0 18px; }
+.benefits-detail.is-calculation .benefits-tabs button { min-height: 42px; }
+.benefits-detail.is-calculation .benefits-tab-content { padding: 14px 18px 16px; }
+.benefit-sheet { display: grid; gap: 14px; min-width: 0; }
+.benefit-sheet-notice { margin: 0; padding: 10px 14px; border: 1px solid #f3d38a; border-radius: 8px; background: #fff8e6; color: #7a4d00; font-size: 13px; }
+.benefit-sheet-error { margin: 0 0 12px; padding: 10px 14px; border: 1px solid #f3b8bd; border-radius: 8px; background: #fff1f2; color: #9f1f2a; font-size: 13px; }
+.benefit-sheet-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.benefit-sheet-field { display: grid; gap: 4px; min-width: 150px; color: #62768a; font-size: 12px; font-weight: 800; }
+.benefit-sheet-field > input,
+.benefit-sheet-field > select,
+.benefit-sheet-days input,
+.benefit-sheet-multi > button { height: 38px; padding: 0 10px; border: 1px solid #d6e3ef; border-radius: 8px; background: #fff; color: #183146; font: inherit; font-size: 14px; font-weight: 600; }
+.benefit-sheet-field small { color: #8a9bab; font-weight: 600; }
+.benefit-sheet-field.is-overridden .benefit-sheet-days input { border-color: #e0a526; background: #fff8e6; }
+.benefit-sheet-field.is-overridden small { color: #a86b00; }
+.benefit-sheet-days { display: flex; align-items: center; gap: 6px; }
+.benefit-sheet-days input { width: 80px; }
+.benefit-sheet-multi { position: relative; }
+.benefit-sheet-multi > button { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 190px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.benefit-sheet-multi-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; display: grid; gap: 2px; min-width: 220px; padding: 6px; border: 1px solid #d6e3ef; border-radius: 8px; background: #fff; box-shadow: 0 10px 24px rgba(20, 40, 60, .14); }
+.benefit-sheet-multi-menu label { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; color: #183146; font-size: 14px; font-weight: 600; cursor: pointer; }
+.benefit-sheet-multi-menu label:hover { background: #f1f6fa; }
+.benefit-sheet-search { display: flex; flex: 1 1 220px; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border: 1px solid #d6e3ef; border-radius: 8px; background: #fff; color: #62768a; }
+.benefit-sheet-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: #183146; font: inherit; font-size: 14px; }
+.benefit-sheet-search button { display: inline-flex; padding: 2px; border: 0; background: transparent; color: #62768a; cursor: pointer; }
+.benefit-sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.benefit-sheet-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 14px; border: 1px solid #e5edf4; border-radius: 8px; background: #fbfdff; color: #62768a; font-size: 13px; }
+.benefit-sheet-summary strong { color: #183146; }
+.benefit-sheet-formula { margin-left: auto; color: #38506f; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.benefit-sheet-grid-wrap { position: relative; max-height: calc(100vh - 250px); min-height: 420px; overflow: auto; border: 1px solid #cfdbe6; border-radius: 8px; background: #fff; }
+.benefit-sheet-loading { position: absolute; z-index: 5; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, .78); color: #38506f; font-weight: 800; }
+.benefit-sheet-grid { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.benefit-sheet-grid th,
+.benefit-sheet-grid td { padding: 6px 10px; border-right: 1px solid #e3eaf1; border-bottom: 1px solid #e3eaf1; color: #183146; white-space: nowrap; text-align: left; }
+.benefit-sheet-grid thead th { position: sticky; z-index: 3; top: 0; background: #0b9369; color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; user-select: none; }
+.benefit-sheet-grid thead th.is-plus { background: #087f58; }
+.benefit-sheet-grid thead th.is-minus { background: #a3404a; }
+.benefit-sheet-grid thead th svg { vertical-align: -2px; }
+.benefit-sheet-grid tbody tr:nth-child(even) td { background: #f6f9fc; }
+.benefit-sheet-grid tbody tr:hover td { background: #eaf6f1; }
+.benefit-sheet-grid tbody tr.is-zero td { color: #9aa9b7; }
+.benefit-sheet-grid .is-index { position: sticky; z-index: 2; left: 0; width: 44px; min-width: 44px; background: #f2f5fa; color: #62768a; text-align: right; }
+.benefit-sheet-grid .is-name { position: sticky; z-index: 2; left: 44px; min-width: 260px; border-right: 2px solid #cfdbe6; background: #fff; }
+.benefit-sheet-grid thead .is-index,
+.benefit-sheet-grid thead .is-name { z-index: 4; background: #0a7d59; color: #fff; }
+.benefit-sheet-grid tbody tr:nth-child(even) .is-name { background: #f6f9fc; }
+.benefit-sheet-grid .is-number { text-align: right; }
+.benefit-sheet-grid td.is-empty { color: #b8c4cf; text-align: center; }
+.benefit-sheet-grid td.has-value { font-weight: 700; cursor: help; }
+.benefit-sheet-grid .is-value { min-width: 110px; font-weight: 800; }
+.benefit-sheet-name { display: flex; align-items: center; gap: 8px; }
+.benefit-sheet-name .is-terminated { padding: 1px 6px; border-radius: 999px; background: #ffe2e4; color: #9f1f2a; font-size: 11px; font-weight: 800; }
+.benefit-sheet-grid tfoot td { position: sticky; z-index: 3; bottom: 0; border-top: 2px solid #0b9369; background: #eef7f3; font-weight: 800; }
+.benefit-sheet-grid tfoot .is-index,
+.benefit-sheet-grid tfoot .is-name { z-index: 4; background: #eef7f3; }
+.benefit-sheet-grid td.benefit-sheet-empty { padding: 28px; color: #62768a; text-align: center; white-space: normal; }
+.benefit-sheet-export-text { margin: 0 0 12px; color: #38506f; font-size: 14px; }
+
+.benefit-rule { display: grid; gap: 16px; }
+.benefit-rule-card { display: grid; gap: 14px; padding: 18px; border: 1px solid #e5edf4; border-radius: 10px; background: #fff; }
+.benefit-rule-card header h3 { margin: 0 0 4px; color: #183146; font-size: 16px; }
+.benefit-rule-card header p { margin: 0; color: #62768a; font-size: 13px; }
+.benefit-rule-card-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.benefit-rule-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.benefit-rule-components { display: grid; gap: 10px; }
+.benefit-rule-component { display: grid; gap: 10px; padding: 12px; border: 1px solid #e3eaf1; border-radius: 8px; background: #fbfdff; }
+.benefit-rule-component-main { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(140px, 1fr) minmax(180px, 1fr) auto; align-items: end; gap: 10px; }
+.benefit-rule-remove { align-self: end; margin-bottom: 4px; color: #c83d49; }
+.benefit-rule-statuses { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.benefit-rule-statuses > span { margin-right: 4px; color: #62768a; font-size: 12px; font-weight: 800; }
+.benefit-rule-statuses button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1px solid #d6e3ef; border-radius: 999px; background: #fff; color: #38506f; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.benefit-rule-statuses button.is-on { border-color: #0b9369; background: #e6f6ef; color: #087f58; }
+.benefit-rule-hint,
+.benefit-rule-empty { margin: 0; color: #62768a; font-size: 13px; }
+.benefit-rule-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 0; background: linear-gradient(transparent, #fff 30%); }
+.benefit-rule-footer span { margin-right: auto; color: #62768a; font-size: 13px; font-weight: 700; }
+
+@media (max-width: 760px) {
+  .benefit-rule-component-main { grid-template-columns: 1fr; }
+  .benefit-sheet-actions { margin-left: 0; }
+  .benefit-sheet-formula { margin-left: 0; }
+  .benefit-sheet-grid .is-name { min-width: 180px; }
+}

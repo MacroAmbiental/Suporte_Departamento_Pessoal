@@ -65,6 +65,8 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "benefitFolders",
     "benefitCustomFields",
     "employeeBenefits",
+    // Feriados, jornada e status do ponto usados na apuração.
+    "timekeepingColumns",
   ],
   timekeeping: [
     "companies",
