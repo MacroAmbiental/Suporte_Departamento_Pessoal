@@ -22,6 +22,8 @@ import type { Employee } from "@/types/domain";
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
 
 
+const overdueProcessStatus = "Vencido — não efetivado";
+
 export default function EmployeeProcesses() {
   const data = useDomainData();
   const { employees, companies, employeeDocuments, loading } = data;
@@ -76,7 +78,11 @@ export default function EmployeeProcesses() {
     const hasNotice = Boolean(start || noticeEnd || registration.noticeScheduledAt);
     if (!experience && !hasNotice && !end && !registration.deactivationScheduledAt && !registration.deactivationCompletedDate) return [];
     const settlementPending = Boolean(registration.terminationSettlementDueDate) && registration.terminationSettlementPaid !== "true";
-    const completed = employee.status === "terminated" || Boolean(end && end <= today);
+    // Aviso com data vencida e funcionário ainda ativo: ninguém efetivou. Fica na lista
+    // para o DP cancelar o aviso (não saiu) ou concluir o desligamento.
+    const overdueNotice = Boolean(end && end <= today) && employee.status !== "terminated"
+      && hasNotice && !registration.dismissalApprovedAt;
+    const completed = employee.status === "terminated" || (Boolean(end && end <= today) && !overdueNotice);
     if (completed) return [];
     return [{
       employee,
@@ -85,9 +91,11 @@ export default function EmployeeProcesses() {
       end,
       experience,
       modality: savedMode && terminationModes[savedMode] ? terminationModes[savedMode] : hasNotice ? "Aviso prévio" : experience && !end ? "Contrato de experiência" : "Desativação rápida",
-      status: "Em andamento",
+      status: overdueNotice ? overdueProcessStatus : "Em andamento",
       company: companies.find((company) => company.id === employee.companyId)?.name || "—",
-      observation: hasNotice ? (start && start > today ? "Aguardando início do aviso prévio." : "Aviso prévio em andamento.") : "Aguardando a data agendada para desativação.",
+      observation: overdueNotice
+        ? "A data do aviso passou e o funcionário continua ativo. Se ele não saiu, cancele o aviso prévio."
+        : hasNotice ? (start && start > today ? "Aguardando início do aviso prévio." : "Aviso prévio em andamento.") : "Aguardando a data agendada para desativação.",
     }];
   }).sort((a, b) => a.employee.name.localeCompare(b.employee.name, "pt-BR")), [employees, companies, today]);
   const selected = processes.find((process) => process.employee.id === selectedId);
@@ -178,6 +186,7 @@ export default function EmployeeProcesses() {
   const summaries = [
     { label: "Total de processos", count: processes.length, tone: "blue" },
     { label: "Em andamento", count: processes.filter((p) => p.status === "Em andamento").length, tone: "blue" },
+    { label: overdueProcessStatus, count: processes.filter((p) => p.status === overdueProcessStatus).length, tone: "yellow" },
     { label: "Histórico", count: data.employeeProcessHistory.length, tone: "green" },
     { label: "Vencendo hoje", count: employees.filter((employee) => experienceEndingToday(employee, today)).length, tone: "yellow" },
   ];
@@ -201,7 +210,7 @@ export default function EmployeeProcesses() {
         <div className="employee-process-filters">
           <input aria-label="Pesquisar funcionário, CPF, matrícula ou empresa" placeholder="Pesquisar funcionário, CPF ou empresa..." value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
           <select aria-label="Tipo de desligamento" value={modality} onChange={(event) => { setModality(event.target.value); setPage(1); }}><option value="">Todos os tipos de desligamento</option><option>Aviso prévio</option><option>Contrato de experiência</option>{Array.from(new Set(Object.values(terminationModes).filter((label) => label !== "Desativação rápida"))).map((label) => <option key={label}>{label}</option>)}</select>
-          <select aria-label="Status do processo" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">Todos os status</option><option>Em andamento</option></select>
+          <select aria-label="Status do processo" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="">Todos os status</option><option>Em andamento</option><option>{overdueProcessStatus}</option></select>
           <button type="button" className="btn btn-secondary" onClick={() => { setSearch(""); setModality(""); setStatus(""); setExperienceFilter(""); setSettlementFilter(""); setPage(1); }}><RotateCcw size={14} /> Limpar filtros</button>
         </div>
         <div className="experience-filter-tabs" role="group" aria-label="Filtrar alertas de experiência">
@@ -219,7 +228,7 @@ export default function EmployeeProcesses() {
               {!loading && visibleProcesses.map((process) => <tr key={process.employee.id} onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest("button, textarea, input, select, a")) { event.stopPropagation(); setSelectedId(process.employee.id); } }}>
                 <td><div className="employee-process-person"><span className="employee-process-avatar">{process.employee.name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("")}</span><div><button type="button" className="process-open-button" onClick={() => setSelectedId(process.employee.id)}>{process.employee.name}</button><small className="muted">{process.employee.cpf || "CPF não informado"}</small></div></div></td>
                 <td>{process.company}</td><td><span className={`badge ${process.modality === "Contrato de experiência" ? "badge-experience" : process.modality === "Aviso prévio" ? "badge-warning" : "badge-danger"}`}>{process.modality}</span></td>
-                <td><span className={`badge ${process.status === "Concluído" ? "badge-success" : "badge-info"}`}>{process.status}</span></td>
+                <td><span className={`badge ${process.status === "Concluído" ? "badge-success" : process.status === overdueProcessStatus ? "badge-warning" : "badge-info"}`}>{process.status}</span></td>
                 <td>{process.enteredAt ? formatDate(process.enteredAt.slice(0, 10)) : "—"}</td><td>{process.end ? formatDate(process.end) : "—"}</td><td className="experience-action-cell">{process.experience ? <ExperienceTracking key={`${process.employee.id}-${process.employee.registrationData?.experienceAlertDays || 7}`} employee={process.employee} today={today} compact /> : <TerminationSettlementAlert employee={process.employee} today={today} />}</td><td>{[process.employee.registrationData?.dismissalVariant, process.employee.registrationData?.dismissalInitiative].filter(Boolean).join(" · ") || process.employee.registrationData?.dismissalType || "—"}</td><td>{notesEditor(process.employee)}</td>
               </tr>)}
               {(loading || !filtered.length) && <tr><td colSpan={9} className="employee-process-empty"><CalendarClock size={28} /><p>{loading ? "Carregando processos..." : processes.length ? "Nenhum processo corresponde aos filtros selecionados." : "Nenhum funcionário com aviso prévio ou desativação registrada."}</p></td></tr>}
