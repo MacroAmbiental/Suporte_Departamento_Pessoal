@@ -371,6 +371,8 @@ type SecullumImportRow = {
   employee?: Employee;
   warning?: string;
   hasManualRecord?: boolean;
+  // Desligado na data e sem batida: não importa (o Secullum continua listando quem saiu).
+  terminated?: boolean;
   blockedReason?: string;
 };
 
@@ -972,11 +974,14 @@ function excelDateToISO(value: unknown, XLSX: typeof import("xlsx-js-style")) {
   return "";
 }
 
-function findEmployeeBySecullumName(employees: Employee[], name: string) {
+function findEmployeeBySecullumName(employees: Employee[], name: string, date?: string) {
   const normalizedName = normalizeEmployeeName(name);
-  return employees.find(
+  const matches = employees.filter(
     (employee) => normalizeEmployeeName(employee.name) === normalizedName,
   );
+  // Homônimo desligado não pode "roubar" a linha de quem está ativo na data.
+  return matches.find((employee) => !date || employeeEffectiveStatusForDate(employee, date) !== "terminated")
+    || matches[0];
 }
 
 function buildSecullumWarning(row: SecullumImportRow) {
@@ -4397,7 +4402,17 @@ export default function Timekeeping() {
         imported.employee = findEmployeeBySecullumName(
           data.employees,
           imported.employeeName,
+          imported.date,
         );
+        const terminatedOnDate = Boolean(
+          imported.employee &&
+          imported.date &&
+          employeeEffectiveStatusForDate(imported.employee, imported.date) === "terminated",
+        );
+        const hasPunch = [imported.ent1, imported.sai1, imported.ent2, imported.sai2, imported.ent3, imported.sai3]
+          .some((value) => hasFilledTimeValue(value));
+        // Com batida, a pessoa está trabalhando: importa e avisa que o cadastro diz desligado.
+        imported.terminated = terminatedOnDate && !hasPunch;
         const existing =
           imported.employee && imported.date
             ? timeRecordByEmployeeDate.get(
@@ -4405,7 +4420,10 @@ export default function Timekeeping() {
             )
             : undefined;
         imported.hasManualRecord = recordHasManualPoint(existing);
-        imported.warning = buildSecullumWarning(imported);
+        imported.warning = [
+          buildSecullumWarning(imported),
+          terminatedOnDate && !imported.terminated ? "Consta desligado no cadastro — conferir" : "",
+        ].filter(Boolean).join(" | ");
 
         return imported;
       })
@@ -4421,9 +4439,11 @@ export default function Timekeeping() {
       ...row,
       blockedReason: dateError
         ? "Data divergente"
-        : row.hasManualRecord
-          ? "Já possui ponto manual no sistema"
-          : "",
+        : row.terminated
+          ? "Desligado nesta data"
+          : row.hasManualRecord
+            ? "Já possui ponto manual no sistema"
+            : "",
     }));
 
     setSecullumRows(rowsWithStatus);
@@ -4440,11 +4460,15 @@ export default function Timekeeping() {
       (row) =>
         row.employee &&
         row.date &&
+        !row.terminated &&
         !row.hasManualRecord &&
         row.date === filters.date,
     );
     const manualRows = secullumRows.filter(
-      (row) => row.employee && row.date && row.hasManualRecord,
+      (row) => row.employee && row.date && !row.terminated && row.hasManualRecord,
+    );
+    const terminatedRows = secullumRows.filter(
+      (row) => row.employee && row.date && row.terminated,
     );
     const ignoredRows = secullumRows.filter(
       (row) => !row.employee || !row.date,
@@ -4452,14 +4476,14 @@ export default function Timekeeping() {
 
     if (!importableRows.length) {
       window.alert(
-        "Nenhuma linha disponível para importar. Os registros encontrados já possuem lançamento manual, não têm funcionário correspondente ou estão sem data válida.",
+        "Nenhuma linha disponível para importar. Os registros encontrados já possuem lançamento manual, são de funcionários desligados, não têm funcionário correspondente ou estão sem data válida.",
       );
       return;
     }
 
     askConfirmation({
       title: "Preencher com dados do Secullum",
-      message: `Foram encontradas ${importableRows.length} linha(s) sem lançamento manual. Deseja preencher automaticamente com os dados da planilha do Secullum? ${manualRows.length ? `${manualRows.length} linha(s) com ponto manual serão preservadas e não serão alteradas. ` : ""}${ignoredRows.length ? `${ignoredRows.length} linha(s) sem vínculo/data serão ignoradas.` : ""}`,
+      message: `Foram encontradas ${importableRows.length} linha(s) sem lançamento manual. Deseja preencher automaticamente com os dados da planilha do Secullum? ${manualRows.length ? `${manualRows.length} linha(s) com ponto manual serão preservadas e não serão alteradas. ` : ""}${terminatedRows.length ? `${terminatedRows.length} linha(s) de funcionários desligados nesta data serão ignoradas. ` : ""}${ignoredRows.length ? `${ignoredRows.length} linha(s) sem vínculo/data serão ignoradas.` : ""}`,
       confirmLabel: "Preencher automaticamente",
       variant: "primary",
       onConfirm: async () => {
@@ -4473,6 +4497,7 @@ export default function Timekeeping() {
       (row) =>
         row.employee &&
         row.date &&
+        !row.terminated &&
         !row.hasManualRecord &&
         row.date === filters.date,
     );
