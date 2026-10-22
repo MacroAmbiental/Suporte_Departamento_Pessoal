@@ -62,6 +62,8 @@ export function labelStatus(value: AlertStatus | AlertPriority | AttendanceStatu
     vacation: "Férias",
     leave: "Afastado",
     day_off: "Folga",
+    dsr: "DSR",
+    holiday: "Feriado",
     terminated: "Desligado",
     transport: "Vale transporte",
     meal: "Vale refeição",
@@ -110,6 +112,8 @@ export function badgeClass(value: string): string {
     leave: "is-neutral",
     vacation: "is-neutral",
     day_off: "is-neutral",
+    dsr: "is-neutral",
+    holiday: "is-neutral",
     terminated: "is-overdue",
   };
   return map[value] ?? "is-neutral";

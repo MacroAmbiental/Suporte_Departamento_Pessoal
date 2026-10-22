@@ -101,6 +101,8 @@ const fallbackStatuses: AttendanceStatus[] = [
   "medical_certificate",
   "vacation",
   "day_off",
+  "dsr",
+  "holiday",
   "leave",
 ];
 const minColumnWidth = 150;
@@ -508,7 +510,26 @@ const defaultStatusConditions: StatusCondition[] = [
     textColor: "#9a5a00",
     active: true,
   },
+  {
+    id: "dsr",
+    value: "dsr",
+    label: "DSR",
+    rowColor: "#eef1f4",
+    textColor: "#56606b",
+    active: true,
+  },
+  {
+    id: "holiday",
+    value: "holiday",
+    label: "Feriado",
+    rowColor: "#e9f4f1",
+    textColor: "#2f6b5c",
+    active: true,
+  },
 ];
+
+// Status que o próprio ponto atribui; precisam existir mesmo em configurações salvas antes deles.
+const systemStatusValues = ["dsr", "holiday"];
 
 const defaultCalculationSettings: CalculationSettings = {
   usefulMinutesByWeekday: {
@@ -672,7 +693,12 @@ function mergeCalculationSettings(value?: string): CalculationSettings {
       ...(parsed.formulas || {}),
     },
     statusConditions: parsed.statusConditions?.length
-      ? parsed.statusConditions
+      ? [
+        ...parsed.statusConditions,
+        ...defaultStatusConditions.filter((condition) =>
+          systemStatusValues.includes(condition.value) &&
+          !parsed.statusConditions?.some((item) => item.value === condition.value)),
+      ]
       : defaultStatusConditions,
     holidays: parsed.holidays || [],
   };
@@ -1609,6 +1635,8 @@ function statusValueFromLabel(label: string) {
   if (key === "atestado") return "medical_certificate";
   if (key === "ferias") return "vacation";
   if (key === "folga") return "day_off";
+  if (key === "dsr" || key.includes("descanso")) return "dsr";
+  if (key === "feriado") return "holiday";
   if (key === "afastado") return "leave";
   return key || `status_${Date.now().toString(36)}`;
 }
@@ -1823,9 +1851,11 @@ function createBaseDisplayRecord(
     ? "leave"
     : noticeAdjustment === "leave" && (!existing?.status || isFullDayAbsenceStatus(existing.status)) ? "day_off" :
     existing?.status ||
-    (isHoliday(date, settings) || normalLimitMinutes <= 0
-      ? "day_off"
-      : "absence_pending");
+    (isHoliday(date, settings)
+      ? "holiday"
+      : normalLimitMinutes <= 0
+        ? "dsr"
+        : "absence_pending");
   const checkIn = hasFilledTimeValue(existing?.checkIn)
     ? excelTimeToText(existing?.checkIn) || String(existing?.checkIn)
     : "00:00";
@@ -3225,7 +3255,7 @@ export default function Timekeeping() {
         const recordsToUpdate = existingRecordsForVisibleEmployees
           .filter(
             (record) =>
-              record.status !== "day_off" ||
+              record.status !== "holiday" ||
               Number(record.overtimePercent || 0) !== Number(nextPercent || 0),
           )
           .map((record) => {
@@ -3233,7 +3263,7 @@ export default function Timekeeping() {
             const baseHourValue = Number(employee?.salary || 0) / 220;
             return {
               ...record,
-              status: "day_off" as AttendanceStatus,
+              status: "holiday" as AttendanceStatus,
               overtimePercent: nextPercent,
               overtimeAmount: toFixed2(
                 Number(record.overtimeHours || 0) *
@@ -4565,9 +4595,10 @@ export default function Timekeeping() {
           calculationSettings,
         );
         const importedStatus: AttendanceStatus =
-          !hasImportedPunch &&
-            (importedDateIsHoliday || expectedWorkMinutes <= 0)
-            ? "day_off"
+          !hasImportedPunch && importedDateIsHoliday
+            ? "holiday"
+            : !hasImportedPunch && expectedWorkMinutes <= 0
+            ? "dsr"
             : hasImportedPunch
               ? "present"
               : "absence_pending";

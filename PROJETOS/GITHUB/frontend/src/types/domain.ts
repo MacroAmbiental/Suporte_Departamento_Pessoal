@@ -14,7 +14,10 @@ export type AttendanceStatus =
   | "absence_pending"
   | "absence_confirmed"
   | "vacation"
-  | "day_off";
+  | "day_off"
+  // Descanso semanal remunerado: dia sem jornada na escala (fim de semana).
+  | "dsr"
+  | "holiday";
 export type BenefitType = "transport" | "meal" | "food" | "health" | "dental" | "custom";
 export type AppScreen =
   | "dashboard"

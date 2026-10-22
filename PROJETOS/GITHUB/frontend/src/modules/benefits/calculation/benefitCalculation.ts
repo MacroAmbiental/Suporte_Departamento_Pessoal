@@ -157,6 +157,8 @@ const defaultStatusOptions: StatusOption[] = [
   { value: "medical_certificate", label: "Atestado" },
   { value: "vacation", label: "Férias" },
   { value: "day_off", label: "Folga" },
+  { value: "dsr", label: "DSR" },
+  { value: "holiday", label: "Feriado" },
   { value: "leave", label: "Afastado" },
 ];
 
