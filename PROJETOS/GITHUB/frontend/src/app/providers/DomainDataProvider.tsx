@@ -911,12 +911,19 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
 
     const realTeamId = record.realTeamId || employee?.teamId || "";
     const dayTeamId = record.dayTeamId || realTeamId || "";
-    const teamById = new Map(dataRef.current.teams.map((team) => [team.id, team.name?.trim() || ""]));
-    const realTeamName = record.realTeamName?.trim()
-      || teamById.get(realTeamId)
+    // Desde a reestruturação (14/10) as equipes vêm da estrutura de grupos (companyGroupUnits do tipo
+    // team), não só da coleção teams. O nome segue o id; o gravado só vale se o id não for encontrado.
+    const teamById = new Map([
+      ...dataRef.current.teams.map((team) => [team.id, team.name?.trim() || ""] as const),
+      ...dataRef.current.companyGroupUnits
+        .filter((unit) => unit.type === "team")
+        .map((unit) => [unit.id, unit.name?.trim() || ""] as const),
+    ]);
+    const realTeamName = teamById.get(realTeamId)
+      || record.realTeamName?.trim()
       || "";
-    const dayTeamName = record.dayTeamName?.trim()
-      || teamById.get(dayTeamId)
+    const dayTeamName = teamById.get(dayTeamId)
+      || record.dayTeamName?.trim()
       || "";
 
     return {
