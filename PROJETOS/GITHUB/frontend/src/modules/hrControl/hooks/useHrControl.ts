@@ -58,6 +58,7 @@ import {
   addDays,
   dateRange,
   countCalendarDaysBetween,
+  countAbsenteeismPersonDays,
   countCalendarDaysInYear,
   weekStartISO,
   buildHrTimekeepingSettingsByCompanyId,
@@ -90,7 +91,6 @@ import {
   tooltipText,
   cardRecordType,
   matchesCardRecord,
-  employeeStatusForCard,
   matchesEmployeeKindSelection,
   countEmployeeRegistryMatches,
   microScreens,
@@ -785,6 +785,25 @@ export function useHrControl() {
     [detailFilterSets, employeeById, records, restrictCompanyScope, savedTablesByDate, selectedCompanyIds, selectedTeamIds, weekKey],
   );
 
+  // Os filtros "Tipo de falta" e "Categoria CID" também restringem os cartões
+  // (o CID só se aplica aos atestados).
+  const matchesTypeAndCidFilters = useCallback((record: TimeRecord) => {
+    if (selectedAbsenceTypes.size) {
+      const classification = classifyAbsence(record);
+      if (!classification || !selectedAbsenceTypes.has(classification.type)) return false;
+    }
+    if (selectedCidCategories.size && record.status === "medical_certificate") {
+      const details = cidDetailsFromValue(record.cid || "");
+      const category = details.hasCode ? details.category : `Sem CID - ${details.category}`;
+      if (!selectedCidCategories.has(category)) return false;
+    }
+    return true;
+  }, [selectedAbsenceTypes, selectedCidCategories]);
+  const cardFilteredRecords = useMemo(
+    () => baseFilteredRecords.filter(matchesTypeAndCidFilters),
+    [baseFilteredRecords, matchesTypeAndCidFilters],
+  );
+
   const classifiedRecords = useMemo(
     () =>
       baseFilteredRecords
@@ -826,6 +845,11 @@ export function useHrControl() {
     baseEmployees.forEach((employee) => byId.set(employee.id, employee));
     return Array.from(byId.values());
   }, [baseEmployees, data.employees, detailFilterSets, endDate, restrictCompanyScope, selectedCompanyIds, selectedTeamIds]);
+  // Situação do funcionário na data (desligado pelo processo, afastado ou ativo).
+  const employeeStatusOn = useCallback((employee: Employee, date: string): "active" | "leave" | "terminated" => {
+    if (employeeEffectiveStatusForDate(employee, date) === "terminated") return "terminated";
+    return employee.status === "leave" ? "leave" : "active";
+  }, []);
   const employeeRegistrySource = useMemo(() =>
     data.employees.filter((employee) => !isEmployeeTerminated(employee)),
     [data.employees],
@@ -1010,33 +1034,37 @@ export function useHrControl() {
   ]);
 
   const unjustifiedAbsenceRuns = useMemo<UnjustifiedAbsenceRun[]>(() => {
-    const statusByEmployeeDate = new Map<string, string>();
+    // Status por funcionário → data, agrupado numa passada (antes cada funcionário varria todos os registros).
+    const statusByEmployee = new Map<string, Map<string, string>>();
     records.forEach((record) => {
       if (record.date > monitoringReferenceDate) return;
       if (!activeMonitoringEmployeeIds.has(record.employeeId)) return;
       const employee = employeeById.get(record.employeeId);
       if (!employee || !isUsefulSavedWorkday(employee, record.date, timekeepingSettingsByCompanyId)) return;
-      statusByEmployeeDate.set(`${record.employeeId}:${record.date}`, record.status);
+      if (!record.date) return;
+      let statusByDate = statusByEmployee.get(record.employeeId);
+      if (!statusByDate) {
+        statusByDate = new Map();
+        statusByEmployee.set(record.employeeId, statusByDate);
+      }
+      statusByDate.set(record.date, record.status);
     });
 
     const runs: UnjustifiedAbsenceRun[] = [];
     activeMonitoringEmployeeIds.forEach((employeeId) => {
-      const dates = Array.from(new Set(
-        Array.from(statusByEmployeeDate.keys())
-          .filter((key) => key.startsWith(`${employeeId}:`))
-          .map((key) => key.slice(employeeId.length + 1))
-          .filter(Boolean),
-      )).sort().reverse();
+      const statusByDate = statusByEmployee.get(employeeId);
+      if (!statusByDate) return;
+      const dates = Array.from(statusByDate.keys()).sort().reverse();
 
       if (!dates.length) return;
       const latestDate = dates[0];
-      const latestStatus = statusByEmployeeDate.get(`${employeeId}:${latestDate}`);
+      const latestStatus = statusByDate.get(latestDate);
       if (latestStatus !== "absence_confirmed") return;
 
       let streak = 0;
       const confirmedDates: string[] = [];
       for (const date of dates) {
-        const status = statusByEmployeeDate.get(`${employeeId}:${date}`);
+        const status = statusByDate.get(date);
         if (status === "absence_confirmed") {
           streak += 1;
           confirmedDates.push(date);
@@ -1207,14 +1235,19 @@ export function useHrControl() {
 
   const monthlyExpectedDaysByMonth = useMemo(() => {
     const totals = new Map<string, number>();
-    const recordsByEmployeeDate = new Map(monthlyFilteredRecords.map((record) => [`${record.employeeId}:${record.date}`, record]));
+    // O registro do dia só importa para a equipe do dia; sem filtro de equipe não monta o mapa dos 12 meses.
+    const recordsByEmployeeDate = selectedTeamIds.size
+      ? new Map(monthlyFilteredRecords.map((record) => [`${record.employeeId}:${record.date}`, record]))
+      : null;
     const dates = dateRange(monthlyStartDate, monthAnchorDate);
     monthlyEmployees.forEach((employee) => dates.forEach((date) => {
       if (employee.admissionDate && employee.admissionDate > date) return;
       if (!isUsefulSavedWorkday(employee, date, timekeepingSettingsByCompanyId)) return;
-      const record = recordsByEmployeeDate.get(`${employee.id}:${date}`);
-      const teamId = record ? recordDayTeamId(record, employee) : employee.teamId || "";
-      if (selectedTeamIds.size && !selectedTeamIds.has(teamId)) return;
+      if (recordsByEmployeeDate) {
+        const record = recordsByEmployeeDate.get(`${employee.id}:${date}`);
+        const teamId = record ? recordDayTeamId(record, employee) : employee.teamId || "";
+        if (!selectedTeamIds.has(teamId)) return;
+      }
       const key = monthKey(date);
       totals.set(key, (totals.get(key) || 0) + 1);
     }));
@@ -1421,8 +1454,8 @@ export function useHrControl() {
     return sortOptions(Array.from(categories).map((category) => ({ value: category, label: category })));
   }, [baseFilteredRecords]);
 
-  const countCardRecords = (settings: CardPreferences) => baseFilteredRecords.filter((record) => matchesCardRecord(record, settings)).length;
-  const sumCardLoss = (settings: CardPreferences) => baseFilteredRecords.reduce((sum, record) => {
+  const countCardRecords = (settings: CardPreferences) => cardFilteredRecords.filter((record) => matchesCardRecord(record, settings)).length;
+  const sumCardLoss = (settings: CardPreferences) => cardFilteredRecords.reduce((sum, record) => {
     const employee = employeeById.get(record.employeeId);
     return matchesCardRecord(record, settings) && matchesEmployeeKindSelection(settings.kinds, employee)
       ? sum + absenceLossValue(record, employee) : sum;
@@ -1443,21 +1476,62 @@ export function useHrControl() {
       (!excludeStreakedEmployees || !excludedFromAbsenteeism.has(employee.id)));
   };
   const countAbsenteeismRecords = (settings: CardPreferences) =>
-    baseFilteredRecords.filter((record) => matchesAbsenteeismRecord(record, settings)).length;
+    cardFilteredRecords.filter((record) => matchesAbsenteeismRecord(record, settings)).length;
+  const isEmployedOn = useCallback((employee: Employee, date: string) =>
+    employeeEffectiveStatusForDate(employee, date) !== "terminated", []);
+  const baseRecordByDay = useMemo(
+    () => new Map(baseFilteredRecords.map((record) => [`${record.employeeId}:${record.date}`, record])),
+    [baseFilteredRecords],
+  );
+  // Inclui quem foi desligado depois: a checagem por dia decide se ainda tinha vínculo.
+  const absenteeismBaseEmployees = useMemo(() => {
+    const byId = new Map(data.employees
+      .filter((employee) => employeeMatchesBaseFilters(employee, selectedCompanyIds, restrictCompanyScope, selectedTeamIds, endDate, true) &&
+        employeeMatchesDetailFilters(employee, detailFilterSets))
+      .map((employee) => [employee.id, employee]));
+    baseEmployees.forEach((employee) => byId.set(employee.id, employee));
+    return Array.from(byId.values());
+  }, [baseEmployees, data.employees, detailFilterSets, endDate, restrictCompanyScope, selectedCompanyIds, selectedTeamIds]);
   const absenteeismDenominator = (settings: CardPreferences) => {
-    if (settings.absenteeismBase === "planned") return annualPlannedDays;
-    if (settings.absenteeismBase === "worked") return annualDaysReady ? annualWorkedPeriod.days : null;
-    if (!startDate || !endDate) return 0;
-    return countCalendarDaysBetween(startDate, endDate, settings.plannedWeekdays, annualHolidayDates);
+    const dates = settings.absenteeismBase === "planned"
+      ? dateRange(`${plannedYear}-01-01`, `${plannedYear}-12-31`)
+      : settings.absenteeismBase === "worked"
+        ? (annualDaysReady ? (annualWorkedPeriod.first ? dateRange(annualWorkedPeriod.first, annualWorkedPeriod.last) : []) : null)
+        // Período: só dias com ponto salvo, os mesmos que entram na contagem de faltas.
+        : activeDates.filter((date) => savedTablesByDate.has(date));
+    if (!dates) return null;
+    const excludeStreakedEmployees = shouldExcludeConsecutiveConfirmedAbsences(settings);
+    return countAbsenteeismPersonDays({
+      employees: absenteeismBaseEmployees.filter((employee) =>
+        matchesEmployeeKindSelection(settings.kinds, employee) &&
+        (!excludeStreakedEmployees || !excludedFromAbsenteeism.has(employee.id))),
+      dates,
+      plannedWeekdays: settings.plannedWeekdays,
+      holidays: annualHolidayDates,
+      recordByDay: baseRecordByDay,
+      teamIds: selectedTeamIds,
+      isEmployedOn,
+    });
   };
   const absenteeismBaseLabels: Record<CardPreferences["absenteeismBase"], string> = {
-    period: "Dias previstos no período", worked: "Dias Trabalhados-Ano", planned: "Dias Previstos-Ano",
+    period: "funcionário × dia previstos no período", worked: "funcionário × dia trabalhados no ano", planned: "funcionário × dia previstos no ano",
   };
+  const plannedPeriodDays = useMemo(() => {
+    const weekdays = new Set(cardSettings.planned.plannedWeekdays);
+    return activeDates.filter((date) =>
+      weekdays.has(String(parseLocalDate(date).getDay())) && !annualHolidayDates.has(date)).length;
+  }, [activeDates, annualHolidayDates, cardSettings.planned.plannedWeekdays]);
+  const workedPeriod = useMemo(() => {
+    const weekdays = new Set(cardSettings.planned.plannedWeekdays);
+    const dates = activeDates.filter((date) => savedTablesByDate.has(date) &&
+      weekdays.has(String(parseLocalDate(date).getDay())) && !annualHolidayDates.has(date));
+    return { days: dates.length, first: dates[0] || "", last: dates[dates.length - 1] || "" };
+  }, [activeDates, annualHolidayDates, cardSettings.planned.plannedWeekdays, savedTablesByDate]);
   const cardMetrics = (() => {
     const countEmployees = (settings: CardPreferences) => {
-      return employeeRegistrySource.filter((employee) => {
+      return employeeCardCandidates.filter((employee) => {
         return matchesEmployeeKindSelection(settings.kinds, employee) &&
-          settings.statuses.includes(employeeStatusForCard(employee));
+          settings.statuses.includes(employeeStatusOn(employee, endDate));
       }).length;
     };
     const selectedAbsences = countAbsenteeismRecords(cardSettings.absenteeism);
@@ -1466,7 +1540,7 @@ export function useHrControl() {
       employees: countEmployees(cardSettings.employees), absences: countCardRecords(cardSettings.absences),
       certificates: countCardRecords(cardSettings.certificates), combined: countCardRecords(cardSettings.combined),
       dayOffs: countCardRecords(cardSettings.dayOffs),
-      planned: annualPlannedDays, absenteeism: absenteeismStreakReady && denominator ? selectedAbsences / denominator * 100 : null,
+      planned: plannedPeriodDays, absenteeism: absenteeismStreakReady && denominator ? selectedAbsences / denominator * 100 : null,
       loss: sumCardLoss(cardSettings.loss),
     };
   })();
@@ -1497,33 +1571,42 @@ export function useHrControl() {
     };
     const monthValues = periods.map(({ start, end }) => {
       const monthRecords = scoped.filter((record) => record.date >= start && record.date <= end);
-      const employees = employeesAt(end, monthRecords);
-      const absenteeismEmployees = employees.filter((employee) =>
-        matchesEmployeeKindSelection(cardSettings.absenteeism.kinds, employee) &&
-        (!shouldExcludeConsecutiveConfirmedAbsences(cardSettings.absenteeism) || !excludedFromAbsenteeism.has(employee.id)));
-      const missed = monthRecords.filter((record) => matchesAbsenteeismRecord(record, cardSettings.absenteeism)).length;
-      const denominator = cardSettings.absenteeism.absenteeismBase === "planned"
-        ? countCalendarDaysBetween(start, end, cardSettings.planned.plannedWeekdays, annualHolidayDates)
-        : cardSettings.absenteeism.absenteeismBase === "worked"
-          ? savedSpanDays(start, end, comparisonDayTablesScoped)
-          : absenteeismEmployees.reduce((total, employee) => total + dateRange(start, end).filter((date) => {
-            if (employee.admissionDate && employee.admissionDate > date) return false;
-            if (!isUsefulSavedWorkday(employee, date, timekeepingSettingsByCompanyId)) return false;
-            const record = recordByDay.get(`${employee.id}:${date}`);
-            const teamId = record ? recordDayTeamId(record, employee) : employee.teamId || "";
-            return !selectedTeamIds.size || selectedTeamIds.has(teamId);
-          }).length, 0);
+      const monthCardRecords = monthRecords.filter(matchesTypeAndCidFilters);
+      const absenteeismSettings = cardSettings.absenteeism;
+      const absenteeismEmployees = employeesAt(end, monthRecords, true).filter((employee) =>
+        matchesEmployeeKindSelection(absenteeismSettings.kinds, employee) &&
+        (!shouldExcludeConsecutiveConfirmedAbsences(absenteeismSettings) || !excludedFromAbsenteeism.has(employee.id)));
+      const missed = monthCardRecords.filter((record) => matchesAbsenteeismRecord(record, absenteeismSettings)).length;
+      const savedDates = [...new Set(comparisonDayTablesScoped
+        .filter((table) => table.date >= start && table.date <= end).map((table) => table.date))].sort();
+      const denominatorDates = absenteeismSettings.absenteeismBase === "planned"
+        ? dateRange(start, end)
+        : absenteeismSettings.absenteeismBase === "worked"
+          ? (savedDates.length ? dateRange(savedDates[0], savedDates[savedDates.length - 1]) : [])
+          : savedDates;
+      const denominator = countAbsenteeismPersonDays({
+        employees: absenteeismEmployees,
+        dates: denominatorDates,
+        plannedWeekdays: absenteeismSettings.plannedWeekdays,
+        holidays: annualHolidayDates,
+        recordByDay,
+        teamIds: selectedTeamIds,
+        isEmployedOn,
+      });
       return {
-        employees: employeeRegistrySource.filter((employee) => {
+        employees: employeesAt(end, monthRecords, true).filter((employee) => {
           return matchesEmployeeKindSelection(cardSettings.employees.kinds, employee) &&
-            cardSettings.employees.statuses.includes(employeeStatusForCard(employee));
+            cardSettings.employees.statuses.includes(employeeStatusOn(employee, end));
         }).length,
-        absences: monthRecords.filter((record) => matchesCardRecord(record, cardSettings.absences)).length,
-        certificates: monthRecords.filter((record) => matchesCardRecord(record, cardSettings.certificates)).length,
-        combined: monthRecords.filter((record) => matchesCardRecord(record, cardSettings.combined)).length,
-        dayOffs: monthRecords.filter((record) => matchesCardRecord(record, cardSettings.dayOffs)).length,
+        absences: monthCardRecords.filter((record) => matchesCardRecord(record, cardSettings.absences)).length,
+        certificates: monthCardRecords.filter((record) => matchesCardRecord(record, cardSettings.certificates)).length,
+        combined: monthCardRecords.filter((record) => matchesCardRecord(record, cardSettings.combined)).length,
+        dayOffs: monthCardRecords.filter((record) => matchesCardRecord(record, cardSettings.dayOffs)).length,
+        planned: countCalendarDaysBetween(start, end, cardSettings.planned.plannedWeekdays, annualHolidayDates),
+        workedPeriod: savedDates.filter((date) => cardSettings.planned.plannedWeekdays.includes(String(parseLocalDate(date).getDay())) &&
+          !annualHolidayDates.has(date)).length,
         absenteeism: absenteeismStreakReady && denominator ? missed / denominator * 100 : null,
-        loss: monthRecords.reduce((total, record) => {
+        loss: monthCardRecords.reduce((total, record) => {
           const employee = employeeById.get(record.employeeId);
           return total + (matchesCardRecord(record, cardSettings.loss) &&
             matchesEmployeeKindSelection(cardSettings.loss.kinds, employee)
@@ -1531,18 +1614,15 @@ export function useHrControl() {
         }, 0),
       };
     });
-    // Both annual cards retain their annual headline. Their comparison uses the
-    // same calendar month in the selected year, through the selected day.
+    // O cartão anual de dias trabalhados compara o mesmo mês do ano escolhido.
     const annualEnd = shiftMonthClamped(`${plannedYear}-${endDate.slice(5)}`, 0);
     const annualCurrentStart = monthStartISO(annualEnd);
     const annualPreviousStart = shiftMonthClamped(annualCurrentStart, -1);
     const annualPreviousEnd = shiftMonthClamped(annualEnd, -1);
-    const annualPeriods = [
+    const annualValues = [
       { start: annualCurrentStart, end: annualEnd },
       { start: annualPreviousStart, end: annualPreviousEnd },
-    ];
-    const annualValues = annualPeriods.map(({ start, end }) => ({
-      planned: countCalendarDaysBetween(start, end, cardSettings.planned.plannedWeekdays, annualHolidayDates),
+    ].map(({ start, end }) => ({
       worked: start.slice(0, 4) === String(plannedYear) && annualDaysReady
         ? savedSpanDays(start, end, annualSavedDayTables.filter((table) => savedDayMatchesCompany(table, selectedCompanyIds, restrictCompanyScope)))
         : null,
@@ -1553,10 +1633,9 @@ export function useHrControl() {
     };
   }, [absenteeismStreakReady, annualDaysReady, annualHolidayDates, annualSavedDayTables, cardSettings,
     comparisonDayTablesScoped, comparisonFilteredRecords, comparisonReady, comparisonWindow,
-    data.employees, detailFilterSets, employeeById, employeeRegistrySource, endDate,
-    excludedFromAbsenteeism, matchesAbsenteeismRecord, plannedYear, restrictCompanyScope,
-    selectedCompanyIds, selectedTeamIds, shouldExcludeConsecutiveConfirmedAbsences,
-    timekeepingSettingsByCompanyId]);
+    data.employees, detailFilterSets, employeeById, endDate,
+    employeeStatusOn, excludedFromAbsenteeism, isEmployedOn, matchesAbsenteeismRecord, matchesTypeAndCidFilters, plannedYear, restrictCompanyScope,
+    selectedCompanyIds, selectedTeamIds, shouldExcludeConsecutiveConfirmedAbsences]);
   const annualTrendEnd = shiftMonthClamped(`${plannedYear}-${endDate.slice(5)}`, 0);
   const annualTrendStart = monthStartISO(annualTrendEnd);
   const annualTrendPreviousStart = shiftMonthClamped(annualTrendStart, -1);
@@ -1565,7 +1644,7 @@ export function useHrControl() {
     const current = monthComparisonValues?.current[id];
     const previous = monthComparisonValues?.previous[id];
     const formatter = id === "absenteeism" ? formatPercent : id === "loss" ? formatCurrencyCompact : formatInteger;
-    const annual = id === "planned" || id === "worked";
+    const annual = id === "worked";
     const currentStart = annual ? annualTrendStart : comparisonWindow.currentStart;
     const currentEnd = annual ? annualTrendEnd : comparisonWindow.currentEnd;
     const previousStart = annual ? annualTrendPreviousStart : comparisonWindow.previousStart;
@@ -1580,7 +1659,7 @@ export function useHrControl() {
     }
     const rounded = Math.abs(change) < 0.05 ? 0 : change;
     const up = rounded > 0;
-    const goodWhenIncreasing = id === "employees" || id === "planned" || id === "worked";
+    const goodWhenIncreasing = id === "employees" || id === "planned" || id === "worked" || id === "workedPeriod";
     return {
       label: `${rounded > 0 ? "↑ " : rounded < 0 ? "↓ " : ""}${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(Math.abs(rounded))}${id === "absenteeism" ? " p.p." : "%"}`,
       caption: `vs. ${monthChartLabel(monthKey(previousEnd))}`,
@@ -1594,16 +1673,17 @@ export function useHrControl() {
     { id: "certificates", label: "Total de Atestados", value: formatCompact(cardMetrics.certificates), icon: Stethoscope, tone: "green", trend: trendForCard("certificates") },
     { id: "combined", label: "Faltas + Atestados", value: formatCompact(cardMetrics.combined), icon: HeartPulse, tone: "yellow", trend: trendForCard("combined") },
     { id: "dayOffs", label: "Folgas", value: formatCompact(cardMetrics.dayOffs), icon: CalendarDays, tone: "gray", trend: trendForCard("dayOffs") },
-    { id: "planned", label: "Dias Previstos-Ano", value: formatInteger(cardMetrics.planned), icon: Clock, tone: "teal", trend: trendForCard("planned") },
+    { id: "planned", label: "Dias Previstos", value: formatInteger(cardMetrics.planned), icon: Clock, tone: "teal", trend: trendForCard("planned") },
     { id: "worked", label: "Dias Trabalhados-Ano", value: annualDaysReady ? formatInteger(annualWorkedPeriod.days) : "—", icon: CalendarDays, tone: "green", trend: trendForCard("worked") },
+    { id: "workedPeriod", label: "Dias Trabalhados no Período", value: formatInteger(workedPeriod.days), icon: CalendarDays, tone: "green", trend: trendForCard("workedPeriod") },
     { id: "absenteeism", label: "% Absenteísmo", value: cardMetrics.absenteeism === null ? "—" : formatPercent(cardMetrics.absenteeism), icon: ChartPie, tone: "purple", trend: trendForCard("absenteeism") },
     { id: "loss", label: "Perda $", value: formatCurrencyCompact(cardMetrics.loss), icon: DollarSign, tone: "blue", trend: trendForCard("loss") },
   ];
   const selectedMetric = metricCards.find((card) => card.id === editingCard);
   const draftEmployeeTotal = draftCard && editingCard === "employees"
-    ? employeeRegistrySource.filter((employee) => {
-      return countEmployeeRegistryMatches(draftCard.kinds, draftCard.statuses, employee);
-    }).length : 0;
+    ? employeeCardCandidates.filter((employee) =>
+      matchesEmployeeKindSelection(draftCard.kinds, employee) &&
+      draftCard.statuses.includes(employeeStatusOn(employee, endDate))).length : 0;
   const draftEmployeeTotalInRegistry = draftCard && editingCard === "employees"
     ? employeeRegistrySource.filter((employee) => {
       return countEmployeeRegistryMatches(draftCard.kinds, draftCard.statuses, employee);
@@ -1619,8 +1699,8 @@ export function useHrControl() {
     `${absenteeismStreakReady ? `${formatInteger(draftAbsenteeismCount)} falta(s) no período ÷ ` : "consultando faltas consecutivas…"}${!absenteeismStreakReady ? "" : draftAbsenteeismDays === null
       ? annualDaysStatus === "error" && draftCard.absenteeismBase === "worked" ? "consulta dos pontos indisponível" : "consultando pontos…"
       : draftAbsenteeismDays
-        ? `${formatInteger(draftAbsenteeismDays)} dia(s) (${absenteeismBaseLabels[draftCard.absenteeismBase]}) = ${formatPercent(draftAbsenteeismCount / draftAbsenteeismDays * 100)}`
-        : `0 dia(s) (${absenteeismBaseLabels[draftCard.absenteeismBase]}) = —`}${absenteeismStreakReady && draftAbsenteeismExclusionActive ? ` · ${formatInteger(draftExcludedCount)} funcionário(s) excluído(s) por mais de 10 faltas seguidas` : ""}` : "";
+        ? `${formatInteger(draftAbsenteeismDays)} (${absenteeismBaseLabels[draftCard.absenteeismBase]}) = ${formatPercent(draftAbsenteeismCount / draftAbsenteeismDays * 100)}`
+        : `0 (${absenteeismBaseLabels[draftCard.absenteeismBase]}) = —`}${absenteeismStreakReady && draftAbsenteeismExclusionActive ? ` · ${formatInteger(draftExcludedCount)} funcionário(s) excluído(s) por mais de 10 faltas seguidas` : ""}` : "";
   const draftMonthlyRows = draftChart && editingChart ? buildMonthlyRows(draftChart) : [];
   function openMonthlySettings(id: MonthlyChartId) {
     const settings = chartSettings[id];
@@ -1652,33 +1732,33 @@ export function useHrControl() {
     } finally { setSavingShared(false); }
   }
   function openCardSettings(id: CardId) {
-    const settings = cardSettings[id === "worked" ? "planned" : id];
+    const settings = cardSettings[id === "worked" || id === "workedPeriod" ? "planned" : id];
     setDraftCard({ ...settings, kinds: [...settings.kinds], statuses: [...settings.statuses],
       types: [...settings.types], leaveReasons: [...settings.leaveReasons],
       licenses: [...settings.licenses], dayOffDays: [...settings.dayOffDays],
       plannedWeekdays: [...settings.plannedWeekdays] });
-    if (id === "planned" || id === "worked") setDraftPlannedYear(plannedYear);
+    if (id === "planned" || id === "worked" || id === "workedPeriod") setDraftPlannedYear(plannedYear);
     setEditingCard(id);
     setSharedMessage("");
   }
   function applyCardSettings() {
     if (!editingCard || !draftCard) return;
-    if ((editingCard === "planned" || editingCard === "worked") && (!Number.isInteger(draftPlannedYear) || draftPlannedYear < 2000 || draftPlannedYear > 2100)) {
+    if ((editingCard === "planned" || editingCard === "worked" || editingCard === "workedPeriod") && (!Number.isInteger(draftPlannedYear) || draftPlannedYear < 2000 || draftPlannedYear > 2100)) {
       setSharedMessage("Informe um ano entre 2000 e 2100.");
       return;
     }
-    const settingsId = editingCard === "worked" ? "planned" : editingCard;
+    const settingsId = editingCard === "worked" || editingCard === "workedPeriod" ? "planned" : editingCard;
     setCardSettings((previous) => ({ ...previous, [settingsId]: draftCard }));
     if (settingsId === "planned") setPlannedYear(draftPlannedYear);
     setEditingCard(null);
   }
   async function saveSharedCardSettings() {
     if (!editingCard || !draftCard || !firestore) { setSharedMessage("Conexão indisponível para salvar o padrão."); return; }
-    if ((editingCard === "planned" || editingCard === "worked") && (!Number.isInteger(draftPlannedYear) || draftPlannedYear < 2000 || draftPlannedYear > 2100)) {
+    if ((editingCard === "planned" || editingCard === "worked" || editingCard === "workedPeriod") && (!Number.isInteger(draftPlannedYear) || draftPlannedYear < 2000 || draftPlannedYear > 2100)) {
       setSharedMessage("Informe um ano entre 2000 e 2100.");
       return;
     }
-    const settingsId = editingCard === "worked" ? "planned" : editingCard;
+    const settingsId = editingCard === "worked" || editingCard === "workedPeriod" ? "planned" : editingCard;
     const next = { ...sharedCardSettings, [settingsId]: draftCard };
     setSavingShared(true);
     setSharedMessage("");
@@ -1913,6 +1993,7 @@ export function useHrControl() {
     annualPlannedDays,
     annualDaysReady,
     annualWorkedPeriod,
+    workedPeriod,
     weekOptions,
     activeDates,
     activeDateSet,

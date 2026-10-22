@@ -35,9 +35,9 @@ export const cidPieColors = ["#1f95ed", "#099164", "#ec6b35", "#7d5ab6", "#d94f5
 export const hrControlFiltersStorageKey = "hr-control-filters-v1";
 export const monitoringPageSize = 10;
 // Card preferences stay in component state. Only the explicit shared default is persisted.
-export type CardId = "employees" | "absences" | "certificates" | "combined" | "dayOffs" | "planned" | "worked" | "absenteeism" | "loss";
+export type CardId = "employees" | "absences" | "certificates" | "combined" | "dayOffs" | "planned" | "worked" | "workedPeriod" | "absenteeism" | "loss";
 export type HrMetricTrend = { label: string; caption: string; title: string; tone: "good" | "bad" | "neutral" };
-export type SettingsCardId = Exclude<CardId, "worked">;
+export type SettingsCardId = Exclude<CardId, "worked" | "workedPeriod">;
 export type CardPreferences = {
   kinds: string[];
   statuses: string[];
@@ -310,8 +310,11 @@ export function writeHrControlFiltersCache(value: HrControlFiltersCache) {
   }
 }
 
+// Um único Collator: localeCompare com opções monta um novo a cada comparação.
+const textCollator = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
+
 export function compareText(left: string, right: string) {
-  return left.localeCompare(right, "pt-BR", { sensitivity: "base", numeric: true });
+  return textCollator.compare(left, right);
 }
 
 export function sortOptions<T extends { label: string }>(options: T[]) {
@@ -500,6 +503,26 @@ export function hasRegisteredSchedule(employee: Employee) {
   return Boolean(employee.workScheduleDays?.some((day) => hasCompleteSchedule(day)));
 }
 
+// A escala do funcionário só depende do dia da semana. Guarda o resultado por
+// funcionário (um cadastro atualizado chega como objeto novo e recalcula),
+// porque os gráficos chamam isto para cada funcionário × dia de 12 meses.
+const scheduleUsefulByEmployee = new WeakMap<Employee, { registered: boolean; byWeekday: Map<number, boolean> }>();
+
+function scheduleUsefulOn(employee: Employee, weekday: number, date: string) {
+  let cached = scheduleUsefulByEmployee.get(employee);
+  if (!cached) {
+    cached = { registered: hasRegisteredSchedule(employee), byWeekday: new Map() };
+    scheduleUsefulByEmployee.set(employee, cached);
+  }
+  if (!cached.registered) return null;
+  let useful = cached.byWeekday.get(weekday);
+  if (useful === undefined) {
+    useful = (scheduleDailyWorkMinutes(scheduleForDate(employee, date)) || 0) > 0;
+    cached.byWeekday.set(weekday, useful);
+  }
+  return useful;
+}
+
 export function isUsefulSavedWorkday(
   employee: Employee,
   date: string,
@@ -507,8 +530,10 @@ export function isUsefulSavedWorkday(
 ) {
   const settings = settingsForCompany(employee.companyId, settingsByCompanyId);
   if (settings.holidays.includes(date)) return false;
-  if (hasRegisteredSchedule(employee)) return (scheduleDailyWorkMinutes(scheduleForDate(employee, date)) || 0) > 0;
-  return Number(settings.usefulMinutesByWeekday[String(dateToWeekdayIndex(date))] || 0) > 0;
+  const weekday = dateToWeekdayIndex(date);
+  const scheduled = scheduleUsefulOn(employee, weekday, date);
+  if (scheduled !== null) return scheduled;
+  return Number(settings.usefulMinutesByWeekday[String(weekday)] || 0) > 0;
 }
 
 export function weekLabel(start: string, end: string) {
@@ -573,8 +598,11 @@ export function formatCurrencyCompact(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(number);
 }
 
+// Horas no formato do ponto (13,2 h → "13:12").
 export function formatHours(value: number) {
-  return `${formatDecimal(value, value >= 100 ? 0 : 1)}h`;
+  const totalMinutes = Math.round(Math.abs(Number(value || 0)) * 60);
+  const hours = new Intl.NumberFormat("pt-BR").format(Math.floor(totalMinutes / 60));
+  return `${value < 0 ? "-" : ""}${hours}:${String(totalMinutes % 60).padStart(2, "0")}`;
 }
 
 export function formatPercent(value: number) {
@@ -669,6 +697,37 @@ export function recordFunctionKey(record: TimeRecord, employee?: Employee) {
 
 export function recordDayTeamId(record: TimeRecord, employee?: Employee) {
   return record.dayTeamId || employee?.teamId || "";
+}
+
+// Base do absenteísmo: soma de funcionário × dia que cada um deveria trabalhar
+// (dia previsto, sem feriado, entre admissão e desligamento, fora de férias/afastamento).
+export function countAbsenteeismPersonDays(params: {
+  employees: Employee[];
+  dates: string[];
+  plannedWeekdays: string[];
+  holidays: Set<string>;
+  recordByDay: Map<string, TimeRecord>;
+  teamIds: Set<string>;
+  isEmployedOn: (employee: Employee, date: string) => boolean;
+}) {
+  const weekdays = new Set(params.plannedWeekdays);
+  const plannedDates = params.dates.filter((date) =>
+    weekdays.has(String(dateToWeekdayIndex(date))) && !params.holidays.has(date));
+  let total = 0;
+  params.employees.forEach((employee) => {
+    plannedDates.forEach((date) => {
+      if (employee.admissionDate && employee.admissionDate > date) return;
+      if (!params.isEmployedOn(employee, date)) return;
+      const record = params.recordByDay.get(`${employee.id}:${date}`);
+      if (record && (record.status === "vacation" || record.status === "leave")) return;
+      if (params.teamIds.size) {
+        const teamId = record ? recordDayTeamId(record, employee) : employee.teamId || "";
+        if (!params.teamIds.has(teamId)) return;
+      }
+      total += 1;
+    });
+  });
+  return total;
 }
 
 export function recordDayTeamLabel(record: TimeRecord, employee: Employee | undefined, teamById: Map<string, { name: string }>) {

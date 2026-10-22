@@ -7,8 +7,8 @@ export type HrAnalysisScope = "group" | "company";
 export type AbsenceType = "confirmed" | "certificate" | "leave" | "vacation" | "dayOff" | "license";
 export type MonitoringRiskFilter = "all" | "recurrence" | "alert" | "abandonment";
 
-export type CardId = "employees" | "absences" | "certificates" | "combined" | "dayOffs" | "planned" | "worked" | "absenteeism" | "loss";
-export type SettingsCardId = Exclude<CardId, "worked">;
+export type CardId = "employees" | "absences" | "certificates" | "combined" | "dayOffs" | "planned" | "worked" | "workedPeriod" | "absenteeism" | "loss";
+export type SettingsCardId = Exclude<CardId, "worked" | "workedPeriod">;
 export type HrMetricTrend = { label: string; caption: string; title: string; tone: "good" | "bad" | "neutral" };
 
 export type CardPreferences = {

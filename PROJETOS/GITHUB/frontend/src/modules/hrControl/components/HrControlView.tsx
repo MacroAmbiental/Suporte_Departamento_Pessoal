@@ -207,6 +207,7 @@ export function HrControlView(props: HrControlController) {
     annualPlannedDays,
     annualDaysReady,
     annualWorkedPeriod,
+    workedPeriod,
     weekOptions,
     activeDates,
     activeDateSet,
@@ -609,16 +610,16 @@ export function HrControlView(props: HrControlController) {
           <section className="hr-card-modal" role="dialog" aria-modal="true" aria-labelledby="hr-card-modal-title" onKeyDown={(event) => { if (event.key === "Escape") setEditingCard(null); }}>
             <button className="hr-card-modal-close" type="button" aria-label="Fechar" onClick={() => setEditingCard(null)}><X size={20} /></button>
             <h2 id="hr-card-modal-title">Personalizar: {selectedMetric.label.toLocaleLowerCase("pt-BR")}</h2>
-            <p>{editingCard === "worked" ? "Conta os dias úteis entre a primeira e a última data de ponto salva no ano." : editingCard === "planned" ? "Escolha o ano e os dias da semana. Feriados marcados no Controle de Ponto são excluídos." : editingCard === "absenteeism" ? "Escolha os tipos de falta e a base usada para calcular o percentual." : "Escolha quais registros entram neste indicador."}</p>
+            <p>{editingCard === "worked" ? "Conta os dias úteis entre a primeira e a última data de ponto salva no ano." : editingCard === "workedPeriod" ? "Conta os dias úteis do período filtrado que têm ponto salvo." : editingCard === "planned" ? "Escolha o ano e os dias da semana. Feriados marcados no Controle de Ponto são excluídos." : editingCard === "absenteeism" ? "Escolha os tipos de falta e a base usada para calcular o percentual." : "Escolha quais registros entram neste indicador."}</p>
             <div className="hr-card-modal-sections">
               {editingCard === "employees" ? <>
                 <CardChoices title="Tipo de vínculo" field="kinds" value={draftCard} onChange={setDraftCard} options={[
                   { value: "contract", label: employeeKindLabels.contract }, { value: "company", label: employeeKindLabels.company },
                   { value: "diarist", label: "Diaristas" },
                 ]} />
-              </> : (editingCard === "planned" || editingCard === "worked") ? <>
+              </> : (editingCard === "planned" || editingCard === "worked" || editingCard === "workedPeriod") ? <>
                 <details className="hr-card-choice-group">
-                  <summary>Ano de referência<span>{draftPlannedYear}</span></summary>
+                  <summary>Ano das bases anuais do absenteísmo<span>{draftPlannedYear}</span></summary>
                   <div className="hr-card-choice-list">
                     <label className="hr-planned-year-label">Ano
                       <input type="number" min="2000" max="2100" step="1" value={draftPlannedYear}
@@ -658,7 +659,7 @@ export function HrControlView(props: HrControlController) {
                 {draftCard.types.includes("dayOff") ? <CardChoices title="Folga · dias da semana" field="dayOffDays" value={draftCard} onChange={setDraftCard} options={weekdayOptions} /> : null}
               </>}
             </div>
-            <div className="hr-card-modal-preview">{editingCard === "employees" ? "Funcionários ativos" : editingCard === "planned" ? "Calendário anual" : editingCard === "worked" ? "Período de ponto" : editingCard === "absenteeism" ? "Cálculo do absenteísmo" : editingCard === "loss" ? "Perda calculada" : "Critérios selecionados"}: <strong>{editingCard === "employees" ? formatInteger(draftEmployeeTotal) : editingCard === "planned" ? `${formatInteger(countCalendarDaysInYear(draftPlannedYear, draftCard.plannedWeekdays, annualHolidayDates))} dia(s) em ${draftPlannedYear} · feriados excluídos` : editingCard === "worked" ? draftPlannedYear === plannedYear && annualDaysReady && annualWorkedPeriod.first ? `${formatInteger(countCalendarDaysBetween(annualWorkedPeriod.first, annualWorkedPeriod.last, draftCard.plannedWeekdays, annualHolidayDates))} dia(s) de ${formatDate(annualWorkedPeriod.first)} a ${formatDate(annualWorkedPeriod.last)}` : `Consultar datas salvas em ${draftPlannedYear} ao aplicar` : editingCard === "absenteeism" ? draftAbsenteeismPreview : editingCard === "loss" ? `${draftCard.types.map((type) => absenceLabels[type]).join(" + ") || "Nenhum tipo"} · ${draftCard.kinds.length} vínculo(s) · ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(sumCardLoss(draftCard))}` : `${draftCard.types.map((type) => absenceLabels[type]).join(" + ") || "Nenhum tipo"}`}</strong></div>
+            <div className="hr-card-modal-preview">{editingCard === "workedPeriod" ? "Período filtrado" : editingCard === "employees" ? "Funcionários ativos" : editingCard === "planned" ? "Calendário anual" : editingCard === "worked" ? "Período de ponto" : editingCard === "absenteeism" ? "Cálculo do absenteísmo" : editingCard === "loss" ? "Perda calculada" : "Critérios selecionados"}: <strong>{editingCard === "workedPeriod" ? `${formatInteger(workedPeriod.days)} dia(s) úteis com ponto salvo` : editingCard === "employees" ? formatInteger(draftEmployeeTotal) : editingCard === "planned" ? `${formatInteger(countCalendarDaysInYear(draftPlannedYear, draftCard.plannedWeekdays, annualHolidayDates))} dia(s) em ${draftPlannedYear} · feriados excluídos` : editingCard === "worked" ? draftPlannedYear === plannedYear && annualDaysReady && annualWorkedPeriod.first ? `${formatInteger(countCalendarDaysBetween(annualWorkedPeriod.first, annualWorkedPeriod.last, draftCard.plannedWeekdays, annualHolidayDates))} dia(s) de ${formatDate(annualWorkedPeriod.first)} a ${formatDate(annualWorkedPeriod.last)}` : `Consultar datas salvas em ${draftPlannedYear} ao aplicar` : editingCard === "absenteeism" ? draftAbsenteeismPreview : editingCard === "loss" ? `${draftCard.types.map((type) => absenceLabels[type]).join(" + ") || "Nenhum tipo"} · ${draftCard.kinds.length} vínculo(s) · ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(sumCardLoss(draftCard))}` : `${draftCard.types.map((type) => absenceLabels[type]).join(" + ") || "Nenhum tipo"}`}</strong></div>
             {editingCard === "employees" ? <small>Este card mostra o total de funcionários ativos no cadastro, conforme o tipo de vínculo selecionado.</small> : null}
             {sharedMessage ? <p className="hr-card-modal-error" role="alert">{sharedMessage}</p> : null}
             <div className="hr-card-modal-actions">
@@ -666,7 +667,7 @@ export function HrControlView(props: HrControlController) {
               <button type="button" onClick={() => setEditingCard(null)}>Cancelar</button>
               <button type="button" className="hr-card-apply-button" onClick={applyCardSettings}>Aplicar filtros</button>
             </div>
-            <small>{editingCard === "planned" || editingCard === "worked" ? "O ano volta ao ano vigente ao sair desta tela. No grupo, feriados de qualquer empresa selecionada são excluídos. " : editingCard === "absenteeism" ? "Com esta opção marcada, quem faltou em mais de 10 dias úteis de ponto seguidos, terminando na data final filtrada, sai da conta. Uma presença no último ponto salvo até essa data zera a sequência. As faltas seguem o período filtrado; as bases anuais seguem o ano e os feriados dos cards de dias. " : ""}Aplicar filtros dura até sair do Controle RH. Visualização Padrão salva os critérios para todos, sem fixar o ano.</small>
+            <small>{editingCard === "planned" || editingCard === "worked" || editingCard === "workedPeriod" ? "O ano volta ao ano vigente ao sair desta tela. No grupo, feriados de qualquer empresa selecionada são excluídos. " : editingCard === "absenteeism" ? "Com esta opção marcada, quem faltou em mais de 10 dias úteis de ponto seguidos, terminando na data final filtrada, sai da conta. Uma presença no último ponto salvo até essa data zera a sequência. As faltas seguem o período filtrado; as bases anuais seguem o ano e os feriados dos cards de dias. " : ""}Aplicar filtros dura até sair do Controle RH. Visualização Padrão salva os critérios para todos, sem fixar o ano.</small>
           </section>
         </div>
       ) : null}
@@ -718,8 +719,9 @@ export function HrControlView(props: HrControlController) {
                         <b>{metric.trend.label}</b><small>{metric.trend.caption}</small>
                       </div>
                     </div>
-                    {metric.id === "planned" ? <small className="hr-card-year">Ano {plannedYear} · dias do calendário</small> : null}
+                    {metric.id === "planned" ? <small className="hr-card-year">Dias úteis do período · feriados excluídos</small> : null}
                     {metric.id === "worked" ? <small className="hr-card-year">{annualDaysReady ? annualWorkedPeriod.first ? `${formatDate(annualWorkedPeriod.first)} a ${formatDate(annualWorkedPeriod.last)}` : `Sem ponto salvo em ${plannedYear}` : annualDaysStatus === "error" ? "Não foi possível consultar os pontos" : "Consultando pontos salvos…"}</small> : null}
+                    {metric.id === "workedPeriod" ? <small className="hr-card-year">{workedPeriod.first ? `Dias úteis com ponto salvo · ${formatDate(workedPeriod.first)} a ${formatDate(workedPeriod.last)}` : "Sem ponto salvo no período"}</small> : null}
                     {metric.id === "absenteeism" ? <small className="hr-card-year">{streakPointData.status === "error" ? "Não foi possível consultar os pontos" : !absenteeismStreakReady ? "Consultando faltas consecutivas…" : `Base: ${absenteeismBaseLabels[cardSettings.absenteeism.absenteeismBase]}`}</small> : null}
                   </div>
                   <Settings2 className="hr-card-settings-icon" size={16} aria-label="Personalizar" />
