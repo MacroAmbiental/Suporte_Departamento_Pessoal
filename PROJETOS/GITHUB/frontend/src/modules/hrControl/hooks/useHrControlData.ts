@@ -116,7 +116,8 @@ export function useHrControlData({
   }, [changedPointDatesRef, dataRevision, endDate, invalidRange, loadedRecordsKey, periodRangeKey, savedDayTables, savedDayTablesReady, sessionIsFresh, startDate, userId, warmSession]);
 
   useEffect(() => {
-    if (activeView !== "general" || dataRevision === 0 || !savedDayTablesReady || !firestore) return undefined;
+    // Sem esperar gravação de ponto: na abertura sem sessão quente os 12 meses ficavam sempre em "carregando".
+    if (activeView !== "general" || !savedDayTablesReady || !firestore) return undefined;
     if (monthlySavedDaysKey !== monthlyRangeKey) setMonthlySavedDaysStatus("loading");
 
     return onSnapshot(
