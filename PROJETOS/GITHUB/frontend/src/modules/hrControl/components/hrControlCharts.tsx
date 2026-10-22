@@ -29,9 +29,14 @@ import type { Employee, TimeRecord, TimekeepingDayTable } from "@/types/domain";
 export function HorizontalBarChart({
   rows,
   formatter = formatInteger,
+  onSelect,
+  selectedId,
 }: {
   rows: ChartRow[];
   formatter?: (value: number) => string;
+  // Com onSelect, cada linha vira clicável (Enter/espaço no teclado) e a de selectedId fica destacada.
+  onSelect?: (row: ChartRow) => void;
+  selectedId?: string;
 }) {
   const maxValue = Math.max(1, ...rows.map((row) => row.value));
 
@@ -48,13 +53,22 @@ export function HorizontalBarChart({
           `Valor: ${formatter(row.value)}`,
           row.detail,
         ]);
+        const selected = Boolean(selectedId && row.id === selectedId);
         return (
           <div
-            className="hr-bar-row hr-has-tooltip"
+            className={`hr-bar-row hr-has-tooltip${onSelect ? " is-clickable" : ""}${selected ? " is-selected" : ""}`}
             data-tooltip={tooltip}
-            key={row.label}
+            key={row.id || row.label}
             tabIndex={0}
             aria-label={tooltip}
+            role={onSelect ? "button" : undefined}
+            aria-pressed={onSelect ? selected : undefined}
+            onClick={onSelect ? () => onSelect(row) : undefined}
+            onKeyDown={onSelect ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onSelect(row);
+            } : undefined}
           >
             <div className="hr-bar-label" title={row.label}>{row.label}</div>
             <div className="hr-bar-track" aria-label={`${row.label}: ${formatter(row.value)}`}>
@@ -351,17 +365,25 @@ export function MonthlyPercentChart({ rows, types }: { rows: MonthChartRow[]; ty
   );
 }
 
-export function ColumnChart({ rows, formatter = formatInteger, color = "#1f95ed" }: { rows: ChartRow[]; formatter?: (value: number) => string; color?: string; }) {
+export function ColumnChart({ rows, formatter = formatInteger, color = "#1f95ed", className = "", emptyText = "Sem meses disponíveis.", zeroAsEmpty = false }: {
+  rows: ChartRow[];
+  formatter?: (value: number) => string;
+  color?: string;
+  className?: string;
+  emptyText?: string;
+  // Coluna com valor 0 fica sem barra (no gráfico por dia, dia sem HE não deve parecer ter HE).
+  zeroAsEmpty?: boolean;
+}) {
   const maxValue = Math.max(1, ...rows.map((row) => row.value));
 
   if (!rows.length) {
-    return <div className="hr-empty-chart">Sem meses disponíveis.</div>;
+    return <div className="hr-empty-chart">{emptyText}</div>;
   }
 
   return (
-    <div className="hr-month-percent-chart hr-column-chart">
+    <div className={`hr-month-percent-chart hr-column-chart ${className}`.trim()}>
       {rows.map((row) => {
-        const height = `${Math.max(6, (row.value / maxValue) * 100)}%`;
+        const height = zeroAsEmpty && row.value <= 0 ? "0%" : `${Math.max(6, (row.value / maxValue) * 100)}%`;
         const tooltip = tooltipText([
           row.label,
           `Valor: ${formatter(row.value)}`,
@@ -372,11 +394,11 @@ export function ColumnChart({ rows, formatter = formatInteger, color = "#1f95ed"
             className="hr-month-percent-column hr-column-column hr-has-tooltip"
             data-tooltip={tooltip}
             title={tooltip}
-            key={row.label}
+            key={row.id || row.label}
             tabIndex={0}
             aria-label={tooltip}
           >
-            <b>{formatter(row.value)}</b>
+            <b>{zeroAsEmpty && row.value <= 0 ? "" : formatter(row.value)}</b>
             <span className="hr-month-percent-bar hr-column-bar" style={{ backgroundColor: row.color || color, "--hr-target-height": height } as CSSProperties} />
             <strong>{row.label}</strong>
           </div>
@@ -386,7 +408,49 @@ export function ColumnChart({ rows, formatter = formatInteger, color = "#1f95ed"
   );
 }
 
-export function EmployeeOvertimeChart({ employees, records }: { employees: Employee[]; records: TimeRecord[] }) {
+// Horas extras de um funcionário dia a dia: no máximo os 30 últimos dias do período filtrado.
+export const DAILY_OVERTIME_MAX_DAYS = 30;
+
+export function dailyOvertimeWindow(startDate: string, endDate: string) {
+  if (!startDate || !endDate || startDate > endDate) return { start: startDate, end: endDate, truncated: false };
+  const earliest = toISODate(new Date(parseLocalDate(endDate).getTime() - (DAILY_OVERTIME_MAX_DAYS - 1) * 86_400_000));
+  return earliest > startDate
+    ? { start: earliest, end: endDate, truncated: true }
+    : { start: startDate, end: endDate, truncated: false };
+}
+
+export function EmployeeDailyOvertimeChart({ employeeId, records, startDate, endDate }: {
+  employeeId: string;
+  records: TimeRecord[];
+  startDate: string;
+  endDate: string;
+}) {
+  const rows = useMemo<ChartRow[]>(() => {
+    const { start, end } = dailyOvertimeWindow(startDate, endDate);
+    if (!start || !end || start > end) return [];
+    const byDate = new Map<string, number>();
+    records.forEach((record) => {
+      if (record.employeeId !== employeeId || record.date < start || record.date > end) return;
+      byDate.set(record.date, (byDate.get(record.date) || 0) + overtimeHours(record));
+    });
+    const days: ChartRow[] = [];
+    for (let cursor = parseLocalDate(start); toISODate(cursor) <= end; cursor.setDate(cursor.getDate() + 1)) {
+      const date = toISODate(cursor);
+      const weekday = cursor.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+      days.push({ id: date, label: date.slice(8, 10) + "/" + date.slice(5, 7), detail: `${weekday}, ${formatDate(date)}`, value: byDate.get(date) || 0 });
+    }
+    return days;
+  }, [employeeId, endDate, records, startDate]);
+
+  return <ColumnChart rows={rows} formatter={formatHours} color="#1f95ed" className="hr-daily-column-chart" emptyText="Sem dias no período selecionado." zeroAsEmpty />;
+}
+
+export function EmployeeOvertimeChart({ employees, records, selectedEmployeeId, onSelectEmployee }: {
+  employees: Employee[];
+  records: TimeRecord[];
+  selectedEmployeeId?: string;
+  onSelectEmployee?: (employeeId: string, name: string) => void;
+}) {
   type ContractFilter = "all" | EmployeeKind;
   const contractOptions: Array<{ value: ContractFilter; label: string }> = [
     { value: "all", label: "Todos" },
@@ -421,6 +485,7 @@ export function EmployeeOvertimeChart({ employees, records }: { employees: Emplo
 
     return Array.from(totals.entries())
       .map(([employeeId, value]) => ({
+        id: employeeId,
         label: names.get(employeeId) || "Funcionário removido",
         value,
         color: "#b9ee93",
@@ -443,7 +508,12 @@ export function EmployeeOvertimeChart({ employees, records }: { employees: Emplo
           </select>
         </label>
       </div>
-      <HorizontalBarChart rows={rows} formatter={formatHours} />
+      <HorizontalBarChart
+        rows={rows}
+        formatter={formatHours}
+        selectedId={selectedEmployeeId}
+        onSelect={onSelectEmployee ? (row) => row.id && onSelectEmployee(row.id, row.label) : undefined}
+      />
     </div>
   );
 }

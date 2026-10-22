@@ -10,6 +10,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import ClearFiltersButton from "@/common/components/ClearFiltersButton";
 import MultiSelect from "@/common/components/MultiSelect";
 import EmployeesPagination from "@/modules/employees/components/EmployeesPagination";
@@ -45,6 +46,9 @@ import {
   MonthlyGroupedChart,
   MonthlyPercentChart,
   ColumnChart,
+  DAILY_OVERTIME_MAX_DAYS,
+  dailyOvertimeWindow,
+  EmployeeDailyOvertimeChart,
   EmployeeOvertimeChart,
   CalendarMonthHeader,
   CardChoices,
@@ -55,6 +59,8 @@ import type { HrControlController } from "@/modules/hrControl/hooks/useHrControl
 import "./HrControlView.css";
 
 export function HrControlView(props: HrControlController) {
+  // Aba H extra: funcionário clicado no gráfico por funcionário troca "por mês" pelo gráfico dia a dia.
+  const [overtimeEmployee, setOvertimeEmployee] = useState<{ id: string; name: string } | null>(null);
   const {
     setPeriodMode,
     setActiveView,
@@ -800,24 +806,50 @@ export function HrControlView(props: HrControlController) {
             <HorizontalBarChart rows={overtimeByTeam} formatter={formatHours} />
           </section>
 
-          <section className="hr-chart-panel hr-wide-chart">
-            <header className="hr-chart-header">
-              <div>
-                <h2><ChartColumn size={18} /> Horas extras por mês</h2>
-                <span>Somatório de HE no período filtrado</span>
-              </div>
-            </header>
-            <ColumnChart rows={overtimeByMonth} formatter={formatHours} color="#1f95ed" />
-          </section>
+          {overtimeEmployee ? (() => {
+            const dayWindow = dailyOvertimeWindow(startDate, endDate);
+            return (
+              <section className="hr-chart-panel hr-wide-chart">
+                <header className="hr-chart-header">
+                  <div>
+                    <h2><ChartColumn size={18} /> Horas extras por dia — {overtimeEmployee.name}</h2>
+                    <span>
+                      {formatDate(dayWindow.start)} até {formatDate(dayWindow.end)}
+                      {dayWindow.truncated ? ` · últimos ${DAILY_OVERTIME_MAX_DAYS} dias do período` : ""}
+                    </span>
+                  </div>
+                  <button type="button" className="hr-chart-settings-button" onClick={() => setOvertimeEmployee(null)}>
+                    <X size={15} /> Voltar para por mês
+                  </button>
+                </header>
+                <EmployeeDailyOvertimeChart employeeId={overtimeEmployee.id} records={baseFilteredRecords} startDate={startDate} endDate={endDate} />
+              </section>
+            );
+          })() : (
+            <section className="hr-chart-panel hr-wide-chart">
+              <header className="hr-chart-header">
+                <div>
+                  <h2><ChartColumn size={18} /> Horas extras por mês</h2>
+                  <span>Somatório de HE no período filtrado</span>
+                </div>
+              </header>
+              <ColumnChart rows={overtimeByMonth} formatter={formatHours} color="#1f95ed" />
+            </section>
+          )}
 
           <section className="hr-chart-panel hr-wide-chart">
             <header className="hr-chart-header">
               <div>
                 <h2><ChartColumn size={18} /> Horas extras por funcionário</h2>
-                <span>Distribuição por colaborador no período filtrado</span>
+                <span>Clique em um nome para ver as horas extras dele dia a dia</span>
               </div>
             </header>
-            <EmployeeOvertimeChart employees={baseEmployees} records={baseFilteredRecords} />
+            <EmployeeOvertimeChart
+              employees={baseEmployees}
+              records={baseFilteredRecords}
+              selectedEmployeeId={overtimeEmployee?.id}
+              onSelectEmployee={(id, name) => setOvertimeEmployee((current) => current?.id === id ? null : { id, name })}
+            />
           </section>
         </div>
       ) : null}

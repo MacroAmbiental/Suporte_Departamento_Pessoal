@@ -35,6 +35,8 @@ export type ChartRow = {
   value: number;
   detail?: string;
   color?: string;
+  // Identifica a linha quando o gráfico é clicável (ex.: id do funcionário).
+  id?: string;
 };
 
 export type DualChartRow = {

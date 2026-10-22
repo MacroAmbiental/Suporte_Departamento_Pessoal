@@ -4,3 +4,31 @@
     justify-content: left;
     margin: 10px 5px;
 }
+
+/* H extra: linha clicável no gráfico por funcionário e gráfico dia a dia (até 30 colunas). */
+.hr-bar-row.is-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.hr-bar-row.is-selected {
+  background: rgba(31, 149, 237, 0.22);
+  box-shadow: inset 3px 0 0 #1f95ed;
+}
+
+.hr-bar-row.is-selected .hr-bar-label {
+  color: #8fd0ff;
+}
+
+.hr-daily-column-chart {
+  grid-auto-columns: minmax(34px, 1fr);
+  gap: 2px;
+}
+
+.hr-daily-column-chart .hr-column-column {
+  min-width: 34px;
+}
+
+.hr-daily-column-chart .hr-month-percent-column b {
+  font-size: 10px;
+}
