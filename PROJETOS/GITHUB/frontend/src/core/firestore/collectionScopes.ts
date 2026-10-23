@@ -101,12 +101,24 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "companies",
     "companyGroups",
     "companyGroupCompanies",
+    // Equipes, setores e departamentos da estrutura de grupos (dayTeamId desde 14/10).
+    "companyGroupUnits",
     "departments",
     "sectors",
     "subsectors",
     "teams",
     "employees",
     "dismissedEmployees",
+    "timekeepingColumns",
+  ],
+  abandonment: [
+    "companies",
+    "companyGroupUnits",
+    "departments",
+    "sectors",
+    "subsectors",
+    "teams",
+    "employees",
     "timekeepingColumns",
   ],
   talentBank: [
@@ -165,6 +177,8 @@ const realtimeScopes: Partial<Record<AppScreen, DomainCollectionName[]>> = {
   records: ["documentAlerts"],
   // Firestore restaura empregados/feriados do IndexedDB e entrega apenas as mudanças remotas.
   hrControl: ["timekeepingColumns", "employees"],
+  // Desligamento feito em outra tela tira a pessoa do quadro na hora.
+  abandonment: ["employees"],
 };
 
 export function collectionsForScreen(screen: AppScreen | null): DomainCollectionName[] {

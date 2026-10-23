@@ -11,6 +11,7 @@ const screenSlugs: Record<AppScreen, string> = {
   timekeeping: "controle-ponto",
   afastados: "afastados",
   hrControl: "controle-rh",
+  abandonment: "processo-abandono",
   talentBank: "banco-talentos",
   notifications: "notificacoes",
   monitoring: "monitoramento",

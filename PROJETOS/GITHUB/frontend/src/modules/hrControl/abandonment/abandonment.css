@@ -1,0 +1,104 @@
+/* Processo de abandono (Controle RH > Monitoramento). O app roda com zoom 0.75: px daqui aparecem 25% menores. */
+.abandonment-board { display: grid; gap: 14px; }
+.abandonment-board-header h2 { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: #263b4d; font-size: 21px; }
+.abandonment-board-header span { display: block; margin-top: 4px; color: #607386; font-size: 14px; font-weight: 600; }
+
+.abandonment-columns {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(230px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.abandonment-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 220px;
+  padding: 12px;
+  border: 1px solid #dbe5ee;
+  border-radius: 10px;
+  background: #f5f8fb;
+}
+
+.abandonment-column h3 { display: flex; justify-content: space-between; margin: 0; color: #263b4d; font-size: 16px; }
+.abandonment-column h3 b { min-width: 26px; padding: 1px 8px; border-radius: 999px; background: #dfe9f3; color: #155a8d; text-align: center; }
+.abandonment-column > small { color: #718497; font-size: 13px; }
+.abandonment-column.is-flagged { border-color: #f1c3c8; background: #fff6f6; }
+.abandonment-column.is-flagged h3 b { background: #fbd9dc; color: #b0333a; }
+.abandonment-column.is-closed { opacity: .85; }
+
+.abandonment-card {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d6e0eb;
+  border-left: 4px solid #1f95ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f3347;
+  font: inherit;
+  text-align: left;
+}
+
+.abandonment-card.is-case { cursor: pointer; }
+.abandonment-card.is-case:hover, .abandonment-card.is-case:focus-visible { border-color: #1f95ed; box-shadow: 0 4px 14px rgba(31, 149, 237, .15); outline: none; }
+.abandonment-column.is-flagged .abandonment-card { border-left-color: #d94f5c; }
+.abandonment-card.is-stale { border-left-color: #d59a22; background: #fffaf0; }
+.abandonment-card strong { font-size: 15px; }
+.abandonment-card span { color: #52677c; font-size: 13px; }
+.abandonment-card em { color: #9a6b00; font-size: 12px; font-style: normal; font-weight: 700; }
+.abandonment-card .btn { justify-self: start; margin-top: 4px; }
+.abandonment-days { font-weight: 700; color: #c65f29 !important; }
+.abandonment-days.is-high { color: #b0333a !important; }
+.abandonment-pending { color: #7a5600 !important; font-size: 0.92em; }
+
+.abandonment-error { margin: 0; color: #a2212a; font-weight: 700; }
+.abandonment-warning { margin: 8px 0; padding: 10px 12px; border-radius: 8px; background: #fffaf0; color: #7a5600; }
+.abandonment-muted { color: #718497; }
+
+.hr-card-modal.abandonment-modal { width: min(920px, 100%); max-height: 90vh; font-size: 15px; }
+.abandonment-modal h3 { margin: 0 0 8px; font-size: 16px; color: #263b4d; }
+
+.abandonment-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.abandonment-summary > div { display: grid; gap: 2px; padding: 10px 12px; border-radius: 8px; background: #f2f7fb; }
+.abandonment-summary span { color: #607386; font-size: 13px; }
+.abandonment-summary b { font-size: 18px; color: #142844; }
+.abandonment-summary small { color: #718497; font-size: 12px; }
+
+.abandonment-contacts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 12px; color: #33485c; font-size: 14px; }
+.abandonment-contacts span { display: inline-flex; align-items: center; gap: 5px; }
+.abandonment-contacts small { color: #718497; }
+
+.abandonment-actions { display: grid; gap: 8px; margin-bottom: 12px; }
+.abandonment-action-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.abandonment-action-group > span { min-width: 120px; color: #415469; font-size: 13px; font-weight: 800; }
+.hr-chart-settings-button.is-danger { border-color: #f1c3c8; background: #fff6f6; color: #b0333a; }
+
+.abandonment-box { display: grid; gap: 10px; margin: 0 0 14px; padding: 14px; border: 1px solid #d8e3ee; border-radius: 10px; background: #fbfdff; }
+.abandonment-box textarea { width: 100%; padding: 10px 12px; border: 1px solid #d6e0eb; border-radius: 10px; font: inherit; resize: vertical; }
+.abandonment-box .hr-card-modal-actions { margin-top: 0; }
+.abandonment-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.abandonment-timeline-title { margin-top: 6px !important; }
+.abandonment-timeline { display: grid; gap: 8px; margin: 0 0 10px; padding: 0; list-style: none; }
+.abandonment-timeline li { display: grid; gap: 4px; padding: 10px 12px; border-left: 4px solid #1f95ed; border-radius: 6px; background: #f5f8fb; }
+.abandonment-timeline li.is-system { border-left-color: #8796a5; }
+.abandonment-timeline li.is-message { border-left-color: #0b9369; }
+.abandonment-timeline li.is-stage { border-left-color: #7d5ab6; }
+.abandonment-timeline li.is-correction { border-left-color: #d59a22; background: #fffaf0; }
+.abandonment-timeline li.is-closed { border-left-color: #d94f5c; }
+.abandonment-timeline li.is-corrected > p { text-decoration: line-through; color: #8796a5; }
+.abandonment-timeline header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.abandonment-timeline header span { padding: 1px 8px; border-radius: 999px; background: #e6eef5; color: #33485c; font-size: 13px; }
+.abandonment-timeline time { margin-left: auto; color: #718497; font-size: 13px; }
+.abandonment-timeline p { margin: 0; white-space: pre-wrap; color: #1f3347; }
+.abandonment-timeline small { color: #9a6b00; }
+.abandonment-link { justify-self: start; padding: 0; border: 0; background: none; color: #155a8d; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+.abandonment-correction { display: grid; gap: 6px; }
+
+@media (max-width: 780px) {
+  .abandonment-summary, .abandonment-form-row { grid-template-columns: 1fr 1fr; }
+}
