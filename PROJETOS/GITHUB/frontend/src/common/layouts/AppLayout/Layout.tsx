@@ -463,7 +463,7 @@ export default function Layout() {
             </div>
           ) : null}
         </header>
-        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "benefits" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" || currentScreen === "abandonment" ? " is-fullwidth" : ""}${currentScreen === "employees" && ["processos", "demitidos"].includes(employeeTab || "") ? " employee-process-workspace" : ""}`}>
+        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "benefits" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" || currentScreen === "abandonment" || currentScreen === "vacation" ? " is-fullwidth" : ""}${currentScreen === "employees" && ["processos", "demitidos"].includes(employeeTab || "") ? " employee-process-workspace" : ""}${currentScreen === "vacation" ? " vacation-workspace" : ""}`}>
           <Outlet />
         </main>
         {domain.undoState ? (

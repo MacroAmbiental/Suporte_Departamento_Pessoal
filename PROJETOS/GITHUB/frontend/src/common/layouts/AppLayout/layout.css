@@ -408,3 +408,10 @@
   min-width: 0;
   padding-inline: clamp(12px, 1.2vw, 24px);
 }
+
+/* Férias: largura total, mas com respiro nas laterais. */
+.workspace.is-fullwidth.vacation-workspace,
+.app-shell.sidebar-collapsed .workspace.vacation-workspace {
+  padding-left: clamp(24px, 3vw, 64px);
+  padding-right: clamp(24px, 3vw, 64px);
+}

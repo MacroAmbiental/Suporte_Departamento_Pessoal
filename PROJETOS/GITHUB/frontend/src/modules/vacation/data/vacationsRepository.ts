@@ -28,7 +28,7 @@ export interface Vacation {
   updatedAt: string;
 }
 
-export type VacationBucket = "critico" | "limite" | "vencidas" | "emdia";
+export type VacationBucket = "proximo" | "iniciado" | "vencido" | "afastado" | "emdia";
 
 export async function loadVacations(): Promise<Vacation[]> {
   if (!firestore) return [];
@@ -98,6 +98,9 @@ function addToISO(iso: string, opts: { years?: number; months?: number; days?: n
   return d.toISOString().slice(0, 10);
 }
 
+// Regra da empresa: o limite de gozo é 11 meses após o fim do período aquisitivo (a CLT dá 12).
+export const VACATION_LIMIT_MONTHS = 11;
+
 export interface AcquisitionPeriod {
   index: number;
   year: number;
@@ -105,28 +108,81 @@ export interface AcquisitionPeriod {
   endISO: string;
   limitISO: string;
   complete: boolean;
+  // Art. 133 da CLT: período perdido (afastamento INSS > 6 meses ou licença remunerada > 30 dias).
+  lost?: { reason: string; returnISO: string };
+}
+
+export interface DateInterval {
+  start: string;
+  end: string;
+}
+
+// Afastamentos e faltas que mexem nas férias (CLT arts. 130 e 133).
+export interface VacationLeaveData {
+  inss: DateInterval[];
+  paidLicense: DateInterval[];
+  absenceDates: string[];
+  onLeaveToday: boolean;
+}
+
+export function addDaysISO(iso: string, days: number): string {
+  return addToISO(iso, { days });
+}
+
+function daysInclusive(startISO: string, endISO: string): number {
+  return Math.round((new Date(`${endISO}T00:00:00`).getTime() - new Date(`${startISO}T00:00:00`).getTime()) / 86400000) + 1;
+}
+
+// Dia em que os dias de afastamento dentro do período passam de maxDays (mesmo descontínuos) e o dia do retorno.
+function periodLoss(intervals: DateInterval[], startISO: string, endISO: string, maxDays: number) {
+  let total = 0;
+  for (const interval of [...intervals].sort((a, b) => a.start.localeCompare(b.start))) {
+    const from = interval.start > startISO ? interval.start : startISO;
+    const to = interval.end < endISO ? interval.end : endISO;
+    if (from > to) continue;
+    const length = daysInclusive(from, to);
+    if (total + length > maxDays) {
+      return { lossISO: addToISO(from, { days: maxDays - total }), returnISO: addToISO(interval.end, { days: 1 }) };
+    }
+    total += length;
+  }
+  return null;
 }
 
 export function buildAcquisitionPeriods(
   admissionDate: string | undefined,
   todayISO: string,
+  leave?: VacationLeaveData,
 ): AcquisitionPeriod[] {
   if (!admissionDate || !/^\d{4}-\d{2}-\d{2}$/.test(admissionDate)) return [];
   const periods: AcquisitionPeriod[] = [];
+  let startISO = admissionDate;
   for (let index = 0; index < 80; index += 1) {
-    const startISO = addToISO(admissionDate, { years: index });
     if (startISO > todayISO) break;
-    const nextStart = addToISO(admissionDate, { years: index + 1 });
+    const nextStart = addToISO(startISO, { years: 1 });
     const endISO = addToISO(nextStart, { days: -1 });
-    const limitISO = addToISO(endISO, { months: 12 });
+    const year = new Date(`${startISO}T00:00:00`).getFullYear();
+    const losses = leave ? [
+      { loss: periodLoss(leave.inss, startISO, endISO, 180), reason: "Afastamento pelo INSS por mais de 6 meses" },
+      { loss: periodLoss(leave.paidLicense, startISO, endISO, 30), reason: "Licença remunerada por mais de 30 dias" },
+    ].filter((item) => item.loss).sort((a, b) => a.loss!.lossISO.localeCompare(b.loss!.lossISO)) : [];
+    if (losses.length) {
+      const { loss, reason } = losses[0];
+      periods.push({ index, year, startISO, endISO: loss!.lossISO, limitISO: "", complete: true, lost: { reason, returnISO: loss!.returnISO } });
+      // Novo período aquisitivo só começa quando a pessoa volta ao serviço (art. 133, § 2º).
+      if (loss!.returnISO > todayISO) break;
+      startISO = loss!.returnISO;
+      continue;
+    }
     periods.push({
       index,
-      year: new Date(`${startISO}T00:00:00`).getFullYear(),
+      year,
       startISO,
       endISO,
-      limitISO,
+      limitISO: addToISO(endISO, { months: VACATION_LIMIT_MONTHS }),
       complete: endISO < todayISO,
     });
+    startISO = nextStart;
   }
   return periods.reverse();
 }
@@ -144,41 +200,87 @@ export function cltRightForAbsences(absences: number): CltRight {
   return { days: 30, lost: false };
 }
 
-export function vacationBucket(months: number): VacationBucket {
-  if (months >= 24) return "critico";
-  if (months >= 17) return "limite";
-  if (months >= 12) return "vencidas";
-  return "emdia";
+// Lançamentos que contam para um período aquisitivo: pelo ano informado ou, sem ano, pelo início dentro do
+// período concessivo legal (12 meses) — férias iniciadas no 12º mês continuam no período certo.
+export function vacationsForPeriod(period: AcquisitionPeriod, vacations: Vacation[]): Vacation[] {
+  const legalLimitISO = addToISO(period.endISO, { months: 12 });
+  return vacations.filter(
+    (v) =>
+      v.acquisitionYear === period.year ||
+      (!v.acquisitionYear && v.startDate && v.startDate >= period.startISO && v.startDate <= legalLimitISO),
+  );
+}
+
+// Proximidade do limite de gozo que entra em "Próximo ao limite".
+export const VACATION_NEAR_LIMIT_MONTHS = 5;
+export interface VacationStatus {
+  bucket: VacationBucket;
+  // Período mais antigo já completo que ainda tem dias a gozar (é ele que define a situação).
+  pendingPeriod?: AcquisitionPeriod;
+  pendingDays: number;
+}
+
+export function vacationStatus(
+  admissionDate: string | undefined,
+  vacations: Vacation[],
+  todayISO: string,
+  leave?: VacationLeaveData,
+): VacationStatus {
+  const completeOldestFirst = buildAcquisitionPeriods(admissionDate, todayISO, leave)
+    .filter((period) => period.complete)
+    .reverse();
+  for (const period of completeOldestFirst) {
+    if (period.lost) continue;
+    const absences = leave ? leave.absenceDates.filter((date) => date >= period.startISO && date <= period.endISO).length : 0;
+    const right = cltRightForAbsences(absences);
+    if (right.lost) continue;
+    const used = vacationsForPeriod(period, vacations).reduce((sum, v) => sum + (v.days || 0) + (v.daysSold || 0), 0);
+    const pendingDays = right.days - used;
+    if (pendingDays <= 0) continue;
+    const nearLimit = addToISO(todayISO, { months: VACATION_NEAR_LIMIT_MONTHS });
+    const bucket: VacationBucket = period.limitISO < todayISO ? "vencido"
+      : period.limitISO <= nearLimit ? "proximo"
+        : "iniciado";
+    return { bucket, pendingPeriod: period, pendingDays };
+  }
+  return { bucket: "emdia", pendingDays: 0 };
 }
 
 export const bucketMeta: Record<
   VacationBucket,
   { label: string; sub: string; color: string; bg: string; border: string }
 > = {
-  critico: {
-    label: "Férias vencida (crítico)",
-    sub: "Vencido há mais de 12 meses",
-    color: "#b91c1c",
-    bg: "#fef2f2",
-    border: "#fecaca",
-  },
-  limite: {
-    label: "Limite vencido",
-    sub: "Vencido há mais de 5 meses",
+  proximo: {
+    label: "Próximo ao limite",
+    sub: `Limite de gozo em até ${VACATION_NEAR_LIMIT_MONTHS} meses`,
     color: "#b45309",
     bg: "#fffbeb",
     border: "#fde68a",
   },
-  vencidas: {
-    label: "Vencidas",
-    sub: "Vencido há menos de 5 meses",
+  iniciado: {
+    label: "Iniciou o período",
+    sub: "1 ano completo, férias a tirar",
     color: "#1d4ed8",
     bg: "#eff6ff",
     border: "#bfdbfe",
   },
+  vencido: {
+    label: "Período vencido",
+    sub: "Limite de gozo já passou",
+    color: "#b91c1c",
+    bg: "#fef2f2",
+    border: "#fecaca",
+  },
+  afastado: {
+    label: "Afastado",
+    sub: "Afastamento ou licença em curso",
+    color: "#be185d",
+    bg: "#fdf2f8",
+    border: "#fbcfe8",
+  },
   emdia: {
     label: "Em dia",
-    sub: "Dentro do período",
+    sub: "Menos de 1 ano ou férias já tiradas",
     color: "#047857",
     bg: "#ecfdf5",
     border: "#a7f3d0",
