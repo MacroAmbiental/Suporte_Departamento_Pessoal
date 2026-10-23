@@ -166,3 +166,14 @@
   width: 100%;
   min-width: 0;
 }
+
+.multi-select-dropdown.has-label {
+  display: grid;
+  gap: 5px;
+}
+
+.multi-select-label {
+  color: #415469;
+  font-size: 12px;
+  font-weight: 900;
+}
