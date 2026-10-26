@@ -28,6 +28,7 @@ import type { AppScreen } from "@/types/domain";
 import { todayISO } from "@/utils/format";
 import { compareText } from "@/utils/sort";
 import logo from "@/assets/images/logo-empresas.png";
+import NewHiresMenu from "./NewHiresMenu";
 import "./layout.css";
 
 const navItems: {
@@ -456,6 +457,8 @@ export default function Layout() {
           </button>
           {user ? (
             <div className="topbar-actions">
+              {/* Só na lista de Funcionários (não em Processos/Demitidos). */}
+              {currentScreen === "employees" && !employeeTab && can("employees", "create") ? <NewHiresMenu /> : null}
               <div className="user-chip">
                 <div>{user.initials}</div>
                 <span><strong>{user.name}</strong><small>{user.position ? `${user.role} · ${user.position}` : user.role}</small></span>

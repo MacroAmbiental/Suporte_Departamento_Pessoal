@@ -63,6 +63,7 @@ import type {
 import { badgeClass, formatCurrency, formatDate, labelStatus, todayISO } from "@/utils/format";
 import { parseEmployeePdf } from "@/utils/pdfEmployeeImport";
 import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
+import { loadNewHireRh, newHireRhEmployeeDraft } from "@/modules/employees/data/newHiresRh";
 
 type UndoState = { message: string; undo: () => Promise<void> } | null;
 type EmployeeKind = "contract" | "company" | "diarist";
@@ -600,6 +601,8 @@ export default function Employees({
   showTerminatedOnly = false,
   initialCompanyIds = [],
   employeeKind,
+  initialNewHireRhId = "",
+  onInitialNewHireRhHandled,
 }: {
   initialEmployeeId?: string;
   initialModal?: "deactivate";
@@ -607,6 +610,9 @@ export default function Employees({
   showTerminatedOnly?: boolean;
   initialCompanyIds?: string[];
   employeeKind?: EmployeeScreenKind;
+  // "Novos contratados" (topo): abre o cadastro CLT preenchido com o que veio do RH.
+  initialNewHireRhId?: string;
+  onInitialNewHireRhHandled?: () => void;
 }) {
   const data = useDomainData();
   const employeeSource = useMemo(() => {
@@ -1055,6 +1061,26 @@ export default function Employees({
       setDeactivationEmployee(target);
     }
   }, [data.employees, employeeKind, initialEmployeeId, initialModal]);
+
+  useEffect(() => {
+    if (!initialNewHireRhId || !data.companies.length) return;
+    let cancelled = false;
+    loadNewHireRh(initialNewHireRhId)
+      .then((hire) => {
+        if (cancelled) return;
+        if (hire?.status === "pendente") startDraft(newHireRhEmployeeDraft(hire));
+        else window.alert(hire ? `${hire.nome} já foi cadastrado.` : "Contratação do RH não encontrada.");
+      })
+      .catch(() => {
+        if (!cancelled) window.alert("Não foi possível abrir a contratação do RH.");
+      })
+      .finally(() => {
+        if (!cancelled) onInitialNewHireRhHandled?.();
+      });
+    return () => { cancelled = true; };
+    // startDraft lê o estado atual do componente; reabrir só quando chega outro id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialNewHireRhId, data.companies.length]);
 
   useEffect(() => {
     if (!wizardOpen || !editingEmployeeId || !selectedFormUsesGroupStructure || !selectedFormGroup) return;
