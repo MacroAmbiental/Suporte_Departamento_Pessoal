@@ -15,11 +15,14 @@ import {
   loadVacations,
   monthsBetween,
   saveVacation,
-  vacationBucket,
   vacationReferenceDate,
+  vacationsForPeriod,
+  vacationStatus,
   type Vacation,
   type VacationBucket,
+  type VacationLeaveData,
 } from "@/modules/vacation/data/vacationsRepository";
+import { employeeVacationLeaveData, loadPointLeaveDays, type PointLeaveDays } from "@/modules/vacation/data/vacationLeaveData";
 import { loadConfirmedAbsencesForEmployee } from "@/modules/timekeeping/data/timeRecordsRepository";
 
 type CardKey = "todos" | VacationBucket | "programadas" | "feriasnow";
@@ -32,14 +35,17 @@ const cardOrder: {
   bg: string;
   border: string;
 }[] = [
-    { key: "critico", ...bucketMeta.critico },
-    { key: "limite", ...bucketMeta.limite },
-    { key: "vencidas", ...bucketMeta.vencidas },
+    { key: "proximo", ...bucketMeta.proximo },
+    { key: "iniciado", ...bucketMeta.iniciado },
+    { key: "vencido", ...bucketMeta.vencido },
+    { key: "afastado", ...bucketMeta.afastado, label: "Afastados" },
     { key: "emdia", ...bucketMeta.emdia, label: "Férias em dia" },
     { key: "todos", label: "Todos os funcionários", color: "#334155", bg: "#f1f5f9", border: "#cbd5e1" },
     { key: "feriasnow", label: "Funcionários de férias", sub: "De férias atualmente", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
     { key: "programadas", label: "Férias programadas", sub: "Início futuro", color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
   ];
+
+const bucketRank: Record<VacationBucket, number> = { vencido: 0, proximo: 1, iniciado: 2, afastado: 3, emdia: 4 };
 
 function daysBetweenInclusive(startISO: string, endISO: string): number {
   if (!startISO || !endISO) return 0;
@@ -69,7 +75,10 @@ export default function VacationManagement() {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<EmployeeKind | "todos">("todos");
   const [activeCard, setActiveCard] = useState<CardKey>(
-    (searchParams.get("card") as CardKey) || "todos",
+    () => {
+      const fromUrl = searchParams.get("card") as CardKey | null;
+      return fromUrl && cardOrder.some((card) => card.key === fromUrl) ? fromUrl : "todos";
+    },
   );
   const [editing, setEditing] = useState<Employee | null>(null);
   const [reportFrom, setReportFrom] = useState("");
@@ -91,6 +100,24 @@ export default function VacationManagement() {
     void refresh();
   }, []);
 
+  // Faltas confirmadas (art. 130) e afastamentos do ponto (art. 133) de todos, para a situação de cada um.
+  const [pointLeave, setPointLeave] = useState<PointLeaveDays | null>(null);
+  const [pointLeaveError, setPointLeaveError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadPointLeaveDays()
+      .then((result) => { if (!cancelled) setPointLeave(result); })
+      .catch((error) => {
+        console.warn("Não foi possível carregar faltas e afastamentos do ponto para as férias.", error);
+        if (!cancelled) setPointLeaveError(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+  const leaveByEmployee = useMemo(
+    () => new Map(allEmployees.map((employee) => [employee.id, employeeVacationLeaveData(employee, pointLeave, today)])),
+    [allEmployees, pointLeave, today],
+  );
+
   const vacationsByEmployee = useMemo(() => {
     const map = new Map<string, Vacation[]>();
     vacations.forEach((v) => {
@@ -110,33 +137,39 @@ export default function VacationManagement() {
         const hasScheduled = hasScheduledVacation(today, empVacations);
         const reference = vacationReferenceDate(employee.admissionDate, empVacations, today);
         const months = reference ? monthsBetween(reference, today) : 0;
-        // De férias agora → não conta como vencida (está resolvendo/gozando).
-        const bucket: VacationBucket = onVacationNow ? "emdia" : vacationBucket(months);
+        // Situação pelo período aquisitivo mais antigo com dias a gozar.
+        // De férias agora → não conta como pendente (está resolvendo/gozando); afastado sai do vencimento.
+        const leave = leaveByEmployee.get(employee.id);
+        const status = vacationStatus(employee.admissionDate, empVacations, today, leave);
+        const bucket: VacationBucket = onVacationNow ? "emdia" : leave?.onLeaveToday ? "afastado" : status.bucket;
         const lastVacation = [...empVacations].sort((a, b) =>
           (b.endDate || "").localeCompare(a.endDate || ""),
         )[0];
-        const limiteEmCurso = buildAcquisitionPeriods(employee.admissionDate, today)[0]?.limitISO || "";
-        return { employee, kind: employeeKindOf(employee), empVacations, reference, months, bucket, onVacationNow, hasScheduled, lastVacation, limiteEmCurso };
+        const limiteEmCurso = buildAcquisitionPeriods(employee.admissionDate, today, leave)[0]?.limitISO || "";
+        const pendingLimit = bucket === "emdia" || bucket === "afastado" ? "" : status.pendingPeriod?.limitISO || "";
+        return { employee, kind: employeeKindOf(employee), empVacations, reference, months, bucket, onVacationNow, hasScheduled, lastVacation, limiteEmCurso, pendingLimit };
       })
-      .sort((a, b) => b.months - a.months);
-  }, [allEmployees, vacationsByEmployee, today]);
+      // Mais urgente primeiro: vencidos, próximos do limite e com período iniciado, cada grupo pelo limite mais cedo.
+      .sort((a, b) =>
+        bucketRank[a.bucket] - bucketRank[b.bucket] ||
+        (a.pendingLimit || "9999").localeCompare(b.pendingLimit || "9999") ||
+        b.months - a.months);
+  }, [allEmployees, vacationsByEmployee, leaveByEmployee, today]);
 
   const counts = useMemo(() => {
     const scoped = rows.filter((r) => kindFilter === "todos" || r.kind === kindFilter);
     const c = {
-      critico: 0,
-      limite: 0,
-      vencidas: 0,
+      proximo: 0,
+      iniciado: 0,
+      vencido: 0,
+      afastado: 0,
       emdia: 0,
       todos: scoped.length,
       programadas: 0,
       feriasnow: 0,
     } as Record<CardKey, number>;
     scoped.forEach((r) => {
-      if (r.bucket === "critico") c.critico += 1;
-      else if (r.bucket === "limite") c.limite += 1;
-      else if (r.bucket === "vencidas") c.vencidas += 1;
-      else if (r.bucket === "emdia") c.emdia += 1;
+      c[r.bucket] += 1;
       if (r.onVacationNow) c.feriasnow += 1;
       if (r.hasScheduled) c.programadas += 1;
     });
@@ -226,13 +259,8 @@ export default function VacationManagement() {
             Registre férias, acompanhe vencimentos e sincronize com o Controle de Ponto.
           </p>
         </div>
-        <button className="btn btn-secondary" data-testid="vacation-report-btn" onClick={() => setReportOpen(true)}>
-          <CalendarDays size={16} /> Relatório de férias
-        </button>
-      </header>
-
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", margin: "18px 0 6px" }}>
-        <div style={{ position: "relative", flex: "1 1 280px", maxWidth: 360 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", flex: "1 1 520px" }}>
+        <div style={{ position: "relative", flex: "1 1 260px", maxWidth: 380 }}>
           <Search size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
           <input
             type="text"
@@ -243,7 +271,7 @@ export default function VacationManagement() {
             style={{ width: "100%", padding: "10px 12px 10px 36px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 14 }}
           />
         </div>
-        <label style={{ fontSize: 13, color: "#475569", display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ fontSize: 13, color: "#475569", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
           Tipo de contrato
           <select
             data-testid="vacation-kind-filter"
@@ -257,9 +285,13 @@ export default function VacationManagement() {
             <option value="diarist">{employeeKindLabels.diarist}</option>
           </select>
         </label>
-      </div>
+        <button className="btn btn-secondary" data-testid="vacation-report-btn" onClick={() => setReportOpen(true)} style={{ whiteSpace: "nowrap" }}>
+          <CalendarDays size={16} /> Relatório de férias
+        </button>
+        </div>
+      </header>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, margin: "6px 0 18px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, margin: "16px 0 16px" }}>
         {cardOrder.map((card) => {
           const active = activeCard === card.key;
           return (
@@ -291,13 +323,21 @@ export default function VacationManagement() {
         })}
       </div>
 
+      {!pointLeave ? (
+        <p style={{ margin: "-6px 0 12px", fontSize: 12, color: pointLeaveError ? "#b91c1c" : "#64748b" }}>
+          {pointLeaveError
+            ? "Não foi possível carregar faltas e afastamentos do ponto — situação calculada sem eles."
+            : "Carregando faltas e afastamentos do ponto…"}
+        </p>
+      ) : null}
+
       <div className="panel" style={{ borderRadius: 14, overflow: "hidden", border: "1px solid #e2e8f0" }}>
         {loading ? (
           <div style={{ padding: 24, color: "#64748b" }}>Carregando férias…</div>
         ) : filteredRows.length === 0 ? (
           <div style={{ padding: 24, color: "#64748b" }} data-testid="vacation-empty">Nenhum funcionário encontrado para este filtro.</div>
         ) : (
-          <table className="table" style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table className="table" style={{ width: "100%", borderCollapse: "collapse", whiteSpace: "nowrap" }}>
             <thead>
               <tr style={{ background: "#f8fafc", textAlign: "left", fontSize: 12, color: "#475569" }}>
                 <th style={{ padding: "10px 12px" }}>Funcionário</th>
@@ -321,7 +361,7 @@ export default function VacationManagement() {
                     onClick={() => setEditing(r.employee)}
                     style={{ borderTop: "1px solid #f1f5f9", cursor: "pointer" }}
                   >
-                    <td style={{ padding: "10px 12px", fontWeight: 600, color: "#0f172a" }}>
+                    <td style={{ padding: "10px 12px", fontWeight: 600, color: "#0f172a", whiteSpace: "normal" }}>
                       {r.employee.name}
                       {r.onVacationNow ? (
                         <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "2px 8px" }}>
@@ -342,7 +382,9 @@ export default function VacationManagement() {
                     <td style={{ padding: "10px 12px", color: "#334155" }}>{r.reference ? `${r.months} meses` : "—"}</td>
                     <td style={{ padding: "10px 12px", color: "#334155" }}>{r.reference ? formatDate(r.reference) : "—"}</td>
                     <td style={{ padding: "10px 12px", color: "#334155" }}>
-                      {r.limiteEmCurso ? (
+                      {r.pendingLimit ? (
+                        <span style={{ fontWeight: 600, color: meta.color }}>{formatDate(r.pendingLimit)}</span>
+                      ) : r.limiteEmCurso ? (
                         <span>
                           {formatDate(r.limiteEmCurso)}
                           <span style={{ marginLeft: 6, fontSize: 10, color: "#0891b2", fontWeight: 700 }}>(em curso)</span>
@@ -367,6 +409,7 @@ export default function VacationManagement() {
         <VacationEditorModal
           employee={editing}
           vacations={vacationsByEmployee.get(editing.id) || []}
+          leave={leaveByEmployee.get(editing.id)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             await refresh();
@@ -457,11 +500,13 @@ const inputStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid #c
 function VacationEditorModal({
   employee,
   vacations,
+  leave,
   onClose,
   onSaved,
 }: {
   employee: Employee;
   vacations: Vacation[];
+  leave: VacationLeaveData | undefined;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -528,8 +573,8 @@ function VacationEditorModal({
     return set;
   }, [employee.workScheduleDays]);
   const periods = useMemo(
-    () => buildAcquisitionPeriods(employee.admissionDate, today),
-    [employee.admissionDate, today],
+    () => buildAcquisitionPeriods(employee.admissionDate, today, leave),
+    [employee.admissionDate, leave, today],
   );
   const [absences, setAbsences] = useState<string[]>([]);
   const [loadingAbsences, setLoadingAbsences] = useState(true);
@@ -560,19 +605,17 @@ function VacationEditorModal({
   const periodRows = useMemo(
     () =>
       periods.map((p) => {
-        const count = absences.filter((d) => d >= p.startISO && d <= p.endISO).length;
-        const right = cltRightForAbsences(count);
-        const periodVacations = vacations.filter(
-          (v) =>
-            v.acquisitionYear === p.year ||
-            (!v.acquisitionYear && v.startDate && v.startDate >= p.startISO && v.startDate <= p.limitISO),
-        );
+        // Faltas do ponto + dias de suspensão do cadastro (art. 130); período perdido pelo art. 133 fica sem direito.
+        const allAbsences = new Set([...absences, ...(leave?.absenceDates || [])]);
+        const count = Array.from(allAbsences).filter((d) => d >= p.startISO && d <= p.endISO).length;
+        const right = p.lost ? { days: 0, lost: true } : cltRightForAbsences(count);
+        const periodVacations = vacationsForPeriod(p, vacations);
         const gozados = periodVacations.reduce((s, v) => s + (v.days || 0), 0);
         const vendidos = periodVacations.reduce((s, v) => s + (v.daysSold || 0), 0);
         const pendentes = right.lost ? 0 : Math.max(0, right.days - gozados - vendidos);
         return { period: p, count, right, periodVacations, gozados, vendidos, pendentes };
       }),
-    [periods, absences, vacations],
+    [periods, absences, leave, vacations],
   );
 
   const selectedPeriodRow = periodRows.find((r) => r.period.year === Number(acqYear));
@@ -598,7 +641,9 @@ function VacationEditorModal({
             .filter((v) => v.soldStartDate && v.soldEndDate)
             .map((v) => `${formatDate(v.soldStartDate!)} a ${formatDate(v.soldEndDate!)}`)
             .join("; ") || (vendidos ? `${vendidos} dias` : "—");
-        const direito = right.lost ? "0 — Direito perdido" : `${right.days} dias`;
+        const direito = period.lost
+          ? `0 — Perdido (art. 133): ${period.lost.reason}; novo período a partir de ${formatDate(period.lost.returnISO)}`
+          : right.lost ? "0 — Direito perdido" : `${right.days} dias`;
         const tdStyle = right.lost ? ' style="color:#b91c1c;font-weight:700"' : "";
         return `<tr><td>${formatDate(period.startISO)} a ${formatDate(period.endISO)}</td><td>${formatDate(period.limitISO)}</td><td style="text-align:center">${count}</td><td${tdStyle}>${direito}</td><td style="text-align:center">${gozados || 0}</td><td>${vendidasTxt}</td><td style="text-align:center">${pendentes}</td><td>${feriasTxt}</td></tr>`;
       })
@@ -885,10 +930,14 @@ function VacationEditorModal({
                           <span style={{ marginLeft: 6, fontSize: 10, color: "#0891b2", fontWeight: 700 }}>(em curso)</span>
                         ) : null}
                       </td>
-                      <td style={{ padding: "8px 10px" }}>{formatDate(period.limitISO)}</td>
+                      <td style={{ padding: "8px 10px" }}>{period.limitISO ? formatDate(period.limitISO) : "—"}</td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>{loadingAbsences ? "…" : count}</td>
                       <td style={{ padding: "8px 10px", fontWeight: 700, color: right.lost ? "#b91c1c" : "#0f172a" }}>
-                        {loadingAbsences ? "…" : right.lost ? "0 · Direito perdido" : `${right.days} dias`}
+                        {period.lost ? (
+                          <span title={`${period.lost.reason}. Novo período aquisitivo a partir do retorno (${formatDate(period.lost.returnISO)}).`}>
+                            0 · Perdido (art. 133)
+                          </span>
+                        ) : loadingAbsences ? "…" : right.lost ? "0 · Direito perdido" : `${right.days} dias`}
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>{gozados || 0}</td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>{vendidos || 0}</td>

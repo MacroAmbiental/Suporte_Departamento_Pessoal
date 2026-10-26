@@ -14,6 +14,8 @@ type MultiSelectProps = {
   onChange: (nextValue: string[]) => void;
   placeholder?: string;
   searchPlaceholder?: string;
+  // Mostra o label acima da caixa, como os demais campos de um painel de filtros.
+  showLabel?: boolean;
 };
 
 export default function MultiSelect({
@@ -23,6 +25,7 @@ export default function MultiSelect({
   onChange,
   placeholder,
   searchPlaceholder = "Buscar",
+  showLabel = false,
 }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -75,7 +78,8 @@ export default function MultiSelect({
   }
 
   return (
-    <div className="multi-select-dropdown" ref={containerRef}>
+    <div className={`multi-select-dropdown${showLabel ? " has-label" : ""}`} ref={containerRef}>
+      {showLabel ? <span className="multi-select-label">{label}</span> : null}
       <div
         className="multi-select-control"
         role="button"

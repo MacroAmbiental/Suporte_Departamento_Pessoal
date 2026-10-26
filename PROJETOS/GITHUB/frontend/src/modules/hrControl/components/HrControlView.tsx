@@ -10,7 +10,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ClearFiltersButton from "@/common/components/ClearFiltersButton";
 import MultiSelect from "@/common/components/MultiSelect";
 import EmployeesPagination from "@/modules/employees/components/EmployeesPagination";
@@ -61,6 +61,13 @@ import "./HrControlView.css";
 export function HrControlView(props: HrControlController) {
   // Aba H extra: funcionário clicado no gráfico por funcionário troca "por mês" pelo gráfico dia a dia.
   const [overtimeEmployee, setOvertimeEmployee] = useState<{ id: string; name: string } | null>(null);
+  // Equipe clicada em "por equipe": o gráfico por funcionário mostra só as horas feitas naquela equipe.
+  const [overtimeTeam, setOvertimeTeam] = useState<{ key: string; label: string } | null>(null);
+  const { baseFilteredRecords: allOvertimeRecords, teamGroupFor, employeeById: overtimeEmployeeById } = props;
+  const overtimeTeamRecords = useMemo(() => overtimeTeam
+    ? allOvertimeRecords.filter((record) => teamGroupFor(record, overtimeEmployeeById.get(record.employeeId)).key === overtimeTeam.key)
+    : allOvertimeRecords,
+  [allOvertimeRecords, overtimeEmployeeById, overtimeTeam, teamGroupFor]);
   const {
     setPeriodMode,
     setActiveView,
@@ -520,6 +527,7 @@ export function HrControlView(props: HrControlController) {
           </select>
         </label>
         <MultiSelect
+          showLabel
           label="Funcionários"
           placeholder="Funcionários"
           value={employeeIds}
@@ -527,6 +535,7 @@ export function HrControlView(props: HrControlController) {
           options={employeeOptions}
         />
         <MultiSelect
+          showLabel
           label="Função"
           placeholder="Função"
           value={functionKeys}
@@ -534,6 +543,7 @@ export function HrControlView(props: HrControlController) {
           options={functionOptions}
         />
         <MultiSelect
+          showLabel
           label="CPF"
           placeholder="CPF"
           value={cpfValues}
@@ -541,6 +551,7 @@ export function HrControlView(props: HrControlController) {
           options={cpfOptions}
         />
         <MultiSelect
+          showLabel
           label="Departamento"
           placeholder="Departamento"
           value={departmentIds}
@@ -552,6 +563,7 @@ export function HrControlView(props: HrControlController) {
           options={departmentOptions}
         />
         <MultiSelect
+          showLabel
           label="Setor"
           placeholder="Setor"
           value={sectorIds}
@@ -562,6 +574,7 @@ export function HrControlView(props: HrControlController) {
           options={sectorOptions}
         />
         <MultiSelect
+          showLabel
           label="Subsetor"
           placeholder="Subsetor"
           value={subsectorIds}
@@ -569,6 +582,7 @@ export function HrControlView(props: HrControlController) {
           options={subsectorOptions}
         />
         <MultiSelect
+          showLabel
           label="Equipe do dia"
           placeholder="Equipe do dia"
           value={teamIds}
@@ -577,6 +591,7 @@ export function HrControlView(props: HrControlController) {
         />
         {activeView === "absenceTypes" ? (
           <MultiSelect
+            showLabel
             label="Tipo de falta"
             placeholder="Tipo de falta"
             value={absenceTypeFilters}
@@ -586,6 +601,7 @@ export function HrControlView(props: HrControlController) {
         ) : null}
         {activeView === "cids" ? (
           <MultiSelect
+            showLabel
             label="Categoria CID"
             placeholder="Categoria CID"
             value={cidCategoryFilters}
@@ -782,8 +798,8 @@ export function HrControlView(props: HrControlController) {
             <section className="hr-chart-panel" onDoubleClick={() => openMonthlySettings("monthlyPercent")}>
               <header className="hr-chart-header">
                 <div>
-                <h2><ChartColumn size={18} />Tipos selecionados / dias previstos do mês (%)</h2>
-                  <span> · 12 meses</span>
+                  <h2><ChartColumn size={18} /> Tipos selecionados / dias previstos do mês (%)</h2>
+                  <span>Últimos 12 meses · {monthChartLabel(monthlyKeys[0] || monthKey(monthAnchorDate))} a {monthChartLabel(monthlyKeys[monthlyKeys.length - 1] || monthKey(monthAnchorDate))}</span>
                 </div>
                 <button type="button" className="hr-chart-settings-button" onClick={() => openMonthlySettings("monthlyPercent")}><Settings2 size={16} /> Personalizar</button>
               </header>
@@ -800,10 +816,19 @@ export function HrControlView(props: HrControlController) {
             <header className="hr-chart-header">
               <div>
                 <h2><ChartColumn size={18} /> Horas extras por equipe do dia</h2>
-                <span>{periodText}</span>
+                <span>{periodText} · clique em uma equipe para ver quem fez as horas</span>
               </div>
             </header>
-            <HorizontalBarChart rows={overtimeByTeam} formatter={formatHours} />
+            <HorizontalBarChart
+              rows={overtimeByTeam}
+              formatter={formatHours}
+              selectedId={overtimeTeam?.key}
+              onSelect={(row) => {
+                if (!row.id) return;
+                setOvertimeTeam((current) => current?.key === row.id ? null : { key: row.id!, label: row.label });
+                setOvertimeEmployee(null);
+              }}
+            />
           </section>
 
           {overtimeEmployee ? (() => {
@@ -814,7 +839,7 @@ export function HrControlView(props: HrControlController) {
                   <div>
                     <h2><ChartColumn size={18} /> Horas extras por dia — {overtimeEmployee.name}</h2>
                     <span>
-                      {formatDate(dayWindow.start)} até {formatDate(dayWindow.end)}
+                      {overtimeTeam ? `Na equipe ${overtimeTeam.label} · ` : ""}{formatDate(dayWindow.start)} até {formatDate(dayWindow.end)}
                       {dayWindow.truncated ? ` · últimos ${DAILY_OVERTIME_MAX_DAYS} dias do período` : ""}
                     </span>
                   </div>
@@ -822,7 +847,7 @@ export function HrControlView(props: HrControlController) {
                     <X size={15} /> Voltar para por mês
                   </button>
                 </header>
-                <EmployeeDailyOvertimeChart employeeId={overtimeEmployee.id} records={baseFilteredRecords} startDate={startDate} endDate={endDate} />
+                <EmployeeDailyOvertimeChart employeeId={overtimeEmployee.id} records={overtimeTeamRecords} startDate={startDate} endDate={endDate} />
               </section>
             );
           })() : (
@@ -840,13 +865,20 @@ export function HrControlView(props: HrControlController) {
           <section className="hr-chart-panel hr-wide-chart">
             <header className="hr-chart-header">
               <div>
-                <h2><ChartColumn size={18} /> Horas extras por funcionário</h2>
-                <span>Clique em um nome para ver as horas extras dele dia a dia</span>
+                <h2><ChartColumn size={18} /> Horas extras por funcionário{overtimeTeam ? ` — ${overtimeTeam.label}` : ""}</h2>
+                <span>
+                  {overtimeTeam ? "Horas feitas nesta equipe no período · " : ""}Clique em um nome para ver as horas extras dele dia a dia
+                </span>
               </div>
+              {overtimeTeam ? (
+                <button type="button" className="hr-chart-settings-button" onClick={() => setOvertimeTeam(null)}>
+                  <X size={15} /> Mostrar todas as equipes
+                </button>
+              ) : null}
             </header>
             <EmployeeOvertimeChart
               employees={baseEmployees}
-              records={baseFilteredRecords}
+              records={overtimeTeamRecords}
               selectedEmployeeId={overtimeEmployee?.id}
               onSelectEmployee={(id, name) => setOvertimeEmployee((current) => current?.id === id ? null : { id, name })}
             />

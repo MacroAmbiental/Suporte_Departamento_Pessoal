@@ -732,9 +732,22 @@ export function countAbsenteeismPersonDays(params: {
   return total;
 }
 
-export function recordDayTeamLabel(record: TimeRecord, employee: Employee | undefined, teamById: Map<string, { name: string }>) {
-  const teamId = recordDayTeamId(record, employee);
-  return record.dayTeamName || teamById.get(teamId)?.name || "Sem equipe";
+export type OrgUnitNames = {
+  subsectors: Map<string, string>;
+  sectors: Map<string, string>;
+  departments: Map<string, string>;
+};
+
+// Para quem não tem equipe: a unidade mais específica que houver (subsetor, setor ou departamento).
+// Sem registro (dia previsto sem ponto), usa só o cadastro do funcionário.
+export function recordOrgUnit(record: TimeRecord | undefined, employee: Employee | undefined, names: OrgUnitNames) {
+  const subsector = record?.subsectorName?.trim() || names.subsectors.get(record?.subsectorId || employee?.subsectorId || "");
+  if (subsector) return { name: subsector, level: "subsetor" };
+  const sector = record?.sectorName?.trim() || names.sectors.get(record?.sectorId || employee?.sectorId || "");
+  if (sector) return { name: sector, level: "setor" };
+  const department = record?.departmentName?.trim() || names.departments.get(record?.departmentId || employee?.departmentId || "");
+  if (department) return { name: department, level: "departamento" };
+  return null;
 }
 
 export function employeeMatchesDetailFilters(employee: Employee, filters: HrDetailFilterSets) {

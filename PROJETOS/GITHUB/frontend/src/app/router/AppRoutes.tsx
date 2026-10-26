@@ -17,6 +17,7 @@ const screenComponents: Record<AppScreen, LazyExoticComponent<ComponentType>> = 
   timekeeping: lazy(() => import("@/modules/timekeeping/pages/TimekeepingPage")),
   afastados: lazy(() => import("@/modules/afastados/pages/AfastadosPage")),
   hrControl: lazy(() => import("@/modules/hrControl/pages/HrControl")),
+  abandonment: lazy(() => import("@/modules/hrControl/abandonment/AbandonmentPage")),
   talentBank: lazy(() => import("@/modules/talentBank/pages/TalentBank")),
   notifications: lazy(() => import("@/modules/notifications/pages/NotificationsPage")),
   monitoring: lazy(() => import("@/modules/monitoring/pages/Monitoring")),
@@ -76,6 +77,7 @@ export default function AppRoutes() {
         <Route path="afastados" element={<Navigate to={securePath("afastados")} replace />} />
         <Route path="hr-control" element={<Navigate to={securePath("hrControl")} replace />} />
         <Route path="controle-rh" element={<Navigate to={securePath("hrControl")} replace />} />
+        <Route path="processo-abandono" element={<Navigate to={securePath("abandonment")} replace />} />
         <Route path="talent-bank" element={<Navigate to="/app" replace />} />
         <Route path="banco-talentos" element={<Navigate to="/app" replace />} />
         <Route path="notifications" element={<Navigate to={securePath("notifications")} replace />} />

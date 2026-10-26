@@ -82,7 +82,8 @@ import {
   recordSubsectorId,
   recordFunctionKey,
   recordDayTeamId,
-  recordDayTeamLabel,
+  recordOrgUnit,
+  type OrgUnitNames,
   employeeMatchesDetailFilters,
   recordMatchesDetailFilters,
   savedDayMatchesCompany,
@@ -314,10 +315,36 @@ export function useHrControl() {
     };
   }, [periodMode]);
 
+  // Equipes da coleção teams e da estrutura de grupos (companyGroupUnits), que vale desde 14/10.
   const teamById = useMemo(
-    () => new Map(data.teams.map((team) => [team.id, team])),
-    [data.teams],
+    () => new Map<string, { name: string }>([
+      ...data.teams.map((team) => [team.id, team] as const),
+      ...data.companyGroupUnits.filter((unit) => unit.type === "team").map((unit) => [unit.id, unit] as const),
+    ]),
+    [data.companyGroupUnits, data.teams],
   );
+  const orgUnitNames = useMemo<OrgUnitNames>(() => {
+    const byType = (type: "department" | "sector" | "subsector", items: Array<{ id: string; name: string }>) => new Map([
+      ...items.map((item) => [item.id, item.name?.trim() || ""] as const),
+      ...data.companyGroupUnits.filter((unit) => unit.type === type).map((unit) => [unit.id, unit.name?.trim() || ""] as const),
+    ]);
+    return {
+      departments: byType("department", data.departments),
+      sectors: byType("sector", data.sectors),
+      subsectors: byType("subsector", data.subsectors),
+    };
+  }, [data.companyGroupUnits, data.departments, data.sectors, data.subsectors]);
+  // Grupo "por equipe" dos gráficos: a equipe do dia; sem equipe, o subsetor/setor/departamento.
+  // A mesma chave vale para faltas, dias previstos e horas extras, para os percentuais baterem.
+  const teamGroupFor = useCallback((record: TimeRecord | undefined, employee: Employee | undefined) => {
+    const teamId = record ? recordDayTeamId(record, employee) : employee?.teamId || "";
+    const teamName = record?.dayTeamName || teamById.get(teamId)?.name;
+    if (teamName) return { key: teamName, label: teamName, detail: undefined as string | undefined };
+    const unit = teamId ? null : recordOrgUnit(record, employee, orgUnitNames);
+    if (!unit) return { key: "Sem equipe", label: "Sem equipe", detail: undefined as string | undefined };
+    const detail = `Sem equipe · ${unit.level}`;
+    return { key: `${detail}:${unit.name}`, label: unit.name, detail };
+  }, [orgUnitNames, teamById]);
   const employeeById = useMemo(
     () => new Map(data.employees.map((employee) => [employee.id, employee])),
     [data.employees],
@@ -997,6 +1024,7 @@ export function useHrControl() {
 
   const expectedWorkDays = useMemo(() => {
     const byTeam = new Map<string, number>();
+    const teamGroups = new Map<string, { label: string; detail?: string }>();
     const byMonth = new Map<string, number>();
     const byEmployee = new Map<string, number>();
     const savedUsefulDates = new Set<string>();
@@ -1011,25 +1039,24 @@ export function useHrControl() {
         const teamId = record ? recordDayTeamId(record, employee) : employee.teamId || "";
         if (selectedTeamIds.size && !selectedTeamIds.has(teamId)) return;
 
-        const teamLabel = record
-          ? recordDayTeamLabel(record, employee, teamById)
-          : teamById.get(teamId)?.name || "Sem equipe";
+        const group = teamGroupFor(record, employee);
         const month = monthKey(date);
         total += 1;
         byEmployee.set(employee.id, (byEmployee.get(employee.id) || 0) + 1);
         savedUsefulDates.add(date);
-        byTeam.set(teamLabel, (byTeam.get(teamLabel) || 0) + 1);
+        byTeam.set(group.key, (byTeam.get(group.key) || 0) + 1);
+        teamGroups.set(group.key, group);
         byMonth.set(month, (byMonth.get(month) || 0) + 1);
       });
     });
 
-    return { total, savedUsefulDateCount: savedUsefulDates.size, byTeam, byMonth, byEmployee };
+    return { total, savedUsefulDateCount: savedUsefulDates.size, byTeam, teamGroups, byMonth, byEmployee };
   }, [
     activeDates,
     baseEmployees,
     recordByEmployeeDate,
     selectedTeamIds,
-    teamById,
+    teamGroupFor,
     timekeepingSettingsByCompanyId,
   ]);
 
@@ -1054,7 +1081,11 @@ export function useHrControl() {
     activeMonitoringEmployeeIds.forEach((employeeId) => {
       const statusByDate = statusByEmployee.get(employeeId);
       if (!statusByDate) return;
-      const dates = Array.from(statusByDate.keys()).sort().reverse();
+      // Falta pendente de confirmação não soma nem corta a sequência (mesma regra do processo de abandono).
+      const dates = Array.from(statusByDate.keys())
+        .filter((date) => statusByDate.get(date) !== "absence_pending")
+        .sort()
+        .reverse();
 
       if (!dates.length) return;
       const latestDate = dates[0];
@@ -1138,21 +1169,22 @@ export function useHrControl() {
   }
 
   const overtimeByTeam = useMemo<ChartRow[]>(() => {
-    const totals = new Map<string, number>();
+    const totals = new Map<string, ChartRow>();
 
     baseFilteredRecords.forEach((record) => {
       const hours = overtimeHours(record);
       if (hours <= 0) return;
-      const employee = employeeById.get(record.employeeId);
-      const label = recordDayTeamLabel(record, employee, teamById);
-      totals.set(label, (totals.get(label) || 0) + hours);
+      // Sem equipe: cada subsetor/setor/departamento aparece com as suas horas, em vez de um "Sem equipe" único.
+      const group = teamGroupFor(record, employeeById.get(record.employeeId));
+      const current = totals.get(group.key) || { id: group.key, label: group.label, value: 0, detail: group.detail, color: group.detail ? "#93c7ee" : "#b9ee93" };
+      current.value += hours;
+      totals.set(group.key, current);
     });
 
-    return Array.from(totals.entries())
-      .map(([label, value]) => ({ label, value, color: "#b9ee93" }))
-      .sort((left, right) => right.value - left.value || compareText(left.label, right.label))
-      .slice(0, 36);
-  }, [baseFilteredRecords, employeeById, teamById]);
+    // Sem corte: a lista rola, e as unidades sem equipe com poucas horas também precisam aparecer.
+    return Array.from(totals.values())
+      .sort((left, right) => right.value - left.value || compareText(left.label, right.label));
+  }, [baseFilteredRecords, employeeById, teamGroupFor]);
 
   const overtimeByMonth = useMemo<ChartRow[]>(() => {
     const totals = new Map<string, number>();
@@ -1193,45 +1225,47 @@ export function useHrControl() {
   }, [baseFilteredRecords, customRangeActive, endDate, monthAnchorDate, restrictCompanyScope, savedDayTables, selectedCompanyIds, startDate]);
 
   const teamAbsenceRows = useMemo<ChartRow[]>(() => {
-    const totals = new Map<string, number>();
+    const totals = new Map<string, ChartRow>();
 
     classifiedRecords.forEach(({ record }) => {
-      const employee = employeeById.get(record.employeeId);
-      const label = recordDayTeamLabel(record, employee, teamById);
-      totals.set(label, (totals.get(label) || 0) + 1);
+      const group = teamGroupFor(record, employeeById.get(record.employeeId));
+      const current = totals.get(group.key) || { label: group.label, detail: group.detail, value: 0, color: group.detail ? "#93c7ee" : "#59e4a2" };
+      current.value += 1;
+      totals.set(group.key, current);
     });
 
-    return Array.from(totals.entries())
-      .map(([label, value]) => ({ label, value, color: "#59e4a2" }))
-      .sort((left, right) => right.value - left.value || compareText(left.label, right.label))
-      .slice(0, 20);
-  }, [classifiedRecords, employeeById, teamById]);
+    // Sem corte: a lista rola, e as unidades sem equipe também precisam aparecer.
+    return Array.from(totals.values())
+      .sort((left, right) => right.value - left.value || compareText(left.label, right.label));
+  }, [classifiedRecords, employeeById, teamGroupFor]);
 
   const teamAbsencePercentRows = useMemo<ChartRow[]>(() => {
     const missedByTeam = new Map<string, number>();
+    const groups = new Map(expectedWorkDays.teamGroups);
 
     classifiedRecords.forEach(({ record }) => {
-      const employee = employeeById.get(record.employeeId);
-      const label = recordDayTeamLabel(record, employee, teamById);
-      missedByTeam.set(label, (missedByTeam.get(label) || 0) + 1);
+      const group = teamGroupFor(record, employeeById.get(record.employeeId));
+      missedByTeam.set(group.key, (missedByTeam.get(group.key) || 0) + 1);
+      groups.set(group.key, group);
     });
 
-    const labels = new Set([...missedByTeam.keys(), ...expectedWorkDays.byTeam.keys()]);
-    return Array.from(labels)
-      .map((label) => {
-        const missed = missedByTeam.get(label) || 0;
-        const worked = expectedWorkDays.byTeam.get(label) || 0;
+    const keys = new Set([...missedByTeam.keys(), ...expectedWorkDays.byTeam.keys()]);
+    return Array.from(keys)
+      .map((key) => {
+        const missed = missedByTeam.get(key) || 0;
+        const worked = expectedWorkDays.byTeam.get(key) || 0;
+        const group = groups.get(key);
+        const counts = `${formatInteger(missed)} falta(s) + atestado(s) / ${formatInteger(worked)} dia(s) previsto(s)`;
         return {
-        label,
-        value: worked ? (missed / worked) * 100 : 0,
-        detail: `${formatInteger(missed)} falta(s) + atestado(s) / ${formatInteger(worked)} dia(s) previsto(s)`,
-        color: "#1f95ed",
+          label: group?.label || key,
+          value: worked ? (missed / worked) * 100 : 0,
+          detail: group?.detail ? `${group.detail} — ${counts}` : counts,
+          color: group?.detail ? "#93c7ee" : "#1f95ed",
         };
       })
       .filter((row) => row.value > 0)
-      .sort((left, right) => right.value - left.value || compareText(left.label, right.label))
-      .slice(0, 20);
-  }, [classifiedRecords, employeeById, expectedWorkDays, teamById]);
+      .sort((left, right) => right.value - left.value || compareText(left.label, right.label));
+  }, [classifiedRecords, employeeById, expectedWorkDays, teamGroupFor]);
 
   const monthlyExpectedDaysByMonth = useMemo(() => {
     const totals = new Map<string, number>();
@@ -1969,6 +2003,7 @@ export function useHrControl() {
     invalidRange,
     calendarDays,
     teamById,
+    teamGroupFor,
     employeeById,
     groupOptions,
     defaultGroupId,

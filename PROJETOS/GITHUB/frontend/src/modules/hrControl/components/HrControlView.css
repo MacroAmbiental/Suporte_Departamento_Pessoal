@@ -32,3 +32,73 @@
 .hr-daily-column-chart .hr-month-percent-column b {
   font-size: 10px;
 }
+
+/* ==========================================================================
+   Ajuste visual do Controle RH (22/10). O sistema todo roda com zoom 0.75
+   (--app-density-scale), então cada px daqui aparece 25% menor na tela.
+   ========================================================================== */
+
+/* Título e subtítulo dos gráficos em linhas separadas (antes ficavam colados). */
+.hr-control-page .hr-chart-header > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hr-control-page .hr-chart-header h2 { font-size: 19px; }
+.hr-control-page .hr-chart-header span { margin-top: 0; font-size: 14px; font-weight: 700; }
+
+/* Filtros: todos com rótulo em cima, mesma altura e alinhados pela base. */
+.hr-control-page .hr-control-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 16px;
+}
+
+.hr-control-page .hr-control-filters > * { flex: 1 1 150px; min-width: 0; }
+
+.hr-control-page .hr-control-filters > svg:first-child { display: none; }
+
+.hr-control-page .hr-date-label,
+.hr-control-page .multi-select-label,
+.hr-control-page .hr-control-filters .field,
+.hr-control-page .hr-scope-controls .field {
+  font-size: 13px;
+}
+
+.hr-control-page .hr-control-filters .hr-date-trigger,
+.hr-control-page .hr-control-filters select,
+.hr-control-page .hr-scope-controls select,
+.hr-control-page .hr-control-filters .multi-select-control {
+  height: 42px;
+  min-height: 42px;
+  font-size: 15px;
+}
+
+.hr-control-page .hr-control-filters .multi-select-placeholder { font-size: 15px; }
+
+.hr-control-page .hr-control-filters .clear-filters-btn {
+  flex: 0 0 52px;
+  width: 52px;
+  height: 42px;
+}
+
+.hr-control-page .hr-screen-tabs button { font-size: 15px; }
+.hr-control-page .hr-load-badge { font-size: 13px; }
+
+/* Cards de indicadores. */
+.hr-control-page .hr-summary-metrics .hr-metric-copy > span { font-size: 13px; }
+.hr-control-page .hr-summary-metrics .hr-metric-trend b { font-size: 14px; }
+.hr-control-page .hr-summary-metrics .hr-card-year { font-size: 12px; }
+
+/* Textos dentro dos gráficos. */
+.hr-control-page .hr-bar-label,
+.hr-control-page .hr-bar-value { font-size: 14px; }
+.hr-control-page .hr-bar-detail { font-size: 13px; }
+.hr-control-page .hr-chart-legend { font-size: 13px; }
+.hr-control-page .hr-month-percent-column strong,
+.hr-control-page .hr-month-percent-column b { font-size: 13px; }
+.hr-control-page .hr-daily-column-chart .hr-month-percent-column b { font-size: 12px; }

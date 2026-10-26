@@ -28,6 +28,7 @@ export type AppScreen =
   | "timekeeping"
   | "afastados"
   | "hrControl"
+  | "abandonment"
   | "talentBank"
   | "notifications"
   | "monitoring"
