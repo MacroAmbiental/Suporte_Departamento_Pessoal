@@ -66,6 +66,7 @@ import {
 } from "@/modules/timekeeping/data/timekeepingDayRepository";
 import useCreateShortcut from "@/hooks/useCreateShortcut";
 import { useAuth } from "@/hooks/useAuth";
+import { gravarFlagsComContaTecnica } from "@/modules/timekeeping/services/secullumTechnicalAuth";
 import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
@@ -130,9 +131,9 @@ function employeeProcessBadge(employee: Employee, date: string) {
   const mode = String(fields.terminationMode || "");
   const end = String(
     fields.noticeEndDate ||
-      fields.scheduledDeactivationDate ||
-      fields.deactivationEffectiveDate ||
-      "",
+    fields.scheduledDeactivationDate ||
+    fields.deactivationEffectiveDate ||
+    "",
   );
   const label = terminationModes[mode as keyof typeof terminationModes];
 
@@ -141,8 +142,8 @@ function employeeProcessBadge(employee: Employee, date: string) {
   if (label && (!end || date <= end)) {
     const reduction =
       fields.noticeReductionApplies === "true" &&
-      fields.noticeReduction === "hours" &&
-      noticeWorkAdjustment(employee, date) === "hours"
+        fields.noticeReduction === "hours" &&
+        noticeWorkAdjustment(employee, date) === "hours"
         ? " · redução de 2h/dia"
         : "";
 
@@ -204,6 +205,20 @@ const baseColumns = [
     systemField: "employeeKind",
     readOnly: true,
     width: 190,
+    wrap: false,
+  },
+  {
+    key: "neutro",
+    label: "NEUTRO",
+    type: "text" as const,
+    width: 128,
+    wrap: false,
+  },
+  {
+    key: "compensado",
+    label: "COMPENSADO",
+    type: "text" as const,
+    width: 128,
     wrap: false,
   },
   {
@@ -1255,6 +1270,8 @@ type SecullumOriginCode =
   | "secullum";
 
 type SecullumDayRow = {
+  neutro?: boolean | null;
+  compensado?: boolean | null;
   entrada1: string;
   saida1: string;
   entrada2: string;
@@ -1267,6 +1284,42 @@ type SecullumDayRow = {
     saida2?: string;
   };
 };
+
+// Ocorrências textuais do cartão ponto não são horários. Não deduzir
+// "Folga" para valores desconhecidos: eles devem ser conferidos pelo DP.
+// Regras aprovadas pelo DP para as duas opções de cálculo.
+const secullumFlagsOffStatuses = new Set<string>([
+  "vacation", "day_off", "holiday", "absence_confirmed", "medical_certificate",
+]);
+
+function secullumExpectedFlagForStatus(status: string): boolean | null {
+  if (secullumFlagsOffStatuses.has(status)) return false;
+  // Aplicar vermelho no dia normal; a decisão de negócio para o POST continua explícita.
+  if (status === "present") return true;
+  return null;
+}
+
+function secullumOccurrenceStatus(value: unknown): AttendanceStatus | null {
+  const key = String(value ?? "").trim().normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
+  const statuses: Record<string, AttendanceStatus> = {
+    FERIAS: "vacation", FOLGA: "day_off", FERIADO: "holiday",
+    ATESTADO: "medical_certificate", ATEST: "medical_certificate",
+    AFASTOU: "leave", AFASTADO: "leave", DSR: "dsr",
+    FALTA: "absence_pending",
+  };
+  return statuses[key] ?? null;
+}
+
+const secullumDayFields = ["entrada1", "saida1", "entrada2", "saida2"] as const;
+
+function isSecullumClockTime(value: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value.trim());
+}
+
+function requiresSecullumFlagsOff(status?: string): boolean {
+  return ["holiday", "vacation", "day_off", "absence_confirmed", "medical_certificate"].includes(status || "");
+}
 
 const SECULLUM_ORIGIN_COLORS: Record<SecullumOriginCode, string> = {
   celular: "#0ea5e9",
@@ -1457,7 +1510,7 @@ function calculateSecullumMetrics(
   const normalMinutes = Math.min(accountedMinutes, normalLimitMinutes);
   const faltaMinutes = Math.max(normalLimitMinutes - accountedMinutes, 0);
   const extraMinutes = Math.max(accountedMinutes - normalLimitMinutes, 0);
-  
+
   return {
     normais: normalMinutes > 0 ? minutesToSecullumTime(normalMinutes) : "00:00",
     faltas: minutesToSecullumTime(faltaMinutes, true),
@@ -1850,12 +1903,12 @@ function createBaseDisplayRecord(
   const status = leaveDay
     ? "leave"
     : noticeAdjustment === "leave" && (!existing?.status || isFullDayAbsenceStatus(existing.status)) ? "day_off" :
-    existing?.status ||
-    (isHoliday(date, settings)
-      ? "holiday"
-      : normalLimitMinutes <= 0
-        ? "dsr"
-        : "absence_pending");
+      existing?.status ||
+      (isHoliday(date, settings)
+        ? "holiday"
+        : normalLimitMinutes <= 0
+          ? "dsr"
+          : "absence_pending");
   const checkIn = hasFilledTimeValue(existing?.checkIn)
     ? excelTimeToText(existing?.checkIn) || String(existing?.checkIn)
     : "00:00";
@@ -2935,6 +2988,13 @@ export default function Timekeeping() {
     const startIndex = (safeCurrentPage - 1) * pageSize;
     return originFilteredEmployees.slice(startIndex, startIndex + pageSize);
   }, [originFilteredEmployees, pageSize, safeCurrentPage]);
+  // Fallback de leitura somente da pagina visivel; a API externa nem sempre
+  // devolve dias sem batidas, embora as flags existam no Cartao Ponto.
+  const cpfsPaginaSecullum = paginatedEmployees
+    .map((employee) => String(employee.cpf || "").replace(/\D/g, ""))
+    .filter((cpf) => cpf.length === 11);
+  const cpfsPaginaSecullumKey = [...new Set(cpfsPaginaSecullum)].sort().join(",");
+
   const pageStart = originFilteredEmployees.length
     ? (safeCurrentPage - 1) * pageSize + 1
     : 0;
@@ -3908,6 +3968,94 @@ export default function Timekeeping() {
         ...record,
         updatedAt: now,
       }));
+      // Sincronização das flags: somente quando o usuário realmente editou
+      // Neutro/Compensado e o funcionário foi confirmado no Secullum.
+      // IMPORTANTE: requer a Cloud Function de produção "atualizarFlagsSecullum"
+      // com autenticação, RBAC e verificação pós-POST. Sem ela, falha fechado.
+      const changedIds = new Set(Object.keys(draftRecordsByEmployeeId));
+      const candidates = recordsToWrite.filter((record) => changedIds.has(record.employeeId));
+      if (candidates.length) {
+        if (!firebaseApp) throw new Error("Firebase não configurado para conferir o Secullum.");
+        const functions = getFunctions(firebaseApp, "southamerica-east1");
+        const consultar = httpsCallable(functions, "obterBatidasSecullum");
+        const response = await consultar({ data: filters.date });
+        if (!Array.isArray(response.data)) {
+          throw new Error("Secullum retornou dados inválidos. Nenhum registro foi salvo.");
+        }
+        const remoteByCpf = new Map<string, Record<string, unknown>>();
+        for (const remote of response.data as Array<Record<string, unknown>>) {
+          const cpf = secullumOnlyDigits(String(remote.cpfDigits ?? remote.cpf ?? ""));
+          if (cpf) remoteByCpf.set(cpf, remote);
+        }
+        const changes: Array<{ employeeName: string; cpf: string; neutro: boolean; compensado: boolean }> = [];
+        for (const record of candidates) {
+          const employee = employeeById.get(record.employeeId);
+          const saved = timeRecordByEmployeeDate.get(`${record.employeeId}:${record.date}`);
+          const requestedNeutro = record.customFields?.neutro;
+          const requestedCompensado = record.customFields?.compensado;
+          const editedNeutro = (requestedNeutro === "true" || requestedNeutro === "false") &&
+            requestedNeutro !== saved?.customFields?.neutro;
+          const editedCompensado = (requestedCompensado === "true" || requestedCompensado === "false") &&
+            requestedCompensado !== saved?.customFields?.compensado;
+          if (!editedNeutro && !editedCompensado) continue;
+          if (!employee) throw new Error("Funcionario editado nao encontrado. Nenhum registro foi salvo.");
+          const cpf = secullumOnlyDigits(employee.cpf);
+          if (cpf.length !== 11) throw new Error(`CPF de ${employee.name} indisponivel. Nenhum registro foi salvo.`);
+          let remote = remoteByCpf.get(cpf);
+          if (!remote || typeof remote.neutro !== "boolean" || typeof remote.compensado !== "boolean") {
+            // Consulta pontual, somente leitura, para datas futuras / sem batidas.
+            // Nunca transformar ausencia de registro em false.
+            const consultarFlags = httpsCallable<
+              { data: string; cpfs: string[] },
+              { resultados?: Array<{ cpfDigits?: string; encontrado?: boolean; neutro?: boolean; compensado?: boolean; registroId?: number; possuiVersao?: boolean }> }
+            >(functions, "consultarFlagsSecullumPagina");
+            const flags = await consultarFlags({ data: filters.date, cpfs: [cpf] });
+            const encontrado = flags.data.resultados?.find((item) => item.cpfDigits === cpf && item.encontrado === true);
+            if (!encontrado || typeof encontrado.neutro !== "boolean" || typeof encontrado.compensado !== "boolean") {
+              throw new Error(`Nao foi possivel conferir Neutro/Compensado de ${employee.name} no Secullum. Nenhum registro foi salvo.`);
+            }
+            remote = { neutro: encontrado.neutro, compensado: encontrado.compensado };
+          }
+          const neutro = editedNeutro ? requestedNeutro === "true" : remote.neutro as boolean;
+          const compensado = editedCompensado ? requestedCompensado === "true" : remote.compensado as boolean;
+          if (neutro !== remote.neutro || compensado !== remote.compensado) {
+            changes.push({ employeeName: employee.name, cpf, neutro, compensado });
+          }
+        }
+        if (changes.length) {
+          const confirmed = window.confirm(
+            `Atualizar ${changes.length} funcionário(s) no Secullum antes de salvar no Firestore?\n\n` +
+            changes.slice(0, 10).map((c) =>
+              `${c.employeeName}: Neutro=${c.neutro ? "Sim" : "Não"}, Compensado=${c.compensado ? "Sim" : "Não"}`
+            ).join("\n") +
+            "\n\nSe a integração falhar, o dia não será salvo no Firestore."
+          );
+          if (!confirmed) return;
+          const gravar = httpsCallable<
+            { cpf: string; data: string; neutro: boolean; compensado: boolean },
+            { ok: boolean; flagsPersistidas: boolean; alteracoesColaterais?: unknown[] }
+          >(functions, "atualizarFlagsSecullum");
+          for (const change of changes) {
+            let result;
+            try {
+              const input = {
+                cpf: change.cpf, data: filters.date,
+                neutro: change.neutro, compensado: change.compensado
+              };
+              result = { data: await gravarFlagsComContaTecnica(input) };
+            } catch (error) {
+              if (error instanceof Error && (error.message.includes("POST cancelado") || error.message.includes("Login tecnico de teste disponivel somente"))) throw error;
+              throw new Error(`Não foi possível confirmar a gravação no Secullum de ${change.employeeName}. ` +
+                "Confira o registro no Secullum antes de tentar novamente; não houve salvamento no Firestore.");
+            }
+            if (result.data.ok !== true || result.data.flagsPersistidas !== true ||
+              (result.data.alteracoesColaterais?.length ?? 0) > 0) {
+              throw new Error(`Conferência pós-gravação falhou para ${change.employeeName}. ` +
+                "Não tente repetir automaticamente e confira o Secullum.");
+            }
+          }
+        }
+      }
       const obsoleteRecordIds = new Set(wholeDaySavePlan.obsoleteRecordIds);
       const previousTable = wholeDaySavePlan.previousTable;
       if (!recordsToWrite.length && !obsoleteRecordIds.size && previousTable) {
@@ -4598,10 +4746,10 @@ export default function Timekeeping() {
           !hasImportedPunch && importedDateIsHoliday
             ? "holiday"
             : !hasImportedPunch && expectedWorkMinutes <= 0
-            ? "dsr"
-            : hasImportedPunch
-              ? "present"
-              : "absence_pending";
+              ? "dsr"
+              : hasImportedPunch
+                ? "present"
+                : "absence_pending";
 
         const record: TimeRecord = {
           id: timeRecordDocumentId(row.date, employee.id),
@@ -5822,6 +5970,8 @@ export default function Timekeeping() {
         );
         if (!key) return;
         map.set(key, {
+          neutro: typeof row.neutro === "boolean" ? row.neutro : null,
+          compensado: typeof row.compensado === "boolean" ? row.compensado : null,
           entrada1: String(row.entrada1 ?? ""),
           saida1: String(row.saida1 ?? ""),
           entrada2: String(row.entrada2 ?? ""),
@@ -5921,6 +6071,55 @@ export default function Timekeeping() {
     void fetchSecullumDay(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.date]);
+
+  // Consulta complementar por pagina sem modificar horarios ou dados locais.
+  // Usa cache de tentativas por data/CPF para nao gerar chamadas repetidas.
+  const secullumFlagsDataAtualRef = useRef(filters.date);
+  secullumFlagsDataAtualRef.current = filters.date;
+  const flagsFallbackTentativasRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (secullumStatus !== "ok" || !firebaseApp || !filters.date || !cpfsPaginaSecullumKey) return;
+    const dia = filters.date;
+    const pendentes = cpfsPaginaSecullumKey.split(",").filter((cpf) => {
+      const atual = secullumByCpf.get(cpf);
+      const temFlags = typeof atual?.neutro === "boolean" && typeof atual?.compensado === "boolean";
+      return !temFlags && !flagsFallbackTentativasRef.current.has(`${dia}:${cpf}`);
+    }).slice(0, 15);
+    if (!pendentes.length) return;
+    pendentes.forEach((cpf) => flagsFallbackTentativasRef.current.add(`${dia}:${cpf}`));
+    let ativo = true;
+    const consultar = async () => {
+      try {
+        const functions = getFunctions(firebaseApp, "southamerica-east1");
+        const call = httpsCallable<
+          { data: string; cpfs: string[] },
+          { resultados?: Array<{ cpfDigits?: string; encontrado?: boolean; neutro?: boolean; compensado?: boolean }> }
+        >(functions, "consultarFlagsSecullumPagina");
+        const response = await call({ data: dia, cpfs: pendentes });
+        if (!ativo || secullumFlagsDataAtualRef.current !== dia) return;
+        setSecullumByCpf((anterior) => {
+          const novo = new Map(anterior);
+          for (const item of response.data.resultados ?? []) {
+            const cpf = item.cpfDigits;
+            if (!cpf || !pendentes.includes(cpf) || item.encontrado !== true ||
+              typeof item.neutro !== "boolean" || typeof item.compensado !== "boolean") continue;
+            const atual = novo.get(cpf);
+            novo.set(cpf, {
+              entrada1: "", saida1: "", entrada2: "", saida2: "",
+              ...atual,
+              neutro: typeof atual?.neutro === "boolean" ? atual.neutro : item.neutro,
+              compensado: typeof atual?.compensado === "boolean" ? atual.compensado : item.compensado,
+            });
+          }
+          return novo;
+        });
+      } catch (error) {
+        console.warn("[Secullum] Consulta complementar de flags indisponivel:", error);
+      }
+    };
+    void consultar();
+    return () => { ativo = false; };
+  }, [filters.date, secullumStatus, secullumByCpf, cpfsPaginaSecullumKey]);
 
   // Le a ultima atualizacao registrada no banco para o dia selecionado.
   useEffect(() => {
@@ -6030,42 +6229,66 @@ export default function Timekeeping() {
   }
 
   // Importa (Secullum → Firebase) apenas para o rascunho; persiste no "Salvar dia do mês".
+  // Importação por linha: clicar em ENT.1, SAÍ.1, ENT.2 ou SAÍ.2 sincroniza
+  // TODOS os quatro campos do funcionário para o rascunho, sem gravar ainda.
   async function importSecullumField(
     employee: Employee,
     field: "entrada1" | "saida1" | "entrada2" | "saida2",
     secValue: string,
     macroValue: string,
   ) {
-    if (tableLocked) return;
-    const value = (secValue || "").trim() || "00:00";
-    if (field === "entrada1") {
-      await saveRecord(employee, { checkIn: value });
-    } else if (field === "saida1") {
-      await saveRecord(employee, { checkOut: value });
-    } else {
-      const rec = displayRecord(employee);
-      const key = field === "entrada2" ? "ent2" : "sai2";
-      const nextCustomFields = {
-        ...(rec.customFields || {}),
-        [key]: value,
-        ...(key === "sai2"
-          ? {
-            [manualZeroSai2Field]: hasFilledTimeValue(value) ? "false" : "true",
-          }
-          : {}),
-      };
-      await saveRecord(employee, { customFields: nextCustomFields });
+    if (tableLocked || busy || secullumStatus !== "ok") return;
+    const cpf = secullumOnlyDigits(employee.cpf);
+    const sec = cpf ? secullumByCpf.get(cpf) : undefined;
+    if (!sec) return;
+
+    const rec = displayRecord(employee);
+    const values = secullumDayFields.map((key) => String(sec[key] ?? "").trim());
+    const occurrences = values.map(secullumOccurrenceStatus).filter(
+      (status): status is AttendanceStatus => status !== null,
+    );
+    const uniqueOccurrences = Array.from(new Set(occurrences));
+    const hasTimes = values.some((value) => isSecullumClockTime(value) && value !== "00:00");
+    const unknownLabels = values.filter((value) =>
+      value && value !== "00:00" && !isSecullumClockTime(value) && !secullumOccurrenceStatus(value),
+    );
+    // Nunca presumir uma ocorrência se o retorno for conflitante/incompleto.
+    if (unknownLabels.length || uniqueOccurrences.length > 1 || (uniqueOccurrences.length && hasTimes)) {
+      window.alert(`Ocorrência do Secullum precisa de conferência manual: ${values.filter(Boolean).join(" / ")}. Nenhum campo foi modificado.`);
+      return;
     }
+
+    const patch: Partial<TimeRecord> = {};
+    const cf: Record<string, string> = { ...(rec.customFields || {}) };
+    const occurrence = uniqueOccurrences[0];
+    if (occurrence) {
+      patch.status = occurrence;
+      patch.checkIn = "00:00";
+      patch.checkOut = "00:00";
+      Object.assign(cf, { ent2: "00:00", sai2: "00:00", ent3: "00:00", sai3: "00:00" });
+      cf[manualZeroSai2Field] = "true";
+      cf[manualStatusSelectedField] = "true";
+      if (requiresSecullumFlagsOff(occurrence)) {
+        cf.neutro = "false";
+        cf.compensado = "false";
+      }
+    } else {
+      if (isSecullumClockTime(values[0])) patch.checkIn = values[0];
+      if (isSecullumClockTime(values[1])) patch.checkOut = values[1];
+      if (isSecullumClockTime(values[2])) cf.ent2 = values[2];
+      if (isSecullumClockTime(values[3])) {
+        cf.sai2 = values[3];
+        cf[manualZeroSai2Field] = "false";
+      }
+      if (!values.some(isSecullumClockTime)) return;
+    }
+    patch.customFields = cf;
+    await saveRecord(employee, patch);
     await writeTimekeepingAudit({
-      employee,
-      field,
-      previousValue: macroValue,
-      newValue: value,
-      previousOrigin: "firebase",
-      newOrigin: "secullum-importado",
-      action: "importar_secullum",
-      result: "sucesso",
-      integratedWithSecullum: false,
+      employee, field, previousValue: macroValue,
+      newValue: occurrence ? `Ocorrência: ${occurrence}` : secValue,
+      previousOrigin: "firebase", newOrigin: "secullum-importado-linha",
+      action: "importar_secullum_linha", result: "sucesso", integratedWithSecullum: false,
     });
   }
 
@@ -6155,7 +6378,7 @@ export default function Timekeeping() {
     // "→ Secullum" só quando há valor no Macro E ele está diferente do Secullum
     // (Secullum vazio/"Sem ponto" ou divergente). Se já for igual, não aparece —
     // evita reenviar ao Secullum um horário idêntico ao que já está lá.
-    const showEnviar = !macroEmpty && (secEmpty || divergent);
+    const showEnviar = isSecullumClockTime(macroValue) && (secEmpty || divergent);
     const showImportar = (macroEmpty && !secEmpty) || divergent;
     if (!showEnviar && !showImportar) return null;
     return (
@@ -6244,6 +6467,81 @@ export default function Timekeeping() {
       "width" in column && column.width ? column.width : defaultColumnWidth;
     const wrap = "wrap" in column ? column.wrap : false;
     const tdClass = wrap ? "is-wrapped" : "is-nowrap";
+
+    if (column.key === "neutro" || column.key === "compensado") {
+      const field = column.key as "neutro" | "compensado";
+      const fieldLabel = field === "neutro" ? "Neutro" : "Compensado";
+      const savedValue = record.customFields?.[field];
+      // Ausente é diferente de "false": não tratar registros antigos como desmarcados.
+      const localValue = savedValue === "true" ? true : savedValue === "false" ? false : null;
+      const cpf = secullumOnlyDigits(employee.cpf);
+      const secRow = cpf && secullumStatus === "ok" ? secullumByCpf.get(cpf) : undefined;
+      const remoteValue = secRow?.[field];
+      const hasRemote = remoteValue === true || remoteValue === false;
+      const consistent = hasRemote && localValue !== null && remoteValue === localValue;
+      const divergent = hasRemote && localValue !== null && remoteValue !== localValue;
+      const pending = Boolean(draftRecordsByEmployeeId[employee.id]);
+      const expected = secullumExpectedFlagForStatus(String(record.status || ""));
+      // Vermelho forte quando a opção está contrária à regra do STATUS.
+      // Sem valor local ainda não significa false.
+      const violatesStatus = localValue !== null && expected !== null && localValue !== expected;
+      const color = violatesStatus || divergent ? "#dc2626" : consistent ? "#111827" : "#64748b";
+      const remoteLabel = remoteValue === true ? "Sim" : remoteValue === false ? "Não" : null;
+      const hint = secullumStatus === "loading" ? "Consultando Secullum…"
+        : secullumStatus === "error" ? "Secullum indisponível: conferência pendente"
+          : hasRemote ? `Firestore: ${localValue === null ? "não definido" : localValue ? "Sim" : "Não"} | Secullum: ${remoteLabel}`
+            : secullumStatus === "ok" ? `Sem registro correspondente com ${fieldLabel} no Secullum; somente Firestore`
+              : "Ainda não conferido no Secullum";
+      const statusWarning = violatesStatus
+        ? `ATENÇÃO: STATUS ${statusDisplayText(record.status)} requer ${fieldLabel} ${expected ? "marcado" : "desmarcado"}.`
+        : "";
+      const fullHint = statusWarning ? `${statusWarning} ${hint}` : hint;
+      const setFlag = (value: boolean) => void saveRecord(employee, {
+        customFields: { ...record.customFields, [field]: String(value) },
+      });
+      return (
+        <td key={column.key} style={{ minWidth: width, width, textAlign: "center", backgroundColor: violatesStatus ? "#fff1f2" : undefined }} title={fullHint}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <input
+              type="checkbox"
+              aria-label={`${fieldLabel} de ${employee.name}${localValue === null ? " (não definido no Firestore)" : ""}`}
+              data-testid={`${field}-${employee.id}`}
+              checked={localValue === true}
+              disabled={tableLocked || busy}
+              onChange={(event) => setFlag(event.target.checked)}
+              style={{ accentColor: color, cursor: tableLocked ? "not-allowed" : "pointer", width: 16, height: 16 }}
+            />
+            <span
+              aria-label={fullHint}
+              title={fullHint}
+              style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color }}
+            />
+            {pending ? <span title="Edição pendente de salvar" style={{ fontSize: 10, color: "#b45309" }}>●</span> : null}
+          </div>
+          <div style={{ fontSize: 10, marginTop: 2, lineHeight: 1.25, color: color, whiteSpace: "nowrap" }}>
+            {secullumStatus === "loading" ? "Consultando…"
+              : secullumStatus === "error" ? "Indisponível"
+                : secullumStatus !== "ok" ? "Não conferido"
+                  : !hasRemote ? "Sem vínculo/valor"
+                    : consistent ? `✓ ${remoteLabel}`
+                      : divergent ? `≠ ${remoteLabel}`
+                        : `Sec.: ${remoteLabel}`}
+          </div>
+          {violatesStatus ? <div role="alert" style={{ color: "#b91c1c", fontSize: 10, fontWeight: 700 }}>⚠ Status incompatível</div> : null}
+          {hasRemote && (localValue === null || divergent) ? (
+            <button
+              type="button"
+              disabled={tableLocked || busy}
+              title={`Copiar ${fieldLabel} do Secullum (${remoteLabel}) para o Firestore; requer Salvar dia do mês`}
+              onClick={() => setFlag(remoteValue as boolean)}
+              style={{ fontSize: 10, padding: "1px 3px", cursor: tableLocked ? "not-allowed" : "pointer", border: "none", background: "transparent", color: "#0f766e" }}
+            >
+              ← Importar {remoteLabel}
+            </button>
+          ) : null}
+        </td>
+      );
+    }
 
     if (column.type === "system") {
       const processBadge = column.systemField === "employee"
@@ -6633,7 +6931,14 @@ export default function Timekeeping() {
                   [manualStatusSelectedField]: "true",
                 },
               };
-              if (isAbsenceStatus(nextStatus)) {
+              if (requiresSecullumFlagsOff(nextStatus)) {
+                patch.customFields = {
+                  ...patch.customFields,
+                  neutro: "false",
+                  compensado: "false",
+                };
+              }
+              if (requiresSecullumFlagsOff(nextStatus) || nextStatus === "leave" || nextStatus === "dsr") {
                 patch.checkIn = "00:00";
                 patch.checkOut = "00:00";
                 patch.customFields = {
