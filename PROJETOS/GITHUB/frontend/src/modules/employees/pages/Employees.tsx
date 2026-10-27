@@ -63,7 +63,7 @@ import type {
 import { badgeClass, formatCurrency, formatDate, labelStatus, todayISO } from "@/utils/format";
 import { parseEmployeePdf } from "@/utils/pdfEmployeeImport";
 import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
-import { loadNewHireRh, newHireRhEmployeeDraft } from "@/modules/employees/data/newHiresRh";
+import { loadNewHireRh, markNewHireRhRegistered, newHireRhDocumentKind, newHireRhEmployeeDraft } from "@/modules/employees/data/newHiresRh";
 
 type UndoState = { message: string; undo: () => Promise<void> } | null;
 type EmployeeKind = "contract" | "company" | "diarist";
@@ -1921,6 +1921,44 @@ export default function Employees({
   }
 
 
+  // Funcionário vindo de "Novos contratados": os documentos enviados pelo RH (já no Storage do DP)
+  // viram registros do funcionário. Vencimento fica em branco para o DP preencher (ASO, CNH, NRs...).
+  async function saveNewHireRhDocuments(employee: Employee, newHireRhId: string, now: string) {
+    const hire = await loadNewHireRh(newHireRhId);
+    if (!hire || hire.status !== "pendente") return;
+
+    const company = data.companies.find((item) => item.id === employee.companyId);
+    const department = data.departments.find((item) => item.id === employee.departmentId);
+    const sector = data.sectors.find((item) => item.id === employee.sectorId);
+    const subsector = data.subsectors.find((item) => item.id === employee.subsectorId);
+    const folderPath = [company?.name, department?.name, sector?.name, subsector?.name, employee.name]
+      .filter(Boolean)
+      .join(" / ");
+
+    for (const document of hire.documentos) {
+      await data.upsertEmployeeDocument({
+        id: makeClientId("document"),
+        companyId: employee.companyId,
+        groupId: employee.groupId || "",
+        departmentId: employee.departmentId,
+        sectorId: employee.sectorId,
+        subsectorId: employee.subsectorId || "",
+        employeeId: employee.id,
+        name: document.nome,
+        kind: newHireRhDocumentKind(document.contentType),
+        folderPath,
+        fileUrl: document.arquivoUrl,
+        size: `${Math.max(1, Math.round(document.tamanhoBytes / 1024))} KB`,
+        attachmentDate: (document.dataEnvio || now).slice(0, 10),
+        expirationDate: "",
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    await markNewHireRhRegistered(hire.id, employee.id);
+  }
+
   async function ensureStandardEmployeeDocuments(employee: Employee, now: string) {
     const company = data.companies.find((item) => item.id === employee.companyId);
     const department = data.departments.find((item) => item.id === employee.departmentId);
@@ -2123,6 +2161,9 @@ export default function Employees({
       if (form.employeeKind !== "diarist") {
         await saveRegistrationPdfDocument(saved, now);
         await savePromotionRegistrationPdfDocument(saved, now);
+        // Antes dos documentos padrão: o "ASO" do RH ocupa o lugar do ASO em branco.
+        const newHireRhId = form.registrationData?.newHireRhId;
+        if (!previous && newHireRhId) await saveNewHireRhDocuments(saved, newHireRhId, now);
         await ensureStandardEmployeeDocuments(saved, now);
       }
 

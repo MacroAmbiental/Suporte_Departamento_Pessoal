@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { firestore } from "@/services/firebase";
 import type { Employee } from "@/types/domain";
@@ -76,6 +76,22 @@ export async function loadNewHireRh(id: string): Promise<NewHireRh | null> {
   if (!firestore || !id) return null;
   const snapshot = await getDoc(doc(firestore, NEW_HIRES_RH_COLLECTION, id));
   return snapshot.exists() ? fromSnapshot(snapshot.id, snapshot.data()) : null;
+}
+
+// Cadastro concluído no DP: sai de "Novos contratados" e guarda o vínculo com o funcionário criado.
+export async function markNewHireRhRegistered(id: string, employeeId: string) {
+  if (!firestore) return;
+  await updateDoc(doc(firestore, NEW_HIRES_RH_COLLECTION, id), {
+    status: "cadastrado",
+    employeeId,
+    cadastradoEm: new Date().toISOString(),
+  });
+}
+
+export function newHireRhDocumentKind(contentType: string): "pdf" | "image" | "file" {
+  if (contentType === "application/pdf") return "pdf";
+  if (contentType.startsWith("image/")) return "image";
+  return "file";
 }
 
 // Rascunho do cadastro (Funcionário - CLT) com o que veio do RH; o resto o DP completa no formulário.
