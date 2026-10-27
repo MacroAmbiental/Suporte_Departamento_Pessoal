@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.entrarDP = exports.consultarFlagsSecullumPostPiloto = exports.consultarFlagsSecullumPagina = exports.consultarFlagsSecullum30OutTeste = exports.atualizarFlagsSecullum = exports.atualizarFlagsSecullumTeste = exports.simularAlteracaoFlagsSecullum = exports.diagnosticarAcessoInternoSecullum = exports.conferirFlagsSecullumTeste = exports.prepararAlteracaoNeutroSecullum = exports.enviarBatidaSecullum = exports.obterBatidasSecullum = void 0;
+exports.levantarJustificativasSecullum = exports.entrarDP = exports.consultarFlagsSecullumPostPiloto = exports.consultarFlagsSecullumPagina = exports.consultarFlagsSecullum30OutTeste = exports.atualizarFlagsSecullum = exports.atualizarFlagsSecullumTeste = exports.simularAlteracaoFlagsSecullum = exports.diagnosticarAcessoInternoSecullum = exports.conferirFlagsSecullumTeste = exports.prepararAlteracaoNeutroSecullum = exports.enviarBatidaSecullum = exports.obterBatidasSecullum = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const permissaoDP_1 = require("./permissaoDP");
@@ -1142,4 +1142,70 @@ exports.consultarFlagsSecullumPostPiloto = (0, https_1.onCall)({
 });
 var entrarDP_1 = require("./entrarDP");
 Object.defineProperty(exports, "entrarDP", { enumerable: true, get: function () { return entrarDP_1.entrarDP; } });
+// SÓ LEITURA (27/10/2026): levantamento para o envio automático das
+// situações do Ponto (falta, folga, férias, afastamento, atestado) ao
+// Secullum. Devolve as justificativas cadastradas e, dos últimos dias, como
+// justificativas/afastamentos aparecem — apenas contagens, sem nomes/CPF.
+exports.levantarJustificativasSecullum = (0, https_1.onCall)({ region: "southamerica-east1", secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] }, async (request) => {
+    await (0, permissaoDP_1.exigirPermissaoDP)(request, "timekeeping", "view");
+    const token = await getToken();
+    const hoje = new Date();
+    const iso = (dias) => new Date(hoje.getTime() + dias * 86400000).toISOString().slice(0, 10);
+    const justificativas = await apiGet("/IntegracaoExterna/Justificativas", token, {});
+    const contar = (mapa, chave) => {
+        mapa[chave] = (mapa[chave] || 0) + 1;
+    };
+    const afastamentosPorTipo = {};
+    let camposAfastamento = [];
+    try {
+        const afastamentos = await apiGet("/IntegracaoExterna/FuncionariosAfastamentos", token, { dataInicio: iso(-90), dataFim: iso(60) });
+        camposAfastamento = [...new Set((afastamentos || []).flatMap((a) => Object.keys(a)))].sort();
+        for (const a of afastamentos || []) {
+            const tipo = Object.entries(a)
+                .filter(([k, v]) => /justific|motivo/i.test(k) && typeof v === "string" && v.trim())
+                .map(([k, v]) => `${k}=${String(v).trim()}`)
+                .join(" | ");
+            contar(afastamentosPorTipo, tipo || "(sem justificativa/motivo)");
+        }
+    }
+    catch (error) {
+        afastamentosPorTipo["(erro ao consultar)"] = 1;
+        console.warn("[LEVANTAMENTO] afastamentos", error);
+    }
+    // Batidas dos últimos 14 dias: valores que NÃO são horário (ex.: nome de
+    // justificativa no lugar da batida) e campos com cara de justificativa.
+    const valoresNaoHorario = {};
+    let camposBatida = [];
+    const batidas = await apiGet("/IntegracaoExterna/Batidas", token, { dataInicio: iso(-14), dataFim: iso(-1) });
+    camposBatida = [...new Set((batidas || []).flatMap((b) => Object.keys(b)))].sort();
+    for (const b of batidas || []) {
+        for (const [k, v] of Object.entries(b)) {
+            if (typeof v !== "string" || !v.trim())
+                continue;
+            if (!/entrada|saida|justific|afast|folga|observ|ocorr/i.test(k))
+                continue;
+            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(v.trim()))
+                continue;
+            contar(valoresNaoHorario, `${k.replace(/\d+$/, "")}=${v.trim()}`);
+        }
+    }
+    return {
+        justificativas: (justificativas || []).map((j) => ({
+            nomeAbreviado: j.NomeAbreviado ?? j.nomeAbreviado,
+            nomeCompleto: j.NomeCompleto ?? j.nomeCompleto,
+            calcularComoFolga: j.CalcularComoFolga ?? j.calcularComoFolga,
+            lancarComoHorasFalta: j.LancarComoHorasFalta ?? j.lancarComoHorasFalta,
+            descontarDsr: j.DescontarDsr ?? j.descontarDsr,
+            ajuste: j.Ajuste ?? j.ajuste,
+            usarParaFerias: j.UsarJustificativaParaContagemDeFerias ?? j.usarJustificativaParaContagemDeFerias,
+            desativada: j.Desativar ?? j.desativar,
+        })),
+        camposJustificativa: [...new Set((justificativas || []).flatMap((j) => Object.keys(j)))].sort(),
+        afastamentosPorTipo,
+        camposAfastamento,
+        batidasAnalisadas: (batidas || []).length,
+        camposBatida,
+        valoresNaoHorario,
+    };
+});
 //# sourceMappingURL=index.js.map
