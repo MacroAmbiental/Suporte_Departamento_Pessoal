@@ -1,6 +1,7 @@
 import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { userHasPermission } from "@/services/accessControl";
 import { authenticateSystemUser } from "@/services/domainRepository";
+import { encerrarSessaoServidor, iniciarSessaoServidor } from "@/services/firebaseSession";
 import type { AppScreen, PermissionAction } from "@/types/domain";
 import type { User } from "@/types/domain";
 
@@ -45,6 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (authenticatedUser) {
         setUser(authenticatedUser);
+        void iniciarSessaoServidor(username, password).catch((error) => {
+          console.warn("Sessão do servidor indisponível; login segue sem ela.", error);
+        });
         return true;
       }
 
@@ -57,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     setUser(null);
+    void encerrarSessaoServidor().catch(() => undefined);
   }, []);
 
   const can = useCallback((screen: AppScreen, action: PermissionAction = "view") => (

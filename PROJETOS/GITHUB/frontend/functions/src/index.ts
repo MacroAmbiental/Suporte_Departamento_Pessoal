@@ -1277,3 +1277,5 @@ export const consultarFlagsSecullumPostPiloto = onCall(
     };
   },
 );
+
+export { entrarDP } from "./entrarDP";
