@@ -65,10 +65,9 @@ export async function gravarFlagsComContaTecnica(
         throw new Error("Firebase nao inicializado.");
     }
 
-    const senha = '123456'
-    // const senha = window.prompt(
-    //     "Senha da conta tecnica Firebase para confirmar o POST real no Secullum:"
-    // );
+    const senha = window.prompt(
+        "Senha da conta tecnica Firebase para confirmar o POST real no Secullum:"
+    );
 
     if (!senha) {
         throw new Error(
