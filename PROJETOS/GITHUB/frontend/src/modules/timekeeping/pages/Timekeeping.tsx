@@ -66,7 +66,8 @@ import {
 } from "@/modules/timekeeping/data/timekeepingDayRepository";
 import useCreateShortcut from "@/hooks/useCreateShortcut";
 import { useAuth } from "@/hooks/useAuth";
-import { gravarFlagsComContaTecnica } from "@/modules/timekeeping/services/secullumTechnicalAuth";
+import { gravarFlagsSecullum } from "@/modules/timekeeping/services/secullumTechnicalAuth";
+import { exigirSessaoServidor } from "@/services/firebaseSession";
 import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import ConfirmModal from "@/common/components/ConfirmModal";
 import type { DeleteImpact } from "@/common/components/DeleteImpactModal";
@@ -4048,9 +4049,10 @@ export default function Timekeeping() {
                 cpf: change.cpf, data: filters.date,
                 neutro: change.neutro, compensado: change.compensado
               };
-              result = { data: await gravarFlagsComContaTecnica(input) };
+              result = { data: await gravarFlagsSecullum(user?.id, input) };
             } catch (error) {
-              if (error instanceof Error && (error.message.includes("POST cancelado") || error.message.includes("Login tecnico de teste disponivel somente"))) throw error;
+              // Sessão/permissão: nada foi enviado ao Secullum, mostra o motivo como veio.
+              if (error instanceof Error && (error.message.includes("Sessão expirada") || error.message.includes("Sem permissão") || error.message.includes("Usuário inativo"))) throw error;
               throw new Error(`Não foi possível confirmar a gravação no Secullum de ${change.employeeName}. ` +
                 "Confira o registro no Secullum antes de tentar novamente; não houve salvamento no Firestore.");
             }
@@ -6322,6 +6324,7 @@ export default function Timekeeping() {
     setSecullumSendError("");
     try {
       if (!firebaseApp) throw new Error("Firebase não configurado.");
+      await exigirSessaoServidor(user?.id);
       const functions = getFunctions(firebaseApp, "southamerica-east1");
       const call = httpsCallable(functions, "enviarBatidaSecullum");
       const resp = await call({

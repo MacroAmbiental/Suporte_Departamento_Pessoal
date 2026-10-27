@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
+import { exigirPermissaoDP } from "./permissaoDP";
 // Credenciais ficam nos SECRETS do Functions (nunca no código/frontend).
 const SECULLUM_USERNAME = defineSecret("SECULLUM_USERNAME");
 const SECULLUM_PASSWORD = defineSecret("SECULLUM_PASSWORD");
@@ -374,6 +375,8 @@ export const obterBatidasSecullum = onCall(
 export const enviarBatidaSecullum = onCall(
   { region: "southamerica-east1", secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] },
   async (request) => {
+    // TODO: exigirPermissaoDP(request, "timekeeping", "edit") quando o Oficial
+    // também abrir a sessão do entrarDP — hoje ele chama esta function sem sessão.
     const p = (request.data ?? {}) as {
       cpf?: string;
       data?: string;
@@ -910,12 +913,9 @@ export const atualizarFlagsSecullum = onCall(
     secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID],
   },
   async (request) => {
-    if (
-      request.auth?.uid !== "TkdbEBo0WPcVFGM8AsMiDWuaCqG3" ||
-      request.auth?.token.secullumNeutroWrite !== true
-    ) {
-      throw new HttpsError("permission-denied", "Operação restrita ao usuário técnico de teste.");
-    }
+    // Sessão do DP (entrarDP) + permissão de editar o Controle de Ponto
+    // (antes: só a conta técnica de teste).
+    await exigirPermissaoDP(request, "timekeeping", "edit");
     const entrada = (request.data ?? {}) as Record<string, unknown>;
     const cpf = onlyDigits(entrada.cpf);
     const data = entrada.data;

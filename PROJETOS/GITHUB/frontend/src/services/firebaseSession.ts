@@ -16,6 +16,17 @@ export async function iniciarSessaoServidor(username: string, password: string):
   await signInWithCustomToken(getAuth(firebaseApp), data.token);
 }
 
+export const SESSAO_EXPIRADA = "Sessão expirada. Saia e entre de novo no sistema para gravar no Secullum.";
+
+// Antes de uma ação que exige a sessão (functions do Secullum): ela precisa
+// existir e ser do mesmo usuário logado na tela.
+export async function exigirSessaoServidor(userId: string | undefined): Promise<void> {
+  if (!firebaseApp) throw new Error("Firebase não configurado.");
+  const auth = getAuth(firebaseApp);
+  await auth.authStateReady();
+  if (!userId || auth.currentUser?.uid !== userId) throw new Error(SESSAO_EXPIRADA);
+}
+
 export async function encerrarSessaoServidor(): Promise<void> {
   if (!firebaseApp) return;
   await signOut(getAuth(firebaseApp));

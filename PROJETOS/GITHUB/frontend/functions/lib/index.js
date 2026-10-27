@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.entrarDP = exports.consultarFlagsSecullumPostPiloto = exports.consultarFlagsSecullumPagina = exports.consultarFlagsSecullum30OutTeste = exports.atualizarFlagsSecullum = exports.atualizarFlagsSecullumTeste = exports.simularAlteracaoFlagsSecullum = exports.diagnosticarAcessoInternoSecullum = exports.conferirFlagsSecullumTeste = exports.prepararAlteracaoNeutroSecullum = exports.enviarBatidaSecullum = exports.obterBatidasSecullum = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
+const permissaoDP_1 = require("./permissaoDP");
 // Credenciais ficam nos SECRETS do Functions (nunca no código/frontend).
 const SECULLUM_USERNAME = (0, params_1.defineSecret)("SECULLUM_USERNAME");
 const SECULLUM_PASSWORD = (0, params_1.defineSecret)("SECULLUM_PASSWORD");
@@ -333,6 +334,8 @@ exports.obterBatidasSecullum = (0, https_1.onCall)({
  * POST /IntegracaoExterna/CartaoPonto/Manual — insere/edita 1 coluna.
  */
 exports.enviarBatidaSecullum = (0, https_1.onCall)({ region: "southamerica-east1", secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] }, async (request) => {
+    // TODO: exigirPermissaoDP(request, "timekeeping", "edit") quando o Oficial
+    // também abrir a sessão do entrarDP — hoje ele chama esta function sem sessão.
     const p = (request.data ?? {});
     const cpf = onlyDigits(p.cpf);
     if (!cpf) {
@@ -785,10 +788,9 @@ exports.atualizarFlagsSecullum = (0, https_1.onCall)({
     region: "southamerica-east1",
     secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID],
 }, async (request) => {
-    if (request.auth?.uid !== "TkdbEBo0WPcVFGM8AsMiDWuaCqG3" ||
-        request.auth?.token.secullumNeutroWrite !== true) {
-        throw new https_1.HttpsError("permission-denied", "Operação restrita ao usuário técnico de teste.");
-    }
+    // Sessão do DP (entrarDP) + permissão de editar o Controle de Ponto
+    // (antes: só a conta técnica de teste).
+    await (0, permissaoDP_1.exigirPermissaoDP)(request, "timekeeping", "edit");
     const entrada = (request.data ?? {});
     const cpf = onlyDigits(entrada.cpf);
     const data = entrada.data;
