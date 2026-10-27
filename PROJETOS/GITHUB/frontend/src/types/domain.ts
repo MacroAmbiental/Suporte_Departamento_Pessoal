@@ -303,6 +303,12 @@ export interface CompanyGroupCompany {
   updatedAt: string;
 }
 
+export interface TeamNameEntry {
+  name: string;
+  /** YYYY-MM-DD; vazio = desde sempre. */
+  validFrom: string;
+}
+
 export interface CompanyGroupUnit {
   id: string;
   groupId: string;
@@ -310,6 +316,8 @@ export interface CompanyGroupUnit {
   type: CompanyGroupUnitType;
   parentUnitId?: string;
   coordinatorEmployeeId?: string;
+  /** Só equipes renomeadas têm. Ver common/utils/teamNameHistory.ts. */
+  nameHistory?: TeamNameEntry[];
   active: boolean;
   createdAt: string;
   updatedAt: string;

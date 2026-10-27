@@ -94,6 +94,7 @@ import {
 import { badgeClass, labelStatus, todayISO } from "@/utils/format";
 import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
 import { employeeLeaveEntryForDate, isEmployeeLeaveOnDate } from "@/modules/employeeProcesses/utils/leavePeriods";
+import { teamsNamedOn } from "@/common/utils/teamNameHistory";
 
 const fallbackStatuses: AttendanceStatus[] = [
   "present",
@@ -2423,9 +2424,14 @@ export default function Timekeeping() {
     () => new Map(data.subsectors.map((subsector) => [subsector.id, subsector])),
     [data.subsectors],
   );
+  // Equipe renomeada mostra o nome que valia no dia do ponto.
+  const teamsOnDate = useMemo(
+    () => teamsNamedOn(resolvedTeams, data.companyGroupUnits, filters.date),
+    [resolvedTeams, data.companyGroupUnits, filters.date],
+  );
   const teamById = useMemo(
-    () => new Map(resolvedTeams.map((team) => [team.id, team])),
-    [resolvedTeams],
+    () => new Map(teamsOnDate.map((team) => [team.id, team])),
+    [teamsOnDate],
   );
   const employeeById = useMemo(
     () => new Map(data.employees.map((employee) => [employee.id, employee])),
@@ -2697,13 +2703,13 @@ export default function Timekeeping() {
   );
 
   const teamFilterOptions = useMemo(
-    () => timekeepingTeamOptions(resolvedTeams, employeesBeforeTeamFilters, employeeTeamId),
-    [resolvedTeams, employeesBeforeTeamFilters, employeeTeamId],
+    () => timekeepingTeamOptions(teamsOnDate, employeesBeforeTeamFilters, employeeTeamId),
+    [teamsOnDate, employeesBeforeTeamFilters, employeeTeamId],
   );
   const dayTeamFilterOptions = useMemo(
-    () => timekeepingTeamOptions(resolvedTeams, employeesBeforeTeamFilters,
+    () => timekeepingTeamOptions(teamsOnDate, employeesBeforeTeamFilters,
       employee => dayTeamByEmployee.get(employee.id) ?? employeeTeamId(employee)),
-    [resolvedTeams, employeesBeforeTeamFilters, dayTeamByEmployee, employeeTeamId],
+    [teamsOnDate, employeesBeforeTeamFilters, dayTeamByEmployee, employeeTeamId],
   );
   const selectedReportColumnKeys = useMemo(
     () => sanitizeColumnSelection(

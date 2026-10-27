@@ -9,6 +9,7 @@ type Unit = {
   parentUnitId?: string;
   links: { companyId: string; sourceId: string }[];
   coordinatorEmployeeId: string;
+  nameValidFrom?: string;
 };
 type Props = {
   units: Unit[];
@@ -20,11 +21,14 @@ type Props = {
   onAdd: (parentId: string) => void;
   onUpdate: (id: string, changes: Partial<Unit>) => void;
   onRemove: (id: string) => void;
+  /** Nome salvo da equipe (vazio se ainda não foi gravada); renomear pede "válido a partir de". */
+  persistedTeamName: (id: string) => string;
+  today: string;
 };
 const labels = { department: "Departamento", sector: "Setor", subsector: "Subsetor", team: "Equipe" };
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-export default function GroupTeamsStep({ units, employees, employeeTeamIds, groupName, sectors, subsectors, onAdd, onUpdate, onRemove }: Props) {
+export default function GroupTeamsStep({ units, employees, employeeTeamIds, groupName, sectors, subsectors, onAdd, onUpdate, onRemove, persistedTeamName, today }: Props) {
   const [selectedId, setSelectedId] = useState("");
   const [search, setSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -90,7 +94,7 @@ export default function GroupTeamsStep({ units, employees, employeeTeamIds, grou
             const members = employees.filter(employee => employeeTeamIds[employee.id] ? employeeTeamIds[employee.id] === team.id : team.links.some(link => link.companyId === employee.companyId && link.sourceId === employee.teamId));
             return <article className="team-explorer-card" key={team.id}>
               <div className="team-explorer-row"><span className="team-explorer-symbol"><Users size={19} /></span><div className="team-explorer-summary"><strong>{team.name || "Nova equipe"}</strong><p>{responsible ? `Responsável: ${responsible.name}` : "Responsável ainda não definido"}</p></div><div className="team-explorer-actions"><button type="button" className="icon-button" aria-label={`${editing ? "Concluir edição de" : "Editar"} ${team.name || "nova equipe"}`} aria-expanded={editing} disabled={editing && !team.name.trim()} onClick={() => setEditingId(editing ? null : team.id)}>{editing ? <Check size={17} /> : <Edit2 size={17} />}</button><button type="button" className="icon-button team-explorer-delete" aria-label={`Remover ${team.name || "nova equipe"}`} onClick={() => onRemove(team.id)}><Trash2 size={17} /></button></div></div>
-              {editing && <div className="group-wizard-team-fields"><label className="field"><span>Nome da equipe</span><input autoFocus value={team.name} onChange={(event) => { setEditingId(team.id); onUpdate(team.id, { name: event.target.value }); }} placeholder="Ex.: Equipe de Montagem A" /></label><label className="field"><span>Responsável</span><select value={team.coordinatorEmployeeId} onChange={(event) => onUpdate(team.id, { coordinatorEmployeeId: event.target.value })}><option value="">Definir depois</option>{members.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label></div>}
+              {editing && <div className="group-wizard-team-fields"><label className="field"><span>Nome da equipe</span><input autoFocus value={team.name} onChange={(event) => { setEditingId(team.id); onUpdate(team.id, { name: event.target.value }); }} placeholder="Ex.: Equipe de Montagem A" /></label><label className="field"><span>Responsável</span><select value={team.coordinatorEmployeeId} onChange={(event) => onUpdate(team.id, { coordinatorEmployeeId: event.target.value })}><option value="">Definir depois</option>{members.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></label>{persistedTeamName(team.id) && persistedTeamName(team.id).trim() !== team.name.trim() && team.name.trim() ? <label className="field"><span>Nome válido a partir de</span><input type="date" value={team.nameValidFrom || today} onChange={(event) => onUpdate(team.id, { nameValidFrom: event.target.value })} /><small className="muted">Antes dessa data o ponto continua mostrando “{persistedTeamName(team.id)}”.</small></label> : null}</div>}
             </article>;
           })}
         </div>

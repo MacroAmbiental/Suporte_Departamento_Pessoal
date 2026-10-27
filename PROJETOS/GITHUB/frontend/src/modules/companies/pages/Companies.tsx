@@ -30,6 +30,7 @@ import type {
   Team,
 } from "@/types/domain";
 import { formatDate, labelStatus, todayISO } from "@/utils/format";
+import { registerTeamRename } from "@/common/utils/teamNameHistory";
 import { loadRecentAuditLogs } from "@/modules/monitoring/data/auditLogRepository";
 import "./companies.css";
 
@@ -90,6 +91,8 @@ type CompanyGroupUnit = {
   coordinatorEmployeeId: string;
   leaderEmployeeId?: string;
   responsibleEmployeeIds?: string[];
+  /** Ao renomear equipe: data (YYYY-MM-DD) a partir da qual o nome novo vale. */
+  nameValidFrom?: string;
 };
 
 type GroupDivergenceMode = "keep_existing" | "use_reference" | "copy_from_source";
@@ -259,6 +262,7 @@ type GroupNodeForm = {
   nome: string;
   tipo: GroupUnitType;
   parentId: string;
+  validoDesde: string;
 };
 
 function emptyGroupNodeForm(): GroupNodeForm {
@@ -267,6 +271,7 @@ function emptyGroupNodeForm(): GroupNodeForm {
     nome: "",
     tipo: "department",
     parentId: rootParentValue,
+    validoDesde: todayISO(),
   };
 }
 
@@ -1038,6 +1043,10 @@ export default function Companies() {
       companyIds: normalizedGroup.companyIds,
       units: normalizedGroup.units.map((unit) => {
         const existingUnit = data.companyGroupUnits.find((item) => item.id === unit.id);
+        const renamed = unit.type === "team" && existingUnit && existingUnit.name.trim() !== unit.name.trim();
+        const nameHistory = renamed
+          ? registerTeamRename(existingUnit.nameHistory, existingUnit.name, unit.name, unit.nameValidFrom || todayISO())
+          : existingUnit?.nameHistory;
         return {
           unit: {
             id: unit.id || undefined,
@@ -1045,6 +1054,7 @@ export default function Companies() {
             type: unit.type,
             parentUnitId: unit.parentUnitId || "",
             coordinatorEmployeeId: unit.coordinatorEmployeeId || "",
+            ...(nameHistory?.length ? { nameHistory } : {}),
             active: true,
             createdAt: existingUnit?.createdAt || now,
             updatedAt: now,
@@ -3642,7 +3652,7 @@ function clearDatabaseFromScreen() {
           <strong>{unit.name}</strong>
           {assignments.length ? <small>{assignments.length} vínculo(s)</small> : null}
           <div className="org-node-actions">
-            <button className="table-action" type="button" onClick={() => setGroupNodeForm({ id: unit.id, nome: unit.name, tipo: unit.type, parentId: unit.parentUnitId || rootParentValue })}>Editar</button>
+            <button className="table-action" type="button" onClick={() => setGroupNodeForm({ id: unit.id, nome: unit.name, tipo: unit.type, parentId: unit.parentUnitId || rootParentValue, validoDesde: todayISO() })}>Editar</button>
             <button className="table-action danger-text" type="button" onClick={() => void deleteGroupOrganizationUnit(unit)}>Excluir</button>
           </div>
         </div>
@@ -3660,6 +3670,17 @@ function clearDatabaseFromScreen() {
     );
   }
 
+  function persistedUnitName(unitId: string) {
+    return data.companyGroupUnits.find((item) => item.id === unitId)?.name || "";
+  }
+
+  // Só equipe já gravada com nome diferente do salvo pede "válido a partir de".
+  function isTeamRename(unitId: string, type: GroupUnitType, name: string) {
+    if (type !== "team" || !unitId) return false;
+    const persisted = persistedUnitName(unitId);
+    return Boolean(persisted) && persisted.trim() !== name.trim() && Boolean(name.trim());
+  }
+
   async function submitGroupOrganizationUnit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedGroupDetail || !groupNodeForm.nome.trim()) return;
@@ -3670,6 +3691,11 @@ function clearDatabaseFromScreen() {
       return;
     }
     const parentUnitId = groupNodeForm.tipo === "department" ? "" : (groupNodeForm.parentId === rootParentValue ? "" : groupNodeForm.parentId);
+    const renamedTeam = isTeamRename(groupNodeForm.id, groupNodeForm.tipo, groupNodeForm.nome);
+    if (renamedTeam && !groupNodeForm.validoDesde) {
+      alert("Informe a partir de quando o nome novo vale.");
+      return;
+    }
     const nextUnit: CompanyGroupUnit = {
       id: groupNodeForm.id || `group-unit-${Date.now()}`,
       name: groupNodeForm.nome.trim(),
@@ -3677,6 +3703,7 @@ function clearDatabaseFromScreen() {
       parentUnitId,
       links: groupNodeForm.id ? (selectedGroupUnits.find((unit) => unit.id === groupNodeForm.id)?.links || []) : [],
       coordinatorEmployeeId: groupNodeForm.id ? (selectedGroupUnits.find((unit) => unit.id === groupNodeForm.id)?.coordinatorEmployeeId || "") : "",
+      ...(renamedTeam ? { nameValidFrom: groupNodeForm.validoDesde } : {}),
     };
     setNormalizedCompanyGroups((current) => current.map((group) => {
       if (group.id !== selectedGroupDetail.id) return group;
@@ -5475,6 +5502,18 @@ function clearDatabaseFromScreen() {
                             required
                           />
                         </label>
+                        {isTeamRename(groupNodeForm.id, groupNodeForm.tipo, groupNodeForm.nome) ? (
+                          <label className="field">
+                            Nome válido a partir de
+                            <input
+                              type="date"
+                              value={groupNodeForm.validoDesde}
+                              onChange={(event) => setGroupNodeForm({ ...groupNodeForm, validoDesde: event.target.value })}
+                              required
+                            />
+                            <small className="muted">Antes dessa data o ponto continua mostrando “{persistedUnitName(groupNodeForm.id)}”.</small>
+                          </label>
+                        ) : null}
                         <label className="field">
                           Tipo
                           <select
@@ -5914,6 +5953,18 @@ function clearDatabaseFromScreen() {
                                           />
                                         </label>
 
+                                        {isTeamRename(unit.id, unit.type, unit.name) ? (
+                                          <label className="field">
+                                            <span>Nome válido a partir de</span>
+                                            <input
+                                              type="date"
+                                              value={unit.nameValidFrom || todayISO()}
+                                              onChange={(event) => updateGroupUnit(unit.id, { nameValidFrom: event.target.value })}
+                                            />
+                                            <small className="muted">Antes dessa data o ponto continua mostrando “{persistedUnitName(unit.id)}”.</small>
+                                          </label>
+                                        ) : null}
+
                                         <label className="field group-coordinator-field">
                                           <span>{groupUnitResponsibleLabel(unit.type)}</span>
                                           <select
@@ -6140,6 +6191,8 @@ function clearDatabaseFromScreen() {
                   onAdd={(parentId) => addManualGroupUnit("team", parentId)}
                   onUpdate={updateGroupUnit}
                   onRemove={removeGroupUnit}
+                  persistedTeamName={persistedUnitName}
+                  today={todayISO()}
                 />
               )}
             </div>

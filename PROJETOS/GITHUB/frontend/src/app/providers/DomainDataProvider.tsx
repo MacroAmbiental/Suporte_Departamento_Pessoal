@@ -77,6 +77,7 @@ import type {
   TimekeepingColumn,
 } from "@/types/domain";
 import { createId, getAlertStatus } from "@/utils/format";
+import { resolveTeamNameOn } from "@/common/utils/teamNameHistory";
 
 type CollectionName = keyof DomainSnapshot;
 type Entity = { id: string };
@@ -913,18 +914,19 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     const dayTeamId = record.dayTeamId || realTeamId || "";
     // Desde a reestruturação (14/10) as equipes vêm da estrutura de grupos (companyGroupUnits do tipo
     // team), não só da coleção teams. O nome segue o id; o gravado só vale se o id não for encontrado.
+    // Equipe renomeada com "válido a partir de": vale o nome da data do registro.
+    const teamUnits = dataRef.current.companyGroupUnits.filter((unit) => unit.type === "team");
+    const teamUnitById = new Map(teamUnits.map((unit) => [unit.id, unit] as const));
     const teamById = new Map([
       ...dataRef.current.teams.map((team) => [team.id, team.name?.trim() || ""] as const),
-      ...dataRef.current.companyGroupUnits
-        .filter((unit) => unit.type === "team")
-        .map((unit) => [unit.id, unit.name?.trim() || ""] as const),
+      ...teamUnits.map((unit) => [unit.id, unit.name?.trim() || ""] as const),
     ]);
-    const realTeamName = teamById.get(realTeamId)
+    const realTeamName = resolveTeamNameOn(realTeamId, record.date, teamUnitById, teamById.get(realTeamId)
       || record.realTeamName?.trim()
-      || "";
-    const dayTeamName = teamById.get(dayTeamId)
+      || "");
+    const dayTeamName = resolveTeamNameOn(dayTeamId, record.date, teamUnitById, teamById.get(dayTeamId)
       || record.dayTeamName?.trim()
-      || "";
+      || "");
 
     return {
       ...record,
