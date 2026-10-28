@@ -4070,11 +4070,13 @@ export default function Timekeeping() {
           }
         }
       }
-      // Folga / Falta / Atestado → justificativa no cartão ponto do Secullum,
-      // só nas metades do dia sem horário batido; se o DP corrige a situação, a
-      // justificativa anterior sai do Secullum. Se o Secullum recusar, o dia não
-      // é salvo; repetir é seguro (a function pula o que já está lançado).
-      const justificativas = candidates.flatMap((record) => {
+      // Folga / Falta / Atestado / Férias / Afastado → justificativa no cartão
+      // ponto do Secullum, só nas metades do dia sem horário batido; se o DP
+      // corrige a situação, a justificativa anterior sai do Secullum. Olha todo
+      // registro que muda no dia (não só os editados): o Afastado é automático.
+      // Se o Secullum recusar, o dia não é salvo; repetir é seguro (a function
+      // pula o que já está lançado).
+      const justificativas = recordsToWrite.flatMap((record) => {
         const justificativa = JUSTIFICATIVA_SECULLUM_POR_STATUS[record.status];
         const saved = timeRecordByEmployeeDate.get(`${record.employeeId}:${record.date}`);
         const anterior = saved ? JUSTIFICATIVA_SECULLUM_POR_STATUS[saved.status] : undefined;

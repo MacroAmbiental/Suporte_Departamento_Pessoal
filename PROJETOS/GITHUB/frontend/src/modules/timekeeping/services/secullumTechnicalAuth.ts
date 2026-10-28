@@ -58,7 +58,7 @@ export async function gravarFlagsSecullum(
 }
 
 /**
- * Folga / Falta / Atestado do Ponto viram justificativa no cartão ponto do
+ * Folga / Falta / Atestado / Férias / Afastado do Ponto viram justificativa no cartão ponto do
  * Secullum (function "enviarJustificativasSecullum", de-para de 28/10/2026).
  * A function repete estas regras no servidor; aqui servem para montar a lista
  * que o usuário confirma antes de salvar o dia.
@@ -67,6 +67,8 @@ export const JUSTIFICATIVA_SECULLUM_POR_STATUS: Partial<Record<AttendanceStatus,
     day_off: "FOLGA",
     absence_confirmed: "FALTA",
     medical_certificate: "AT.MED",
+    vacation: "FÉRIAS",
+    leave: "AFASTOU",
 };
 
 // Só dias a partir da entrada no ar (igual à function).

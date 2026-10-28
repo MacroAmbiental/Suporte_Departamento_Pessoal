@@ -1364,7 +1364,11 @@ const JUSTIFICATIVA_POR_STATUS: Record<string, string> = {
   day_off: "FOLGA",
   absence_confirmed: "FALTA",
   medical_certificate: "AT.MED",
+  vacation: "FÉRIAS",
+  leave: "AFASTOU",
 };
+// Compara textos do cartão ponto sem acento nem caixa (FÉRIAS x FERIAS).
+const chave = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
 // Só dias a partir da entrada no ar: lançamentos anteriores nunca são mexidos.
 const INICIO_JUSTIFICATIVAS_SECULLUM = "2026-10-29";
 
@@ -1470,7 +1474,7 @@ export const enviarJustificativasSecullum = onCall(
       if (anterior && anterior !== justificativa) {
         for (const g of [1, 2]) {
           const atual = metade(batida, g);
-          if (!atual.length || !atual.every((v) => v.toUpperCase() === anterior)) continue;
+          if (!atual.length || !atual.every((v) => chave(v) === chave(anterior))) continue;
           for (const coluna of [`Entrada${g}`, `Saida${g}`]) {
             if (!texto(batida[coluna])) continue;
             const erro = await apagarColuna(cpf, coluna);
@@ -1501,7 +1505,7 @@ export const enviarJustificativasSecullum = onCall(
             break;
           }
           resultado.enviados.push(g);
-        } else if (atual.every((v) => v.toUpperCase() === justificativa)) {
+        } else if (atual.every((v) => chave(v) === chave(justificativa))) {
           resultado.jaEstavam.push(g);
         } else {
           resultado.conflitos.push({ grupo: g, valor: atual.join(" / ") });
@@ -1520,9 +1524,9 @@ export const enviarJustificativasSecullum = onCall(
         const anterior = JUSTIFICATIVA_POR_STATUS[String(item?.anterior)];
         const batida = depois.get(idPorCpf.get(r.cpf));
         r.conferido = Boolean(batida &&
-          r.enviados.every((g) => metade(batida, g).some((v) => v.toUpperCase().includes(justificativa))) &&
+          r.enviados.every((g) => metade(batida, g).some((v) => chave(v).includes(chave(justificativa)))) &&
           r.removidos.every((g) => r.enviados.includes(g) ||
-            !metade(batida, g).some((v) => v.toUpperCase() === anterior)));
+            !metade(batida, g).some((v) => chave(v) === chave(anterior))));
       }
     }
     console.log("[JUSTIFICATIVAS_SECULLUM]", {
