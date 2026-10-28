@@ -66,7 +66,12 @@ import {
 } from "@/modules/timekeeping/data/timekeepingDayRepository";
 import useCreateShortcut from "@/hooks/useCreateShortcut";
 import { useAuth } from "@/hooks/useAuth";
-import { gravarFlagsSecullum } from "@/modules/timekeeping/services/secullumTechnicalAuth";
+import {
+  enviarJustificativasSecullum,
+  gravarFlagsSecullum,
+  INICIO_JUSTIFICATIVAS_SECULLUM,
+  JUSTIFICATIVA_SECULLUM_POR_STATUS,
+} from "@/modules/timekeeping/services/secullumTechnicalAuth";
 import { exigirSessaoServidor } from "@/services/firebaseSession";
 import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
 import ConfirmModal from "@/common/components/ConfirmModal";
@@ -4054,7 +4059,8 @@ export default function Timekeeping() {
               // Sessão/permissão: nada foi enviado ao Secullum, mostra o motivo como veio.
               if (error instanceof Error && (error.message.includes("Sessão expirada") || error.message.includes("Sem permissão") || error.message.includes("Usuário inativo"))) throw error;
               throw new Error(`Não foi possível confirmar a gravação no Secullum de ${change.employeeName}. ` +
-                "Confira o registro no Secullum antes de tentar novamente; não houve salvamento no Firestore.");
+                "Confira o registro no Secullum antes de tentar novamente; não houve salvamento no Firestore." +
+                `\n\nMotivo: ${error instanceof Error ? error.message : String(error)}`);
             }
             if (result.data.ok !== true || result.data.flagsPersistidas !== true ||
               (result.data.alteracoesColaterais?.length ?? 0) > 0) {
@@ -4062,6 +4068,65 @@ export default function Timekeeping() {
                 "Não tente repetir automaticamente e confira o Secullum.");
             }
           }
+        }
+      }
+      // Folga / Falta / Atestado → justificativa no cartão ponto do Secullum,
+      // só nas metades do dia sem horário batido. Se o Secullum recusar, o dia
+      // não é salvo; repetir é seguro (a function pula o que já está lançado).
+      const justificativas = candidates.flatMap((record) => {
+        const justificativa = JUSTIFICATIVA_SECULLUM_POR_STATUS[record.status];
+        const saved = timeRecordByEmployeeDate.get(`${record.employeeId}:${record.date}`);
+        if (!justificativa || saved?.status === record.status || record.date < INICIO_JUSTIFICATIVAS_SECULLUM) return [];
+        const employee = employeeById.get(record.employeeId);
+        const cpf = secullumOnlyDigits(employee?.cpf);
+        if (cpf.length !== 11) return []; // sem CPF não existe no Secullum (ex.: PJ)
+        const grupos = [
+          !hasFilledTimeValue(record.checkIn) && !hasFilledTimeValue(record.checkOut) ? 1 : 0,
+          !hasFilledTimeValue(record.customFields?.ent2) && !hasFilledTimeValue(record.customFields?.sai2) ? 2 : 0,
+        ].filter(Boolean);
+        if (!grupos.length) return [];
+        return [{ employeeName: employee?.name || record.employeeName || cpf, cpf, status: record.status, justificativa, grupos }];
+      });
+      if (justificativas.length) {
+        const metadeLabel = (grupos: number[]) =>
+          grupos.length === 2 ? "dia todo" : grupos[0] === 1 ? "1ª metade" : "2ª metade";
+        const confirmed = window.confirm(
+          `Lançar ${justificativas.length} justificativa(s) no Secullum antes de salvar o dia?\n\n` +
+          justificativas.slice(0, 10).map((j) => `${j.employeeName}: ${j.justificativa} (${metadeLabel(j.grupos)})`).join("\n") +
+          (justificativas.length > 10 ? `\n... e mais ${justificativas.length - 10}` : "") +
+          "\n\nSe o Secullum recusar, o dia não será salvo."
+        );
+        if (!confirmed) return;
+        const nomePorCpf = new Map(justificativas.map((j) => [j.cpf, j.employeeName]));
+        let resultados;
+        try {
+          resultados = await enviarJustificativasSecullum(user.id, {
+            data: filters.date,
+            itens: justificativas.map(({ cpf, status, grupos }) => ({ cpf, status, grupos })),
+          });
+        } catch (error) {
+          window.alert(`Não foi possível lançar as justificativas no Secullum.\n\n${error instanceof Error ? error.message : String(error)}\n\nO dia não foi salvo.`);
+          return;
+        }
+        const recusados = resultados.filter((r) => r.erro);
+        if (recusados.length) {
+          window.alert(
+            "O Secullum recusou:\n\n" +
+            recusados.map((r) => `${nomePorCpf.get(r.cpf) || r.cpf}: ${r.erro}`).join("\n") +
+            "\n\nO dia não foi salvo. Ao tentar de novo, o que já foi lançado não é repetido."
+          );
+          return;
+        }
+        const avisos = resultados.flatMap((r) => {
+          const nome = nomePorCpf.get(r.cpf) || r.cpf;
+          return [
+            ...(r.semRegistro ? [`${nome}: não encontrado no cartão ponto do Secullum nesse dia`] : []),
+            ...r.conflitos.map((c) => `${nome}: ${c.grupo}ª metade já tem "${c.valor}" no Secullum, não foi alterada`),
+            ...(r.conferido === false ? [`${nome}: enviado, mas não apareceu na conferência`] : []),
+          ];
+        });
+        if (avisos.length) {
+          window.alert(`O dia será salvo, mas confira no Secullum:\n\n${avisos.join("\n")}`);
         }
       }
       const obsoleteRecordIds = new Set(wholeDaySavePlan.obsoleteRecordIds);
@@ -4163,6 +4228,10 @@ export default function Timekeeping() {
 
       setDraftRecordsByEmployeeId({});
       setTableLocked(true);
+    } catch (error) {
+      // As conferências do Secullum param o salvamento com uma mensagem; sem
+      // isto ela sumia e o dia simplesmente não salvava.
+      window.alert(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }

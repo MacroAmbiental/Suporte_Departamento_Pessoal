@@ -1356,3 +1356,123 @@ export const levantarJustificativasSecullum = onCall(
     };
   },
 );
+
+// Situação do Ponto → justificativa do Secullum (de-para combinado com o DP em
+// 28/10/2026). DSR, feriado, presente e falta pendente não vão: o Secullum já
+// calcula sozinho ou a situação ainda não é definitiva.
+const JUSTIFICATIVA_POR_STATUS: Record<string, string> = {
+  day_off: "FOLGA",
+  absence_confirmed: "FALTA",
+  medical_certificate: "AT.MED",
+};
+// Só dias a partir da entrada no ar: lançamentos anteriores nunca são mexidos.
+const INICIO_JUSTIFICATIVAS_SECULLUM = "2026-10-29";
+
+type ResultadoJustificativa = {
+  cpf: string;
+  enviados: number[];
+  jaEstavam: number[];
+  conflitos: Array<{ grupo: number; valor: string }>;
+  semRegistro?: boolean;
+  erro?: string;
+  conferido: boolean | null;
+};
+
+/**
+ * Callable: lança FOLGA / FALTA / AT.MED no cartão ponto de um dia.
+ * Recebe { data, itens: [{ cpf, status, grupos }] }, em que grupo 1 = Entrada1/Saida1
+ * e grupo 2 = Entrada2/Saida2 (só as metades sem horário batido no DP).
+ * Antes de gravar lê o dia no Secullum: metade já com a mesma justificativa é
+ * pulada (repetir é seguro) e metade com outro conteúdo não é tocada (conflito).
+ */
+export const enviarJustificativasSecullum = onCall(
+  { region: "southamerica-east1", timeoutSeconds: 120, secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] },
+  async (request) => {
+    await exigirPermissaoDP(request, "timekeeping", "edit");
+    const p = (request.data ?? {}) as {
+      data?: string;
+      itens?: Array<{ cpf?: string; status?: string; grupos?: number[] }>;
+    };
+    const data = p.data;
+    if (!data || !/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      throw new HttpsError("invalid-argument", "Informe 'data' no formato YYYY-MM-DD.");
+    }
+    if (data < INICIO_JUSTIFICATIVAS_SECULLUM) {
+      throw new HttpsError("failed-precondition", "Dias anteriores à integração não são lançados no Secullum.");
+    }
+    if (!Array.isArray(p.itens) || !p.itens.length || p.itens.length > 300) {
+      throw new HttpsError("invalid-argument", "Lista de funcionários inválida.");
+    }
+
+    const token = await getToken();
+    const funcs = await apiGet<Func[]>("/IntegracaoExterna/Funcionarios", token, {});
+    const idPorCpf = new Map<string, unknown>();
+    (funcs || []).forEach((f) => idPorCpf.set(onlyDigits(f.Cpf), f.Id));
+    const lerDia = async () => {
+      const batidas = await apiGet<Batida[]>("/IntegracaoExterna/Batidas", token, { dataInicio: data, dataFim: data });
+      const porFuncionario = new Map<unknown, Batida>();
+      (batidas || []).forEach((b) => porFuncionario.set(b.FuncionarioId, b));
+      return porFuncionario;
+    };
+    const texto = (v: unknown) => String(v ?? "").trim();
+    const metade = (b: Batida, g: number) => [texto(b[`Entrada${g}`]), texto(b[`Saida${g}`])].filter(Boolean);
+
+    const antes = await lerDia();
+    const resultados: ResultadoJustificativa[] = [];
+    for (const item of p.itens) {
+      const cpf = onlyDigits(item.cpf);
+      const justificativa = JUSTIFICATIVA_POR_STATUS[String(item.status)];
+      const resultado: ResultadoJustificativa = { cpf, enviados: [], jaEstavam: [], conflitos: [], conferido: null };
+      resultados.push(resultado);
+      const grupos = [...new Set(item.grupos || [])].filter((g) => g === 1 || g === 2);
+      if (cpf.length !== 11 || !justificativa || !grupos.length) {
+        resultado.erro = "Dados inválidos para o Secullum.";
+        continue;
+      }
+      const batida = antes.get(idPorCpf.get(cpf));
+      if (!batida) {
+        resultado.semRegistro = true;
+        continue;
+      }
+      // Funcionário com uma metade só na escala (Memoria = horário programado):
+      // não lança justificativa na metade que ele não trabalha.
+      const programados = [1, 2].filter((g) => texto(batida[`MemoriaEntrada${g}`]) || texto(batida[`MemoriaSaida${g}`]));
+      const alvo = programados.length ? grupos.filter((g) => programados.includes(g)) : grupos;
+      for (const g of alvo) {
+        const atual = metade(batida, g);
+        if (!atual.length) {
+          const res = await apiPost("/IntegracaoExterna/CartaoPonto/Justificativa", token, {
+            cpf, data, grupo: g, justificativa,
+          });
+          if (!res.ok) {
+            resultado.erro = extractSecullumError(res.data, res.raw);
+            break;
+          }
+          resultado.enviados.push(g);
+        } else if (atual.every((v) => v.toUpperCase() === justificativa)) {
+          resultado.jaEstavam.push(g);
+        } else {
+          resultado.conflitos.push({ grupo: g, valor: atual.join(" / ") });
+        }
+      }
+    }
+
+    // Conferência: relê o dia e procura a justificativa nas metades enviadas.
+    if (resultados.some((r) => r.enviados.length)) {
+      const depois = await lerDia();
+      for (const r of resultados) {
+        if (!r.enviados.length) continue;
+        const batida = depois.get(idPorCpf.get(r.cpf));
+        const justificativa = JUSTIFICATIVA_POR_STATUS[String(p.itens.find((i) => onlyDigits(i.cpf) === r.cpf)?.status)];
+        r.conferido = Boolean(batida && r.enviados.every((g) =>
+          metade(batida, g).some((v) => v.toUpperCase().includes(justificativa))));
+      }
+    }
+    console.log("[JUSTIFICATIVAS_SECULLUM]", {
+      data,
+      uid: request.auth?.uid,
+      itens: resultados.map((r) => ({ ...r, cpf: `***${r.cpf.slice(-3)}` })),
+    });
+    return { resultados };
+  },
+);
