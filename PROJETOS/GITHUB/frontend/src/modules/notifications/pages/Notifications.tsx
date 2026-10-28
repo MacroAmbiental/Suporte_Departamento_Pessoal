@@ -1,4 +1,5 @@
 import ModalPortal from "@/modules/shared/ModalPortal";
+import MultiSelect from "@/common/components/MultiSelect";
 import {
   Bell,
   CalendarClock,
@@ -23,7 +24,7 @@ import { useDomainData } from "@/hooks/useDomainData";
 import { openEmployeeDocumentFile, uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import { documentKindFromFileName, formatDocumentFileSize } from "@/modules/records/utils/recordsDocuments";
 import type { AlertPriority, DocumentAlert, EmployeeDocument } from "@/types/domain";
-import { closureLabels, closureReason } from "@/modules/notifications/utils";
+import { alertHasDeadline, closureLabels, closureReason } from "@/modules/notifications/utils";
 import { useEmployeeSituationTags } from "@/modules/notifications/hooks/useEmployeeSituationTags";
 import { alertStatusOnDate, badgeClass, formatDate, getAlertStatus, labelStatus, todayISO } from "@/utils/format";
 
@@ -31,7 +32,8 @@ type AlertSection = "active" | "renewed" | "completed";
 type DueWindowFilter = "all" | "overdue" | "one-day" | "three-days";
 
 type NotificationColumnFilters = {
-  document: string;
+  // Tipos de documento escolhidos na lista suspensa (chave sem acento/caixa).
+  document: string[];
   employee: string;
   notifyDate: string;
   priority: "" | AlertPriority;
@@ -44,7 +46,7 @@ const pageSize = 10;
 
 
 const initialColumnFilters: NotificationColumnFilters = {
-  document: "",
+  document: [],
   employee: "",
   notifyDate: "",
   priority: "",
@@ -81,6 +83,11 @@ const ObservationEditor = memo(function ObservationEditor({
     />
   );
 });
+
+// "ASO", "Aso" e "ASO " são o mesmo tipo de documento no filtro.
+function documentTypeKey(name: string) {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
+}
 
 function normalizeText(value: string) {
   return value
@@ -251,10 +258,11 @@ export default function Notifications() {
     [data.employees],
   );
 
-  const openAlerts = useMemo(
-    () => data.documentAlerts.filter((alert) => !closureByAlertId.get(alert.id)),
-    [closureByAlertId, data.documentAlerts],
-  );
+  const openAlerts = useMemo(() => {
+    const documentById = new Map(data.employeeDocuments.map((document) => [document.id, document]));
+    // Sem vencimento não tem o que avisar (documento que não vence).
+    return data.documentAlerts.filter((alert) => alertHasDeadline(alert, documentById.get(alert.documentId)) && !closureByAlertId.get(alert.id));
+  }, [closureByAlertId, data.documentAlerts, data.employeeDocuments]);
 
   const filteredOpenAlerts = useMemo(() => openAlerts, [openAlerts]);
 
@@ -368,7 +376,7 @@ export default function Notifications() {
     const notifyDate = type === "completed" ? alert.dueDate : getStoredNotifyDate(alert);
     const observations = alert.description || "";
 
-    if (filtersForSection.document && !normalizeText(docName).includes(normalizeText(filtersForSection.document))) return false;
+    if (filtersForSection.document.length && !filtersForSection.document.includes(documentTypeKey(docName))) return false;
     if (filtersForSection.employee && !normalizeText(employeeName).includes(normalizeText(filtersForSection.employee))) return false;
     if (filtersForSection.notifyDate && notifyDate !== filtersForSection.notifyDate) return false;
     if (filtersForSection.priority && alert.priority !== filtersForSection.priority) return false;
@@ -549,10 +557,10 @@ export default function Notifications() {
             <div className="notification-cell-content">
               <CalendarDays size={19} />
               <span>
-                <small>{type === "completed" ? "Venceu em" : "Vence em"}</small>
+                <small>{type === "completed" ? "Venceu em" : "Avisa em"}</small>
                 <strong>{formatDate(type === "completed" ? alert.dueDate : notifyDate)}</strong>
                 {type !== "completed" ? <small>Vencimento: {formatDate(alert.dueDate)}</small> : null}
-                {type !== "completed" && isRecurring(alert.recurrence) && nextDueDate ? <small>Renova: {formatDate(getNotifyDate(nextDueDate, advanceDays))}</small> : null}
+                {type !== "completed" && isRecurring(alert.recurrence) && nextDueDate ? <small>Próximo aviso: {formatDate(getNotifyDate(nextDueDate, advanceDays))}</small> : null}
               </span>
             </div>
           </td>
@@ -655,6 +663,18 @@ export default function Notifications() {
     type: AlertSection;
   }) {
     const sectionFilters = columnFilters[type];
+    // Lista suspensa de tipos de documento da aba, com a quantidade de alertas.
+    const documentCounts = new Map<string, { label: string; count: number }>();
+    alerts.forEach((alert) => {
+      const name = getDocumentName(alert);
+      const key = documentTypeKey(name);
+      const current = documentCounts.get(key) || { label: name.trim(), count: 0 };
+      current.count += 1;
+      documentCounts.set(key, current);
+    });
+    const documentOptions = Array.from(documentCounts.entries())
+      .map(([value, item]) => ({ value, label: `${item.label} (${item.count})` }))
+      .sort((left, right) => left.label.localeCompare(right.label, "pt-BR", { sensitivity: "base" }));
     const filteredAlerts = alerts.filter((alert) => matchesColumnFilters(alert, type, sectionFilters));
     const totalPages = Math.max(1, Math.ceil(filteredAlerts.length / pageSize));
     const currentPage = Math.min(tablePages[type], totalPages);
@@ -695,12 +715,13 @@ export default function Notifications() {
 
                 <tr className="notification-filter-row">
                   <th>
-                    <input
-                      type="text"
+                    <MultiSelect
+                      label="Filtrar documento"
+                      options={documentOptions}
                       value={sectionFilters.document}
-                      onChange={(event) => updateSectionColumnFilter(type, "document", event.target.value)}
-                      placeholder="Filtrar"
-                      aria-label="Filtrar documento"
+                      onChange={(next) => updateSectionColumnFilter(type, "document", next)}
+                      placeholder="Todos"
+                      searchPlaceholder="Buscar documento"
                     />
                   </th>
                   <th>
@@ -771,9 +792,9 @@ export default function Notifications() {
                       aria-label="Filtrar ações"
                     >
                       <option value="">Todas</option>
-                      <option value="with-file">Com Ver</option>
-                      <option value="without-file">Sem Ver</option>
-                      <option value="pending-completion">Com Concluir</option>
+                      <option value="with-file">Com arquivo</option>
+                      <option value="without-file">Sem arquivo</option>
+                      <option value="pending-completion">Falta concluir</option>
                     </select>
                   </th>
                 </tr>

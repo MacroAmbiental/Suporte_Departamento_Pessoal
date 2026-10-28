@@ -17,6 +17,7 @@ const screenSlugs: Record<AppScreen, string> = {
   monitoring: "monitoramento",
   permissions: "permissoes",
   vacation: "ferias",
+  aso: "processo-aso",
 };
 
 function base64UrlEncode(value: string) {

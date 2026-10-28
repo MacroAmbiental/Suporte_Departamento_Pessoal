@@ -17,6 +17,9 @@ export function formatDate(value?: string): string {
 
 export function formatDateTime(value?: string): string {
   if (!value) return "-";
+  // Data sem hora ("2023-12-14", ou gravada como meia-noite UTC) apareceria
+  // como 21:00 do dia anterior: mostra só a data.
+  if (/^\d{4}-\d{2}-\d{2}(T00:00(:00(\.000)?)?Z)?$/.test(value)) return formatDate(value);
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {

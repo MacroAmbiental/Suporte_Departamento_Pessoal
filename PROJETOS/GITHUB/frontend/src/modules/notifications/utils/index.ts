@@ -1,4 +1,5 @@
 import type { DocumentAlert, Employee, EmployeeDocument } from "@/types/domain";
+import { isNonExpiringDocument } from "@/modules/records/utils/recordsDocuments";
 
 export function formatNotificationTitle(title: string) {
   return title.trim();
@@ -39,8 +40,14 @@ export function closureReason(alert: DocumentAlert, document?: EmployeeDocument,
   return null;
 }
 
+// Alerta com prazo de verdade: tem vencimento e o documento vence.
+export function alertHasDeadline(alert: DocumentAlert, document?: EmployeeDocument) {
+  return Boolean(alert.dueDate) && !isNonExpiringDocument(document?.name || alert.documentName);
+}
+
 // Alerta que já entrou na janela de aviso e continua ativo: é o que aparece em
-// "Próximos alertas", no sino do menu e no Painel.
+// "Avisar agora", no sino do menu e no Painel. Alerta sem vencimento não tem o
+// que avisar (são a maioria, de documentos que não vencem) e fica de fora.
 export function alertsToNotify(
   alerts: DocumentAlert[],
   documents: EmployeeDocument[],
@@ -50,7 +57,8 @@ export function alertsToNotify(
   const documentById = new Map(documents.map((document) => [document.id, document]));
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
   return alerts.filter((alert) => (
-    !closureReason(alert, documentById.get(alert.documentId), employeeById.get(alert.employeeId))
+    alertHasDeadline(alert, documentById.get(alert.documentId))
+    && !closureReason(alert, documentById.get(alert.documentId), employeeById.get(alert.employeeId))
     && (alert.notifyDate || alert.dueDate) <= today
   ));
 }

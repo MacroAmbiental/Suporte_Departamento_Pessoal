@@ -137,6 +137,11 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "employeeDocuments",
     "documentAlerts",
   ],
+  aso: [
+    "companies",
+    "employees",
+    "employeeDocuments",
+  ],
   monitoring: [],
   permissions: [
     "companies",
@@ -179,6 +184,8 @@ const realtimeScopes: Partial<Record<AppScreen, DomainCollectionName[]>> = {
   hrControl: ["timekeepingColumns", "employees"],
   // Desligamento feito em outra tela tira a pessoa do quadro na hora.
   abandonment: ["employees"],
+  // ASO trocado em Registros sai do quadro na hora.
+  aso: ["employeeDocuments"],
 };
 
 export function collectionsForScreen(screen: AppScreen | null): DomainCollectionName[] {

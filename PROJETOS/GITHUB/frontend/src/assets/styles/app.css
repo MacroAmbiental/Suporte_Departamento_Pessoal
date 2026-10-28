@@ -4135,6 +4135,8 @@ button:disabled:hover {
 .notifications-page .multi-select-dropdown:nth-of-type(2)::before { content: "Funcionário"; }
 .notifications-page .multi-select-dropdown:nth-of-type(3)::before { content: "Prioridade"; }
 .notifications-page .alert-search-field::before { content: "Documento"; }
+/* Lista suspensa dentro da linha de filtros da tabela: sem os rótulos acima. */
+.notifications-page .notification-filter-row .multi-select-dropdown::before { content: none; }
 
 .notifications-page .alert-search-field {
   min-height: 42px;

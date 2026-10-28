@@ -1,6 +1,7 @@
 ﻿import {
   Activity,
   CalendarClock,
+  Stethoscope,
   Bell,
   Building2,
   ChartColumn,
@@ -44,6 +45,7 @@ const navItems: {
     { to: "/app/companies", label: "Empresas", icon: Building2, screen: "companies" },
     { to: "/app/records", label: "Registros", icon: Files, screen: "records" },
     { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications", subpage: "notificacoes" },
+    { to: "/app/processo-aso", label: "Processo de ASO", icon: Stethoscope, screen: "aso", subpage: "processo-aso" },
     { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
     { to: "/app/afastados", label: "Afastados", icon: CalendarClock, screen: "afastados" },
     { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping", subpage: "controle-ponto" },
@@ -214,21 +216,21 @@ export default function Layout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const today = todayISO();
   const activeAlerts = alertsToNotify(domain.documentAlerts, domain.employeeDocuments, domain.employees, today).length;
-  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "benefits", "timekeeping", "abandonment"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && can("notifications", "view"))), [can]);
+  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "benefits", "timekeeping", "abandonment"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && (can("notifications", "view") || can("aso", "view")))), [can]);
   const currentScreen = useMemo(() => screenFromPathname(location.pathname), [location.pathname]);
   const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "benefits", "timekeeping", "abandonment"].includes(item.screen)), [visibleNavItems]);
-  const recordSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && item.screen === "notifications"), [visibleNavItems]);
+  const recordSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && (item.screen === "notifications" || item.screen === "aso")), [visibleNavItems]);
   const employeeTab = new URLSearchParams(location.search).get("tab");
   const isEmployeeProcessActive = currentScreen === "employees" && employeeTab === "processos";
   const isEmployeeDismissedActive = currentScreen === "employees" && employeeTab === "demitidos";
   const [employeesMenuOpen, setEmployeesMenuOpen] = useState(false);
   const [recordsMenuOpen, setRecordsMenuOpen] = useState(false);
   const isEmployeesGroupActive = ["employees", "vacation", "benefits", "timekeeping", "abandonment"].includes(currentScreen || "");
-  const isRecordsGroupActive = currentScreen === "records" || currentScreen === "notifications";
+  const isRecordsGroupActive = currentScreen === "records" || currentScreen === "notifications" || currentScreen === "aso";
   const isEmployeesMenuOpen = employeesMenuOpen || isEmployeesGroupActive;
   const isRecordsMenuOpen = recordsMenuOpen || isRecordsGroupActive;
   const isWideWorkspace = currentScreen
-    ? ["records", "employees", "permissions", "talentBank", "benefits", "timekeeping", "hrControl"].includes(currentScreen)
+    ? ["records", "employees", "permissions", "talentBank", "benefits", "timekeeping", "hrControl", "aso"].includes(currentScreen)
     : ["records", "employees", "permissions", "talent-bank", "benefits"].some((path) => location.pathname.includes(path));
 
   useEffect(() => {
@@ -464,7 +466,7 @@ export default function Layout() {
             </div>
           ) : null}
         </header>
-        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "benefits" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" || currentScreen === "abandonment" || currentScreen === "vacation" ? " is-fullwidth" : ""}${currentScreen === "employees" && ["processos", "demitidos"].includes(employeeTab || "") ? " employee-process-workspace" : ""}${currentScreen === "vacation" ? " vacation-workspace" : ""}`}>
+        <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "benefits" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" || currentScreen === "abandonment" || currentScreen === "vacation" || currentScreen === "aso" ? " is-fullwidth" : ""}${currentScreen === "employees" && ["processos", "demitidos"].includes(employeeTab || "") ? " employee-process-workspace" : ""}${currentScreen === "vacation" ? " vacation-workspace" : ""}`}>
           <Outlet />
         </main>
         {domain.undoState ? (

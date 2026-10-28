@@ -44,13 +44,23 @@ export function parseStandardDocumentNames(value: string) {
     });
 }
 
+// Documentos que não vencem mesmo quando têm data cadastrada: no Documento de
+// Identificação a data costuma ser a de emissão (decisão do usuário, 28/10/2026).
+const nonExpiringDocumentPatterns = [/^DOCUMENTO DE IDENTIFICACAO/];
+
+export function isNonExpiringDocument(name?: string) {
+  const key = (name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+  return nonExpiringDocumentPatterns.some((pattern) => pattern.test(key));
+}
+
 // "Sem alerta" é só o documento ativo que vence e não tem alerta aberto:
 // documento sem vencimento (RG, CTPS...) não tem o que alertar.
 export function documentMissingAlert(
-  document: Pick<EmployeeDocument, "id" | "active" | "expirationDate">,
+  document: Pick<EmployeeDocument, "id" | "active" | "expirationDate" | "name">,
   openAlertDocumentIds: Set<string>,
 ) {
-  return document.active !== false && Boolean(document.expirationDate) && !openAlertDocumentIds.has(document.id);
+  return document.active !== false && Boolean(document.expirationDate) && !isNonExpiringDocument(document.name)
+    && !openAlertDocumentIds.has(document.id);
 }
 
 export function companyStandardDocumentNames(company?: Pick<Company, "standardDocumentNames">) {

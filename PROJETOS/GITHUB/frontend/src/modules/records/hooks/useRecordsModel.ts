@@ -715,6 +715,11 @@ export function useRecordsModel() {
     const dueDate = alertForm.dueDate || nextDueDateFromRecurrence(realizedDate, alertForm.recurrence || "Anual") || "";
     const advanceDays = Number(alertForm.advanceDays || alertForm.notifyBeforeDays || 0);
     const notifyDate = dueDate ? subtractDaysFromISODate(dueDate, advanceDays) : "";
+    // Alerta novo precisa de vencimento: sem ele não há o que avisar.
+    if (!isEditingAlert && !dueDate) {
+      window.alert("Informe o vencimento (ou a data de realizado) para criar o alerta.");
+      return;
+    }
     const now = new Date().toISOString();
     const prevAlert = data.documentAlerts.find((item) => item.id === alertForm.id || (item.documentId === alertForm.documentId && item.status !== "completed"));
 

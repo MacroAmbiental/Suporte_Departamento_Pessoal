@@ -23,6 +23,7 @@ const screenComponents: Record<AppScreen, LazyExoticComponent<ComponentType>> = 
   monitoring: lazy(() => import("@/modules/monitoring/pages/Monitoring")),
   permissions: lazy(() => import("@/modules/permissions/pages/Permissions")),
   vacation: lazy(() => import("@/modules/vacation/pages/VacationManagementPage")),
+  aso: lazy(() => import("@/modules/aso/AsoPage")),
 };
 
 function ScreenLoading() {
@@ -78,6 +79,7 @@ export default function AppRoutes() {
         <Route path="hr-control" element={<Navigate to={securePath("hrControl")} replace />} />
         <Route path="controle-rh" element={<Navigate to={securePath("hrControl")} replace />} />
         <Route path="processo-abandono" element={<Navigate to={securePath("abandonment")} replace />} />
+        <Route path="processo-aso" element={<Navigate to={securePath("aso")} replace />} />
         <Route path="talent-bank" element={<Navigate to="/app" replace />} />
         <Route path="banco-talentos" element={<Navigate to="/app" replace />} />
         <Route path="notifications" element={<Navigate to={securePath("notifications")} replace />} />
