@@ -4071,28 +4071,38 @@ export default function Timekeeping() {
         }
       }
       // Folga / Falta / Atestado → justificativa no cartão ponto do Secullum,
-      // só nas metades do dia sem horário batido. Se o Secullum recusar, o dia
-      // não é salvo; repetir é seguro (a function pula o que já está lançado).
+      // só nas metades do dia sem horário batido; se o DP corrige a situação, a
+      // justificativa anterior sai do Secullum. Se o Secullum recusar, o dia não
+      // é salvo; repetir é seguro (a function pula o que já está lançado).
       const justificativas = candidates.flatMap((record) => {
         const justificativa = JUSTIFICATIVA_SECULLUM_POR_STATUS[record.status];
         const saved = timeRecordByEmployeeDate.get(`${record.employeeId}:${record.date}`);
-        if (!justificativa || saved?.status === record.status || record.date < INICIO_JUSTIFICATIVAS_SECULLUM) return [];
+        const anterior = saved ? JUSTIFICATIVA_SECULLUM_POR_STATUS[saved.status] : undefined;
+        if ((!justificativa && !anterior) || saved?.status === record.status || record.date < INICIO_JUSTIFICATIVAS_SECULLUM) return [];
         const employee = employeeById.get(record.employeeId);
         const cpf = secullumOnlyDigits(employee?.cpf);
         if (cpf.length !== 11) return []; // sem CPF não existe no Secullum (ex.: PJ)
-        const grupos = [
+        const grupos = justificativa ? [
           !hasFilledTimeValue(record.checkIn) && !hasFilledTimeValue(record.checkOut) ? 1 : 0,
           !hasFilledTimeValue(record.customFields?.ent2) && !hasFilledTimeValue(record.customFields?.sai2) ? 2 : 0,
-        ].filter(Boolean);
-        if (!grupos.length) return [];
-        return [{ employeeName: employee?.name || record.employeeName || cpf, cpf, status: record.status, justificativa, grupos }];
+        ].filter(Boolean) : [];
+        if (!grupos.length && !anterior) return [];
+        return [{
+          employeeName: employee?.name || record.employeeName || cpf,
+          cpf, status: record.status, anterior: saved?.status, justificativa, justificativaAnterior: anterior, grupos,
+        }];
       });
       if (justificativas.length) {
         const metadeLabel = (grupos: number[]) =>
           grupos.length === 2 ? "dia todo" : grupos[0] === 1 ? "1ª metade" : "2ª metade";
+        const linha = (j: (typeof justificativas)[number]) => {
+          const nova = j.justificativa && j.grupos.length ? `${j.justificativa} (${metadeLabel(j.grupos)})` : "";
+          if (!j.justificativaAnterior) return `${j.employeeName}: ${nova}`;
+          return nova ? `${j.employeeName}: ${j.justificativaAnterior} → ${nova}` : `${j.employeeName}: tirar ${j.justificativaAnterior}`;
+        };
         const confirmed = window.confirm(
-          `Lançar ${justificativas.length} justificativa(s) no Secullum antes de salvar o dia?\n\n` +
-          justificativas.slice(0, 10).map((j) => `${j.employeeName}: ${j.justificativa} (${metadeLabel(j.grupos)})`).join("\n") +
+          `Atualizar ${justificativas.length} justificativa(s) no Secullum antes de salvar o dia?\n\n` +
+          justificativas.slice(0, 10).map(linha).join("\n") +
           (justificativas.length > 10 ? `\n... e mais ${justificativas.length - 10}` : "") +
           "\n\nSe o Secullum recusar, o dia não será salvo."
         );
@@ -4102,10 +4112,10 @@ export default function Timekeeping() {
         try {
           resultados = await enviarJustificativasSecullum(user.id, {
             data: filters.date,
-            itens: justificativas.map(({ cpf, status, grupos }) => ({ cpf, status, grupos })),
+            itens: justificativas.map(({ cpf, status, anterior, grupos }) => ({ cpf, status, anterior, grupos })),
           });
         } catch (error) {
-          window.alert(`Não foi possível lançar as justificativas no Secullum.\n\n${error instanceof Error ? error.message : String(error)}\n\nO dia não foi salvo.`);
+          window.alert(`Não foi possível atualizar as justificativas no Secullum.\n\n${error instanceof Error ? error.message : String(error)}\n\nO dia não foi salvo.`);
           return;
         }
         const recusados = resultados.filter((r) => r.erro);

@@ -74,12 +74,13 @@ export const INICIO_JUSTIFICATIVAS_SECULLUM = "2026-10-29";
 
 type JustificativasInput = {
     data: string;
-    itens: Array<{ cpf: string; status: AttendanceStatus; grupos: number[] }>;
+    itens: Array<{ cpf: string; status: AttendanceStatus; anterior?: AttendanceStatus; grupos: number[] }>;
 };
 
 export type ResultadoJustificativaSecullum = {
     cpf: string;
     enviados: number[];
+    removidos: number[];
     jaEstavam: number[];
     conflitos: Array<{ grupo: number; valor: string }>;
     semRegistro?: boolean;

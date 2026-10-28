@@ -1219,11 +1219,14 @@ const JUSTIFICATIVA_POR_STATUS = {
 // Só dias a partir da entrada no ar: lançamentos anteriores nunca são mexidos.
 const INICIO_JUSTIFICATIVAS_SECULLUM = "2026-10-29";
 /**
- * Callable: lança FOLGA / FALTA / AT.MED no cartão ponto de um dia.
- * Recebe { data, itens: [{ cpf, status, grupos }] }, em que grupo 1 = Entrada1/Saida1
- * e grupo 2 = Entrada2/Saida2 (só as metades sem horário batido no DP).
+ * Callable: lança FOLGA / FALTA / AT.MED no cartão ponto de um dia e tira a
+ * anterior quando o DP corrige a situação.
+ * Recebe { data, itens: [{ cpf, status, anterior, grupos }] }: status = situação
+ * nova, anterior = a que estava salva no DP, grupos = metades sem horário batido
+ * no DP (1 = Entrada1/Saida1, 2 = Entrada2/Saida2).
  * Antes de gravar lê o dia no Secullum: metade já com a mesma justificativa é
- * pulada (repetir é seguro) e metade com outro conteúdo não é tocada (conflito).
+ * pulada (repetir é seguro), só sai a justificativa anterior exata e metade com
+ * outro conteúdo não é tocada (conflito).
  */
 exports.enviarJustificativasSecullum = (0, https_1.onCall)({ region: "southamerica-east1", timeoutSeconds: 120, secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] }, async (request) => {
     await (0, permissaoDP_1.exigirPermissaoDP)(request, "timekeeping", "edit");
@@ -1250,15 +1253,42 @@ exports.enviarJustificativasSecullum = (0, https_1.onCall)({ region: "southameri
     };
     const texto = (v) => String(v ?? "").trim();
     const metade = (b, g) => [texto(b[`Entrada${g}`]), texto(b[`Saida${g}`])].filter(Boolean);
+    const apagarColuna = async (cpf, coluna) => {
+        const resp = await fetch(`${BASE_URL}/IntegracaoExterna/CartaoPonto`, {
+            method: "DELETE",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                secullumidbancoselecionado: SECULLUM_BANK_ID.value(),
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                "Accept-Language": "pt-BR",
+            },
+            body: JSON.stringify({ cpf, data, coluna, motivo: "Correção no Ponto do DP (Sistema Macro)" }),
+        });
+        if (resp.ok)
+            return null;
+        const raw = await resp.text();
+        let corpo = null;
+        try {
+            corpo = raw ? JSON.parse(raw) : null;
+        }
+        catch (_e) {
+            corpo = null;
+        }
+        return extractSecullumError(corpo, raw);
+    };
     const antes = await lerDia();
     const resultados = [];
     for (const item of p.itens) {
         const cpf = onlyDigits(item.cpf);
         const justificativa = JUSTIFICATIVA_POR_STATUS[String(item.status)];
-        const resultado = { cpf, enviados: [], jaEstavam: [], conflitos: [], conferido: null };
+        const anterior = JUSTIFICATIVA_POR_STATUS[String(item.anterior)];
+        const resultado = {
+            cpf, enviados: [], removidos: [], jaEstavam: [], conflitos: [], conferido: null,
+        };
         resultados.push(resultado);
-        const grupos = [...new Set(item.grupos || [])].filter((g) => g === 1 || g === 2);
-        if (cpf.length !== 11 || !justificativa || !grupos.length) {
+        const grupos = justificativa ? [...new Set(item.grupos || [])].filter((g) => g === 1 || g === 2) : [];
+        if (cpf.length !== 11 || (!grupos.length && !anterior)) {
             resultado.erro = "Dados inválidos para o Secullum.";
             continue;
         }
@@ -1267,13 +1297,38 @@ exports.enviarJustificativasSecullum = (0, https_1.onCall)({ region: "southameri
             resultado.semRegistro = true;
             continue;
         }
+        const vazias = new Set([1, 2].filter((g) => !metade(batida, g).length));
+        // Correção: sai a justificativa anterior, só onde a metade tem exatamente
+        // ela (horário batido ou outra justificativa ficam como estão).
+        if (anterior && anterior !== justificativa) {
+            for (const g of [1, 2]) {
+                const atual = metade(batida, g);
+                if (!atual.length || !atual.every((v) => v.toUpperCase() === anterior))
+                    continue;
+                for (const coluna of [`Entrada${g}`, `Saida${g}`]) {
+                    if (!texto(batida[coluna]))
+                        continue;
+                    const erro = await apagarColuna(cpf, coluna);
+                    if (erro) {
+                        resultado.erro = erro;
+                        break;
+                    }
+                }
+                if (resultado.erro)
+                    break;
+                resultado.removidos.push(g);
+                vazias.add(g);
+            }
+            if (resultado.erro)
+                continue;
+        }
         // Funcionário com uma metade só na escala (Memoria = horário programado):
         // não lança justificativa na metade que ele não trabalha.
         const programados = [1, 2].filter((g) => texto(batida[`MemoriaEntrada${g}`]) || texto(batida[`MemoriaSaida${g}`]));
         const alvo = programados.length ? grupos.filter((g) => programados.includes(g)) : grupos;
         for (const g of alvo) {
             const atual = metade(batida, g);
-            if (!atual.length) {
+            if (vazias.has(g)) {
                 const res = await apiPost("/IntegracaoExterna/CartaoPonto/Justificativa", token, {
                     cpf, data, grupo: g, justificativa,
                 });
@@ -1291,15 +1346,21 @@ exports.enviarJustificativasSecullum = (0, https_1.onCall)({ region: "southameri
             }
         }
     }
-    // Conferência: relê o dia e procura a justificativa nas metades enviadas.
-    if (resultados.some((r) => r.enviados.length)) {
+    // Conferência: relê o dia; a nova tem que aparecer nas metades enviadas e a
+    // anterior não pode ter ficado nas metades de onde saiu.
+    if (resultados.some((r) => r.enviados.length || r.removidos.length)) {
         const depois = await lerDia();
         for (const r of resultados) {
-            if (!r.enviados.length)
+            if (!r.enviados.length && !r.removidos.length)
                 continue;
+            const item = p.itens.find((i) => onlyDigits(i.cpf) === r.cpf);
+            const justificativa = JUSTIFICATIVA_POR_STATUS[String(item?.status)];
+            const anterior = JUSTIFICATIVA_POR_STATUS[String(item?.anterior)];
             const batida = depois.get(idPorCpf.get(r.cpf));
-            const justificativa = JUSTIFICATIVA_POR_STATUS[String(p.itens.find((i) => onlyDigits(i.cpf) === r.cpf)?.status)];
-            r.conferido = Boolean(batida && r.enviados.every((g) => metade(batida, g).some((v) => v.toUpperCase().includes(justificativa))));
+            r.conferido = Boolean(batida &&
+                r.enviados.every((g) => metade(batida, g).some((v) => v.toUpperCase().includes(justificativa))) &&
+                r.removidos.every((g) => r.enviados.includes(g) ||
+                    !metade(batida, g).some((v) => v.toUpperCase() === anterior)));
         }
     }
     console.log("[JUSTIFICATIVAS_SECULLUM]", {
