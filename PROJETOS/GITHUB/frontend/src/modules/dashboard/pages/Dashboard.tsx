@@ -5,15 +5,13 @@ import { useDomainData } from "@/hooks/useDomainData";
 import { useDashboardMetrics } from "@/modules/dashboard/hooks/useDashboardMetrics";
 import { securePath } from "@/services/secureRoutes";
 import { badgeClass, formatDate, labelStatus, todayISO } from "@/utils/format";
+import { alertsToNotify } from "@/modules/notifications/utils";
 
 export default function Dashboard() {
   const data = useDomainData();
   const { user } = useAuth();
   const today = todayISO();
-  const activeAlerts = data.documentAlerts.filter((alert) => {
-    const employee = data.employees.find((item) => item.id === alert.employeeId);
-    return alert.status !== "completed" && employee?.status !== "terminated" && (alert.notifyDate || alert.dueDate) <= today;
-  });
+  const activeAlerts = alertsToNotify(data.documentAlerts, data.employeeDocuments, data.employees, today);
   const { metrics: dashboardMetrics, employeeNames, loading: metricsLoading } = useDashboardMetrics(activeAlerts);
 
   const metrics = [

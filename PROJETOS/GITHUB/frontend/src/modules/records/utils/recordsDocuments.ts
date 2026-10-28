@@ -1,4 +1,4 @@
-import type { Company, DocumentKind, Employee } from "@/types/domain";
+import type { Company, DocumentKind, Employee, EmployeeDocument } from "@/types/domain";
 import { subtractDaysFromISODate } from "@/utils/date";
 import type { DocumentDraft } from "@/modules/records/types";
 
@@ -42,6 +42,15 @@ export function parseStandardDocumentNames(value: string) {
       seen.add(key);
       return true;
     });
+}
+
+// "Sem alerta" é só o documento ativo que vence e não tem alerta aberto:
+// documento sem vencimento (RG, CTPS...) não tem o que alertar.
+export function documentMissingAlert(
+  document: Pick<EmployeeDocument, "id" | "active" | "expirationDate">,
+  openAlertDocumentIds: Set<string>,
+) {
+  return document.active !== false && Boolean(document.expirationDate) && !openAlertDocumentIds.has(document.id);
 }
 
 export function companyStandardDocumentNames(company?: Pick<Company, "standardDocumentNames">) {

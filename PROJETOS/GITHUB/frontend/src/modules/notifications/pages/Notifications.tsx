@@ -23,7 +23,8 @@ import { useDomainData } from "@/hooks/useDomainData";
 import { openEmployeeDocumentFile, uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import { documentKindFromFileName, formatDocumentFileSize } from "@/modules/records/utils/recordsDocuments";
 import type { AlertPriority, DocumentAlert, EmployeeDocument } from "@/types/domain";
-import { badgeClass, formatDate, getAlertStatus, labelStatus, todayISO } from "@/utils/format";
+import { closureLabels, closureReason } from "@/modules/notifications/utils";
+import { alertStatusOnDate, badgeClass, formatDate, getAlertStatus, labelStatus, todayISO } from "@/utils/format";
 
 type AlertSection = "active" | "renewed" | "completed";
 type DueWindowFilter = "all" | "overdue" | "one-day" | "three-days";
@@ -34,13 +35,14 @@ type NotificationColumnFilters = {
   employee: string;
   notifyDate: string;
   priority: "" | AlertPriority;
-  status: "" | "pending" | "renewed" | "recurring" | "completed";
+  status: string;
   realized: RealizedValue;
   observations: string;
   actions: "" | "with-file" | "without-file" | "pending-completion";
 };
 
 const pageSize = 10;
+
 
 const initialColumnFilters: NotificationColumnFilters = {
   document: "",
@@ -235,13 +237,23 @@ export default function Notifications() {
     return alertCompany(alert)?.name || alert.companyName || "-";
   }
 
+  const closureByAlertId = useMemo(() => {
+    const documentById = new Map(data.employeeDocuments.map((document) => [document.id, document]));
+    const employeeById = new Map(data.employees.map((employee) => [employee.id, employee]));
+    return new Map(data.documentAlerts.map((alert) => [
+      alert.id,
+      closureReason(alert, documentById.get(alert.documentId), employeeById.get(alert.employeeId)),
+    ]));
+  }, [data.documentAlerts, data.employeeDocuments, data.employees]);
+
+  const terminatedEmployeeIds = useMemo(
+    () => new Set(data.employees.filter((employee) => employee.status === "terminated").map((employee) => employee.id)),
+    [data.employees],
+  );
+
   const openAlerts = useMemo(
-    () => data.documentAlerts.filter((alert) => {
-      const document = data.employeeDocuments.find((item) => item.id === alert.documentId);
-      const employee = data.employees.find((item) => item.id === alert.employeeId);
-      return alert.status !== "completed" && employee?.status !== "terminated" && Boolean(document) && document?.active !== false;
-    }),
-    [data.documentAlerts, data.employeeDocuments, data.employees],
+    () => data.documentAlerts.filter((alert) => !closureByAlertId.get(alert.id)),
+    [closureByAlertId, data.documentAlerts],
   );
 
   const filteredOpenAlerts = useMemo(() => openAlerts, [openAlerts]);
@@ -294,10 +306,11 @@ export default function Notifications() {
   const completedAlerts = useMemo(
     () => sortByUpdatedDate(
       data.documentAlerts
-        .filter((alert) => alert.status === "completed")
+        // Desligado não aparece nem no histórico (pedido do DP, 28/10/2026).
+        .filter((alert) => closureByAlertId.get(alert.id) && !terminatedEmployeeIds.has(alert.employeeId))
         .filter((alert) => matchesDueWindow(alert, dueWindowFilter, today)),
     ),
-    [data.documentAlerts, dueWindowFilter, today],
+    [closureByAlertId, data.documentAlerts, dueWindowFilter, terminatedEmployeeIds, today],
   );
 
   function resetTablePages() {
@@ -341,14 +354,16 @@ export default function Notifications() {
     }
   }
 
-  function statusBucket(alert: DocumentAlert, type: AlertSection) {
-    if (type === "completed") return "completed" as const;
-    if (alert.renewedFromAlertId || alert.previousDueDate) return "renewed" as const;
-    if (isRecurring(alert.recurrence)) return "recurring" as const;
-    return "pending" as const;
+  // Valores do filtro da coluna Status: no histórico o motivo; nos ativos o
+  // status do dia (Vencido/Ativo/Pendente) e a etiqueta Renovado/Recorrente.
+  function statusTags(alert: DocumentAlert, type: AlertSection): string[] {
+    if (type === "completed") return [closureByAlertId.get(alert.id) || "completed"];
+    const tag = alert.renewedFromAlertId || alert.previousDueDate ? "renewed" : isRecurring(alert.recurrence) ? "recurring" : "";
+    return [alertStatusOnDate(alert, today), tag].filter(Boolean);
   }
 
   function realizedValue(alert: DocumentAlert, type: AlertSection): RealizedValue {
+    if (type === "completed" && closureByAlertId.get(alert.id) !== "completed") return "";
     if (alert.realized === "yes" || alert.realized === "no") return alert.realized;
     return type === "completed" ? "yes" : "";
   }
@@ -379,7 +394,7 @@ export default function Notifications() {
     if (filtersForSection.employee && !normalizeText(employeeName).includes(normalizeText(filtersForSection.employee))) return false;
     if (filtersForSection.notifyDate && notifyDate !== filtersForSection.notifyDate) return false;
     if (filtersForSection.priority && alert.priority !== filtersForSection.priority) return false;
-    if (filtersForSection.status && statusBucket(alert, type) !== filtersForSection.status) return false;
+    if (filtersForSection.status && !statusTags(alert, type).includes(filtersForSection.status)) return false;
     if (filtersForSection.realized && realized !== filtersForSection.realized) return false;
     if (filtersForSection.observations && !normalizeText(observations).includes(normalizeText(filtersForSection.observations))) return false;
 
@@ -510,7 +525,7 @@ export default function Notifications() {
         <tr>
           <td colSpan={8}>
             {type === "completed"
-              ? "Nenhum alerta concluido nesse filtro."
+              ? "Nenhum alerta no histórico nesse filtro."
               : type === "renewed"
                 ? "Nenhuma renovacao ou alerta futuro programado."
                 : "Nenhum alerta entrou na janela de notificacao."}
@@ -563,25 +578,37 @@ export default function Notifications() {
 
           <td className="notification-status-cell">
             {type === "completed" ? (
-              <span className="badge badge-success">
-                <CheckCircle2 size={14} /> Concluido
-              </span>
-            ) : renewedFromAlertId || previousDueDate ? (
-              <span className="badge badge-info">
-                <RotateCcw size={14} /> Renovado
-              </span>
-            ) : isRecurring(alert.recurrence) ? (
-              <span className="badge badge-warning">
-                <CalendarClock size={14} /> {alert.recurrence}
-              </span>
+              closureByAlertId.get(alert.id) === "completed" ? (
+                <span className="badge badge-success">
+                  <CheckCircle2 size={14} /> Concluído
+                </span>
+              ) : (
+                <span className="badge">
+                  {closureLabels[closureByAlertId.get(alert.id) || "completed"]}
+                </span>
+              )
             ) : (
-              <span className={`badge ${badgeClass(alert.status)}`}>
-                {labelStatus(alert.status)}
-              </span>
+              <div className="notification-status-badges">
+                <span className={`badge ${badgeClass(alertStatusOnDate(alert, today))}`}>
+                  {labelStatus(alertStatusOnDate(alert, today))}
+                </span>
+                {renewedFromAlertId || previousDueDate ? (
+                  <span className="badge badge-info">
+                    <RotateCcw size={14} /> Renovado
+                  </span>
+                ) : isRecurring(alert.recurrence) ? (
+                  <span className="badge badge-warning">
+                    <CalendarClock size={14} /> {alert.recurrence}
+                  </span>
+                ) : null}
+              </div>
             )}
           </td>
 
           <td className="notification-realized-cell">
+            {type === "completed" && closureByAlertId.get(alert.id) !== "completed" ? (
+              <span className="muted">—</span>
+            ) : (
             <div className="notification-realized-options" role="group" aria-label={`Realizado de ${getDocumentName(alert)}`}>
               <button
                 type="button"
@@ -598,6 +625,7 @@ export default function Notifications() {
                 Não
               </button>
             </div>
+            )}
           </td>
 
           <td className="notification-observations-cell">
@@ -636,7 +664,10 @@ export default function Notifications() {
     });
   }
 
-  function AlertTableSection({
+  // Chamada como função, não como <Componente />: declarado aqui dentro, cada
+  // render virava um componente novo e a tabela era recriada a cada letra
+  // digitada nos filtros (o campo perdia o cursor).
+  function renderAlertTableSection({
     alerts,
     title,
     icon,
@@ -732,10 +763,19 @@ export default function Notifications() {
                       aria-label="Filtrar status"
                     >
                       <option value="">Todos</option>
-                      <option value="pending">Pendente</option>
-                      <option value="renewed">Renovado</option>
-                      <option value="recurring">Recorrente</option>
-                      <option value="completed">Concluído</option>
+                      {type === "completed" ? (
+                        (["completed", "document_deleted", "document_inactive"] as const).map((value) => (
+                          <option key={value} value={value}>{closureLabels[value]}</option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="overdue">Vencido</option>
+                          <option value="active">Ativo</option>
+                          <option value="pending">Pendente</option>
+                          <option value="renewed">Renovado</option>
+                          <option value="recurring">Recorrente</option>
+                        </>
+                      )}
                     </select>
                   </th>
                   <th>
@@ -804,7 +844,7 @@ export default function Notifications() {
   const sectionTabs = [
     { key: "active" as AlertSection, title: "Proximos alertas", icon: <Bell size={16} />, count: nextAlerts.length },
     { key: "renewed" as AlertSection, title: "Renovacoes futuras", icon: <RotateCcw size={16} />, count: programmedAlerts.length },
-    { key: "completed" as AlertSection, title: "Arquivos concluidos", icon: <CheckCircle2 size={16} />, count: completedAlerts.length },
+    { key: "completed" as AlertSection, title: "Histórico", icon: <CheckCircle2 size={16} />, count: completedAlerts.length },
   ];
 
   const completionAlert = completionDraft ? data.documentAlerts.find((item) => item.id === completionDraft.alertId) : undefined;
@@ -852,9 +892,9 @@ export default function Notifications() {
         ))}
       </div>
 
-      {activeSection === "active" && <AlertTableSection alerts={nextAlerts} type="active" title="Proximos alertas" icon={<Bell size={18} />} />}
-      {activeSection === "renewed" && <AlertTableSection alerts={programmedAlerts} type="renewed" title="Renovacoes futuras" icon={<RotateCcw size={18} />} />}
-      {activeSection === "completed" && <AlertTableSection alerts={completedAlerts} type="completed" title="Arquivos concluidos" icon={<CheckCircle2 size={18} />} />}
+      {activeSection === "active" && renderAlertTableSection({ alerts: nextAlerts, type: "active", title: "Proximos alertas", icon: <Bell size={18} /> })}
+      {activeSection === "renewed" && renderAlertTableSection({ alerts: programmedAlerts, type: "renewed", title: "Renovacoes futuras", icon: <RotateCcw size={18} /> })}
+      {activeSection === "completed" && renderAlertTableSection({ alerts: completedAlerts, type: "completed", title: "Histórico", icon: <CheckCircle2 size={18} /> })}
 
       {completionDraft ? (
         <ModalPortal className="modal-backdrop">

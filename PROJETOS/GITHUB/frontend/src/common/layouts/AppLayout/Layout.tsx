@@ -30,6 +30,7 @@ import { compareText } from "@/utils/sort";
 import logo from "@/assets/images/logo-empresas.png";
 import NewHiresMenu from "./NewHiresMenu";
 import "./layout.css";
+import { alertsToNotify } from "@/modules/notifications/utils";
 
 const navItems: {
   to: string;
@@ -212,10 +213,7 @@ export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const today = todayISO();
-  const activeAlerts = domain.documentAlerts.filter((alert) => {
-    const employee = domain.employees.find((item) => item.id === alert.employeeId);
-    return alert.status !== "completed" && employee?.status !== "terminated" && (alert.notifyDate || alert.dueDate) <= today;
-  }).length;
+  const activeAlerts = alertsToNotify(domain.documentAlerts, domain.employeeDocuments, domain.employees, today).length;
   const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "benefits", "timekeeping", "abandonment"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && can("notifications", "view"))), [can]);
   const currentScreen = useMemo(() => screenFromPathname(location.pathname), [location.pathname]);
   const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "benefits", "timekeeping", "abandonment"].includes(item.screen)), [visibleNavItems]);

@@ -3,6 +3,7 @@ import { employeeKindOf, employeeKindLabels } from "@/common/utils/employeeKind"
 import { employeeProcessModalityLabel } from "@/modules/employeeProcesses/utils/experience";
 import { useRecordsContext } from "@/modules/records/context/RecordsContext";
 import { isDismissalArchivedEmployee, isDismissalInProgressEmployee } from "@/modules/records/hooks/useSelectedEmployeeDocuments";
+import { documentMissingAlert } from "@/modules/records/utils/recordsDocuments";
 import { formatDateTime, todayISO } from "@/utils/format";
 
 export default function SelectedEmployeePanel() {
@@ -28,7 +29,7 @@ export default function SelectedEmployeePanel() {
       .map((alert) => alert.documentId),
   );
   const documentsWithoutAlert = selectedDocuments
-    .filter((document) => !activeAlertDocumentIds.has(document.id))
+    .filter((document) => documentMissingAlert(document, activeAlertDocumentIds))
     .sort((left, right) => (left.name || "").localeCompare(right.name || "", "pt-BR"));
   const isDismissedEmployee = selectedEmployee?.status === "terminated";
   const isDismissalInProgress = isDismissalInProgressEmployee(selectedEmployee);

@@ -38,6 +38,18 @@ export function normalizeUrl(value: string): string {
   return value.startsWith("http://") || value.startsWith("https://") ? value : `https://${value}`;
 }
 
+// Status do alerta na data de hoje. O status gravado é o do dia em que o alerta
+// foi salvo e não se atualiza: vencido passou do vencimento, ativo está na
+// janela de aviso (Alertar antes) e pendente ainda não chegou nela.
+export function alertStatusOnDate(
+  alert: { status: AlertStatus; dueDate: string; notifyDate?: string },
+  today = todayISO(),
+): AlertStatus {
+  if (alert.status === "completed") return "completed";
+  if (alert.dueDate && alert.dueDate < today) return "overdue";
+  return (alert.notifyDate || alert.dueDate || "") > today ? "pending" : "active";
+}
+
 export function getAlertStatus(dueDate: string, current: AlertStatus = "active"): AlertStatus {
   if (current === "completed") return current;
   if (!dueDate) return current;

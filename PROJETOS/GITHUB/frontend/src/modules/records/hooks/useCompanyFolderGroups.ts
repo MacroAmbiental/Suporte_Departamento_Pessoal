@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Company, Department, DocumentAlert, Employee, EmployeeDocument } from "@/types/domain";
 import type { CompanyFolderGroup } from "@/modules/records/types";
+import { documentMissingAlert } from "@/modules/records/utils/recordsDocuments";
 
 const fallbackCompanyId = "__without-company";
 
@@ -59,7 +60,7 @@ export function useCompanyFolderGroups({
       const current = acc.get(document.employeeId) || { documentCount: 0, documentsWithoutAlert: [] };
       current.documentCount += 1;
 
-      if (!isDismissalStateEmployee(employee) && !activeAlertDocumentIds.has(document.id)) {
+      if (!isDismissalStateEmployee(employee) && documentMissingAlert(document, activeAlertDocumentIds)) {
         current.documentsWithoutAlert.push({
           id: document.id,
           name: document.name || "Documento sem nome",

@@ -4229,6 +4229,7 @@ button:disabled:hover {
 .notification-date-cell { width: 12%; }
 .notification-priority-cell { width: 8%; }
 .notification-status-cell { width: 10%; }
+.notification-status-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .notification-realized-cell { width: 10%; }
 .notification-observations-cell { width: 17%; }
 .notification-actions-cell { width: 180px; }

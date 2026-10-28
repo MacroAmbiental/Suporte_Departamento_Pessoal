@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import type { DocumentAlert, EmployeeDocument } from "@/types/domain";
 import { useRecordsContext } from "@/modules/records/context/RecordsContext";
 import { isDismissalInProgressEmployee } from "@/modules/records/hooks/useSelectedEmployeeDocuments";
-import { badgeClass, formatDate, formatDateTime } from "@/utils/format";
+import { alertStatusOnDate, badgeClass, formatDate, formatDateTime, labelStatus } from "@/utils/format";
 
 const attachmentAccept = ".pdf,.xls,.xlsx,.png,.jpg,.jpeg,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/png,image/jpeg";
 
@@ -115,7 +115,7 @@ export default function EmployeeDocumentTable() {
 
         <td>
           {alert && !dismissalMode ? (
-            <span className={`badge ${badgeClass(alert.status)}`}>
+            <span className={`badge ${badgeClass(alertStatusOnDate(alert))}`} title={labelStatus(alertStatusOnDate(alert))}>
               {alert.title}
             </span>
           ) : dismissalMode ? (
