@@ -1,0 +1,16 @@
+/* Processo de Reclassificação (aba de Processo de Funcionário). */
+.reclassification-modal { display: grid; gap: 12px; width: min(100%, 720px); padding: 20px 24px; }
+.reclassification-modal .modal-header { padding: 0; }
+.reclassification-step { display: grid; gap: 10px; padding: 12px; border: 1px solid #dbe5ee; border-radius: 10px; background: #f8fbfd; }
+.reclassification-step h3 { margin: 0; font-size: 16px; color: #263b4d; }
+.reclassification-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.reclassification-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 0; }
+.reclassification-summary dt { color: #63738b; font-size: 12px; font-weight: 700; }
+.reclassification-summary dd { display: grid; gap: 2px; margin: 2px 0 0; color: #142e4c; font-weight: 600; }
+.reclassification-summary dd small { color: #52677c; font-weight: 500; }
+.reclassification-file { justify-self: start; font-size: 14px; }
+.reclassification-error { margin: 0; color: #a2212a; font-weight: 700; }
+.reclassification-history-title { margin: 4px 0 0; font-size: 15px; }
+.reclassification-history { display: grid; gap: 8px; margin: 0; padding-left: 18px; }
+.reclassification-history li { display: grid; gap: 2px; }
+.reclassification-company { display: block; }

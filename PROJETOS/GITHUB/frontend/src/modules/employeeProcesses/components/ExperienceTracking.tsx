@@ -129,7 +129,10 @@ export default function ExperienceTracking({ employee, today = todayISO(), compa
     {compact && !displayedMilestones.length && <small className="muted">Sem alerta pendente</small>}
     {!compact && <small className="muted">A antecedência vale para os dois marcos. No último, continuar registra a contratação definitiva. Havendo desligamento agendado, revise-o antes de continuar.</small>}
     {!compact && can("employees", "edit") && !employee.registrationData?.dismissalApprovedAt && <div className="experience-tracking-config"><label>Antecedência (dias)</label><input aria-label={`Antecedência do alerta de ${employee.name}`} type="number" min={1} max={30} value={days} disabled={busy} onChange={(event) => setDays(Number(event.target.value))} /><button className="btn btn-secondary" type="button" disabled={busy || !Number.isInteger(days) || days < 1 || days > 30 || days === savedDays} onClick={() => void save()}>{busy ? "Salvando..." : "Salvar"}</button></div>}
-    {dismissalAction && <small role="status">{dismissalAction}</small>}
+    {/* Na tabela, a regra da rescisão antecipada fica na dica do ⓘ (repetia em toda linha). */}
+    {dismissalAction && (compact
+      ? displayedMilestones.length > 0 && <small className="experience-legal-hint" title={dismissalAction} tabIndex={0}>ⓘ Regra do desligamento antecipado</small>
+      : <small role="status">{dismissalAction}</small>)}
     {message && <small role="status">{message}</small>}
   </div>;
 }

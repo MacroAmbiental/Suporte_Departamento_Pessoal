@@ -324,3 +324,32 @@
 .employee-process-filters { grid-template-columns: minmax(240px, 2fr) repeat(2, minmax(170px, 1fr)) auto; }
 @container (max-width: 1000px) { .employee-process-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (max-width: 440px) { .employee-process-filters { grid-template-columns: minmax(0, 1fr); } }
+
+/* Linhas compactas (28/10/2026): observação em uma linha que cresce ao clicar,
+   regra jurídica no ⓘ e botão de efetivar junto do status. */
+.process-notes.is-compact { min-width: 200px; gap: 6px; }
+.process-notes.is-compact textarea { min-height: 34px; height: 34px; padding: 6px 10px; resize: none; transition: height .15s; }
+.process-notes.is-compact textarea:focus { height: 96px; }
+.experience-legal-hint { color: #8a5a00; font-weight: 600; cursor: help; }
+.process-status-cell { display: grid; gap: 6px; justify-items: start; }
+.process-effectuate-button { padding: 4px 10px; font-size: 12px; }
+
+/* Abas Desligamentos / Experiência e cartões que filtram (28/10/2026). */
+.employee-process-tabs { display: flex; gap: 8px; border-bottom: 1px solid #e0e7f1; }
+.employee-process-tab { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 0; border-bottom: 3px solid transparent; background: none; color: #52677c; font: inherit; font-weight: 700; cursor: pointer; }
+.employee-process-tab b { padding: 1px 8px; border-radius: 999px; background: #e8eff7; color: #36536b; font-size: 12px; }
+.employee-process-tab.is-active { border-bottom-color: #1f95ed; color: #142e4c; }
+.employee-process-tab.is-active b { background: #d6ecfd; color: #155a8d; }
+.employee-process-card.is-clickable { font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.employee-process-card.is-clickable:hover { border-color: #9fc6e9; }
+.employee-process-card.is-selected { border-color: #1f95ed; box-shadow: 0 0 0 2px rgba(31, 149, 237, .18); }
+.employee-process-card i.red { background: #e5546a; }
+.employee-process-hint { margin: 0; cursor: help; }
+.employee-process-period { white-space: nowrap; }
+.employee-process-period small { display: block; }
+.employee-process-company { max-width: 220px; }
+.employee-process-table-wrap > table { width: 100%; }
+.employee-process-filters > .btn { flex: 0 0 auto; width: auto; }
+.employee-process-filters > input { flex: 1 1 320px; }
+.process-notes.is-compact textarea:not(:focus) { overflow: hidden; }
+.employee-processes .employee-process-filters { display: flex; flex-wrap: wrap; align-items: center; }
