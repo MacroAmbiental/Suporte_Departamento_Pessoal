@@ -24,6 +24,7 @@ import { openEmployeeDocumentFile, uploadEmployeeDocumentFile } from "@/services
 import { documentKindFromFileName, formatDocumentFileSize } from "@/modules/records/utils/recordsDocuments";
 import type { AlertPriority, DocumentAlert, EmployeeDocument } from "@/types/domain";
 import { closureLabels, closureReason } from "@/modules/notifications/utils";
+import { useEmployeeSituationTags } from "@/modules/notifications/hooks/useEmployeeSituationTags";
 import { alertStatusOnDate, badgeClass, formatDate, getAlertStatus, labelStatus, todayISO } from "@/utils/format";
 
 type AlertSection = "active" | "renewed" | "completed";
@@ -245,6 +246,8 @@ export default function Notifications() {
       closureReason(alert, documentById.get(alert.documentId), employeeById.get(alert.employeeId)),
     ]));
   }, [data.documentAlerts, data.employeeDocuments, data.employees]);
+
+  const situationTagsByEmployee = useEmployeeSituationTags(data.employees, today);
 
   const terminatedEmployeeIds = useMemo(
     () => new Set(data.employees.filter((employee) => employee.status === "terminated").map((employee) => employee.id)),
@@ -554,7 +557,17 @@ export default function Notifications() {
           <td className="notification-employee-cell">
             <div className="notification-cell-content">
               <UserRound size={19} />
-              <span><strong>{getEmployeeName(alert)}</strong><small>{getCompanyName(alert)}</small></span>
+              <span>
+                <strong>{getEmployeeName(alert)}</strong>
+                <small>{getCompanyName(alert)}</small>
+                {situationTagsByEmployee.get(alert.employeeId)?.length ? (
+                  <span className="notification-situation-tags">
+                    {situationTagsByEmployee.get(alert.employeeId)!.map((tag) => (
+                      <span key={tag.label} className={`badge badge-${tag.tone}`}>{tag.label}</span>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
             </div>
           </td>
 
