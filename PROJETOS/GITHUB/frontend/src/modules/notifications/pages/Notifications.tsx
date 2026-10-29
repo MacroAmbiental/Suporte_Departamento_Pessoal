@@ -471,7 +471,7 @@ export default function Notifications() {
       }
 
       if (nextDueDate) {
-        const { id: _removedId, ...alertWithoutId } = alert as typeof alert & { id?: string };
+        const { id: _removedId, realized: _removedRealized, ...alertWithoutId } = alert as typeof alert & { id?: string };
         const notifyDate = getNotifyDate(nextDueDate, advanceDays);
 
         await data.upsertDocumentAlert({
@@ -484,7 +484,6 @@ export default function Notifications() {
           status: getAlertStatus(notifyDate),
           renewedFromAlertId: alert.id,
           previousDueDate: alert.dueDate,
-          realized: undefined,
           employeeName: employee?.name || alert.employeeName || "",
           documentName: document?.name || alert.documentName || "",
           companyName: company?.name || alert.companyName || "",
