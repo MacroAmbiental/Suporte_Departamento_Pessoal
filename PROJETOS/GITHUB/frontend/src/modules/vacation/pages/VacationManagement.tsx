@@ -668,8 +668,13 @@ function VacationEditorModal({
   const selectedPeriodRow = periodRows.find((r) => r.period.year === Number(acqYear));
   const rightDays = selectedPeriodRow?.right.days ?? 0;
   const rightLost = selectedPeriodRow?.right.lost ?? false;
-  const otherYearEntries = (selectedPeriodRow?.periodVacations || []).filter((v) => v.id !== editingId);
-  const gozadosOutros = otherYearEntries.reduce((s, v) => s + (v.days || 0), 0);
+  // Período do relatório da contabilidade: o que foi gozado até a data base já está no
+  // relatório (daysTaken); só os lançamentos do sistema depois dela contam de novo.
+  const selectedReport = selectedPeriodRow?.period.report;
+  const otherYearEntries = (selectedPeriodRow?.periodVacations || []).filter(
+    (v) => v.id !== editingId && (!selectedReport || (v.startDate || "") >= selectedReport.baseDateISO),
+  );
+  const gozadosOutros = (selectedReport?.daysTaken || 0) + otherYearEntries.reduce((s, v) => s + (v.days || 0), 0);
   const vendidosOutros = otherYearEntries.reduce((s, v) => s + (v.daysSold || 0), 0);
   const alocadosOutros = gozadosOutros + vendidosOutros;
   const restante = rightDays - alocadosOutros - days - soldDays;
