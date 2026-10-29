@@ -542,6 +542,7 @@ function VacationEditorModal({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const { confirmAccessKey } = useDomainData();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -849,7 +850,13 @@ function VacationEditorModal({
               type="button"
               className="btn btn-secondary"
               onClick={async () => {
-                if (!window.confirm(`Remover os dados do relatório da contabilidade de ${employee.name}? As férias voltam a ser calculadas pelo cadastro.`)) return;
+                // Mexe no saldo de férias: só com a chave de acesso (a mesma das exclusões protegidas).
+                const allowed = await confirmAccessKey({
+                  title: "Remover dados do relatório",
+                  description: `Remover os dados do relatório da contabilidade de ${employee.name}? As férias voltam a ser calculadas pelo cadastro. Informe a chave de acesso para continuar.`,
+                  confirmLabel: "Remover",
+                });
+                if (!allowed) return;
                 await deleteVacationBaseline(employee.id);
                 await onSaved();
                 onClose();
