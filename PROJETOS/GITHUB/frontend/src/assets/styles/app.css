@@ -7555,3 +7555,42 @@ button:disabled:hover {
 @media (max-width: 1450px) and (min-width: 781px) {
   .hr-metric-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
+
+/* Conferir acesso de uma pessoa (29/10/2026). */
+.user-access-check { display: grid; gap: 14px; padding: 18px 20px; }
+.user-access-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.user-access-head .panel-title { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
+.user-access-head p { margin: 0; font-size: 13px; }
+.user-access-head input { flex: 0 1 460px; min-width: 260px; padding: 10px 12px; border: 1px solid #d6e0eb; border-radius: 8px; font: inherit; }
+.user-access-body { display: grid; gap: 12px; }
+.user-access-profiles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.user-access-label { margin-right: 4px; color: #52677c; font-size: 13px; font-weight: 700; }
+.access-profile { padding: 3px 10px; border: 1px solid #d6e0eb; border-radius: 999px; background: #f4f8fb; color: #36536b; font-size: 12px; font-weight: 700; }
+.access-profile.is-login { border-color: #1f95ed; background: #e8f3fd; color: #155a8d; }
+.user-access-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; font-weight: 700; }
+.user-access-status.is-warning { background: #fff8e6; color: #8a5a00; }
+.user-access-status.is-ok { background: #e9f8f0; color: #11704a; }
+.user-access-status .btn { margin-left: auto; }
+.user-access-message { margin: 0; }
+.user-access-table { width: 100%; border-collapse: collapse; }
+.user-access-table th { padding: 8px 10px; border-bottom: 1px solid #dbe5ee; color: #52677c; font-size: 12px; text-align: left; }
+.user-access-table td { padding: 6px 10px; border-bottom: 1px solid #edf2f7; font-size: 13px; vertical-align: middle; }
+.user-access-table tr.is-different td:first-child { font-weight: 700; color: #8a5a00; }
+.access-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.access-chip { padding: 1px 7px; border-radius: 6px; background: #eef3f8; color: #36536b; font-size: 11px; font-weight: 700; }
+.access-chip.is-missing { background: #ffe3e8; color: #b42348; }
+.access-chip.is-extra { background: #fff1d6; color: #8a5a00; }
+.user-access-toggle { justify-self: start; }
+
+/* Importar relatório de férias da contabilidade (29/10/2026). */
+.vacation-import-modal { display: grid; gap: 12px; width: min(100%, 820px); padding: 20px 24px; }
+.vacation-import-modal .modal-header { padding: 0; }
+.vacation-import-modal .document-file-field { display: flex; }
+.vacation-import-summary { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vacation-import-summary th, .vacation-import-summary td { padding: 6px 8px; border-bottom: 1px solid #e6edf4; text-align: left; }
+.vacation-import-list { max-height: 220px; overflow: auto; margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.vacation-import-error { margin: 0; color: #a2212a; font-weight: 700; }
+.vacation-import-done { margin: 0; color: #11704a; font-weight: 700; }
+.vacation-import-missing { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
+.vacation-import-missing input { flex: 1 1 260px; padding: 4px 8px; border: 1px solid #d6e0eb; border-radius: 6px; font: inherit; font-size: 12px; }
+.vacation-baseline-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; font-size: 13px; }

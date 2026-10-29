@@ -110,6 +110,39 @@ export interface AcquisitionPeriod {
   complete: boolean;
   // Art. 133 da CLT: período perdido (afastamento INSS > 6 meses ou licença remunerada > 30 dias).
   lost?: { reason: string; returnISO: string };
+  // Período que veio do relatório da contabilidade: saldo na data base (só as férias
+  // lançadas no sistema depois dela são descontadas).
+  report?: { baseDateISO: string; daysTaken: number; daysRemaining: number };
+}
+
+// Foto do relatório "Programação de Férias" do Domínio (contabilidade) por funcionário:
+// até a data base vale o que a contabilidade diz; depois dela o sistema calcula.
+export const VACATION_BASELINES_COLLECTION = "vacationBaselines";
+
+export interface VacationBaseline {
+  id: string;
+  employeeId: string;
+  companyId: string;
+  baseDateISO: string;
+  reportCompany: string;
+  reportCode: string;
+  reportName: string;
+  periods: Array<{ startISO: string; endISO: string; daysRight: number; daysTaken: number; daysRemaining: number; limitISO: string; absences: number }>;
+  importedAt: string;
+  importedBy: string;
+}
+
+// Tira a foto do relatório de um funcionário (ligação errada ou relatório velho):
+// ele volta ao cálculo pelo cadastro.
+export async function deleteVacationBaseline(employeeId: string): Promise<void> {
+  if (!firestore) return;
+  await deleteDoc(doc(firestore, VACATION_BASELINES_COLLECTION, employeeId));
+}
+
+export async function loadVacationBaselines(): Promise<VacationBaseline[]> {
+  if (!firestore) return [];
+  const snap = await getDocs(collection(firestore, VACATION_BASELINES_COLLECTION));
+  return snap.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as VacationBaseline);
 }
 
 export interface DateInterval {
@@ -153,7 +186,28 @@ export function buildAcquisitionPeriods(
   admissionDate: string | undefined,
   todayISO: string,
   leave?: VacationLeaveData,
+  baseline?: VacationBaseline,
 ): AcquisitionPeriod[] {
+  // Com relatório da contabilidade: os períodos dele (com saldo na data base) e,
+  // depois do último, os anos seguintes calculados pelo sistema.
+  if (baseline?.periods.length) {
+    const fromReport: AcquisitionPeriod[] = [...baseline.periods]
+      .sort((a, b) => a.startISO.localeCompare(b.startISO))
+      .map((item, index) => ({
+        index,
+        year: Number(item.startISO.slice(0, 4)),
+        startISO: item.startISO,
+        endISO: item.endISO,
+        limitISO: item.limitISO,
+        complete: item.endISO < todayISO,
+        report: { baseDateISO: baseline.baseDateISO, daysTaken: item.daysTaken, daysRemaining: item.daysRemaining },
+      }));
+    const nextStart = addToISO(fromReport[fromReport.length - 1].endISO, { days: 1 });
+    const after = buildAcquisitionPeriods(nextStart, todayISO, leave)
+      .reverse()
+      .map((item, offset) => ({ ...item, index: fromReport.length + offset }));
+    return [...fromReport, ...after].reverse();
+  }
   if (!admissionDate || !/^\d{4}-\d{2}-\d{2}$/.test(admissionDate)) return [];
   const periods: AcquisitionPeriod[] = [];
   let startISO = admissionDate;
@@ -220,17 +274,33 @@ export interface VacationStatus {
   pendingDays: number;
 }
 
+// Saldo de um período do relatório: o que a contabilidade deu como restante na data
+// base, menos as férias lançadas no sistema depois dela.
+export function reportPeriodPending(period: AcquisitionPeriod, vacations: Vacation[]) {
+  if (!period.report) return 0;
+  const after = vacationsForPeriod(period, vacations).filter((v) => (v.startDate || "") >= period.report!.baseDateISO);
+  return Math.max(0, period.report.daysRemaining - after.reduce((sum, v) => sum + (v.days || 0) + (v.daysSold || 0), 0));
+}
+
 export function vacationStatus(
   admissionDate: string | undefined,
   vacations: Vacation[],
   todayISO: string,
   leave?: VacationLeaveData,
+  baseline?: VacationBaseline,
 ): VacationStatus {
-  const completeOldestFirst = buildAcquisitionPeriods(admissionDate, todayISO, leave)
+  const completeOldestFirst = buildAcquisitionPeriods(admissionDate, todayISO, leave, baseline)
     .filter((period) => period.complete)
     .reverse();
   for (const period of completeOldestFirst) {
     if (period.lost) continue;
+    if (period.report) {
+      const pending = reportPeriodPending(period, vacations);
+      if (pending <= 0) continue;
+      const nearLimitReport = addToISO(todayISO, { months: VACATION_NEAR_LIMIT_MONTHS });
+      const reportBucket: VacationBucket = period.limitISO < todayISO ? "vencido" : period.limitISO <= nearLimitReport ? "proximo" : "iniciado";
+      return { bucket: reportBucket, pendingPeriod: period, pendingDays: pending };
+    }
     const absences = leave ? leave.absenceDates.filter((date) => date >= period.startISO && date <= period.endISO).length : 0;
     const right = cltRightForAbsences(absences);
     if (right.lost) continue;

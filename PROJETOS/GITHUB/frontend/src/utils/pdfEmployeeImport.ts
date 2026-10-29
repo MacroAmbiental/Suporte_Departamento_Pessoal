@@ -863,7 +863,7 @@ function parseScheduleDaysFromLines(lines: PdfLine[]) {
   return orderedSchedule(schedule);
 }
 
-async function extractPositionedTextFromPdf(file: File) {
+export async function extractPositionedTextFromPdf(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const objects = parsePdfObjects(bytes);
   await decodeObjectStreams(objects);

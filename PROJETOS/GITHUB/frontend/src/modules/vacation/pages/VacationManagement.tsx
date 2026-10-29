@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { CalendarDays, Pencil, Plane, Search, Trash2, X } from "lucide-react";
+import { CalendarDays, FileUp, Pencil, Plane, Search, Trash2, X } from "lucide-react";
 import { useDomainData } from "@/hooks/useDomainData";
+import { useAuth } from "@/hooks/useAuth";
+import VacationReportImport from "@/modules/vacation/components/VacationReportImport";
 import type { Employee } from "@/types/domain";
 import { formatDate, todayISO } from "@/utils/format";
 import {
@@ -10,15 +12,19 @@ import {
   bucketMeta,
   cltRightForAbsences,
   deleteVacation,
+  deleteVacationBaseline,
   hasScheduledVacation,
   isOnVacation,
+  loadVacationBaselines,
   loadVacations,
   monthsBetween,
+  reportPeriodPending,
   saveVacation,
   vacationReferenceDate,
   vacationsForPeriod,
   vacationStatus,
   type Vacation,
+  type VacationBaseline,
   type VacationBucket,
   type VacationLeaveData,
 } from "@/modules/vacation/data/vacationsRepository";
@@ -68,7 +74,7 @@ function employeeKindOf(employee: Employee): EmployeeKind {
 }
 
 export default function VacationManagement() {
-  const { employees: allEmployees } = useDomainData();
+  const { employees: allEmployees, companies } = useDomainData();
   const [searchParams, setSearchParams] = useSearchParams();
   const [vacations, setVacations] = useState<Vacation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,13 +90,18 @@ export default function VacationManagement() {
   const [reportFrom, setReportFrom] = useState("");
   const [reportTo, setReportTo] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [baselines, setBaselines] = useState<Map<string, VacationBaseline>>(() => new Map());
+  const { can } = useAuth();
 
   const today = todayISO();
 
   async function refresh() {
     setLoading(true);
     try {
-      setVacations(await loadVacations());
+      const [loadedVacations, loadedBaselines] = await Promise.all([loadVacations(), loadVacationBaselines()]);
+      setVacations(loadedVacations);
+      setBaselines(new Map(loadedBaselines.map((baseline) => [baseline.employeeId, baseline])));
     } finally {
       setLoading(false);
     }
@@ -135,26 +146,31 @@ export default function VacationManagement() {
         const empVacations = vacationsByEmployee.get(employee.id) || [];
         const onVacationNow = isOnVacation(today, empVacations);
         const hasScheduled = hasScheduledVacation(today, empVacations);
-        const reference = vacationReferenceDate(employee.admissionDate, empVacations, today);
-        const months = reference ? monthsBetween(reference, today) : 0;
+        const baseline = baselines.get(employee.id);
         // Situação pelo período aquisitivo mais antigo com dias a gozar.
         // De férias agora → não conta como pendente (está resolvendo/gozando); afastado sai do vencimento.
         const leave = leaveByEmployee.get(employee.id);
-        const status = vacationStatus(employee.admissionDate, empVacations, today, leave);
+        const status = vacationStatus(employee.admissionDate, empVacations, today, leave, baseline);
+        // Com o relatório da contabilidade, "Meses" conta do início do período pendente
+        // mais antigo (antes contava da admissão para quem nunca teve férias lançadas).
+        const reference = baseline
+          ? status.pendingPeriod?.startISO || buildAcquisitionPeriods(employee.admissionDate, today, leave, baseline)[0]?.startISO || ""
+          : vacationReferenceDate(employee.admissionDate, empVacations, today);
+        const months = reference ? monthsBetween(reference, today) : 0;
         const bucket: VacationBucket = onVacationNow ? "emdia" : leave?.onLeaveToday ? "afastado" : status.bucket;
         const lastVacation = [...empVacations].sort((a, b) =>
           (b.endDate || "").localeCompare(a.endDate || ""),
         )[0];
-        const limiteEmCurso = buildAcquisitionPeriods(employee.admissionDate, today, leave)[0]?.limitISO || "";
+        const limiteEmCurso = buildAcquisitionPeriods(employee.admissionDate, today, leave, baseline)[0]?.limitISO || "";
         const pendingLimit = bucket === "emdia" || bucket === "afastado" ? "" : status.pendingPeriod?.limitISO || "";
-        return { employee, kind: employeeKindOf(employee), empVacations, reference, months, bucket, onVacationNow, hasScheduled, lastVacation, limiteEmCurso, pendingLimit };
+        return { employee, kind: employeeKindOf(employee), empVacations, reference, months, bucket, onVacationNow, hasScheduled, lastVacation, limiteEmCurso, pendingLimit, baseline };
       })
       // Mais urgente primeiro: vencidos, próximos do limite e com período iniciado, cada grupo pelo limite mais cedo.
       .sort((a, b) =>
         bucketRank[a.bucket] - bucketRank[b.bucket] ||
         (a.pendingLimit || "9999").localeCompare(b.pendingLimit || "9999") ||
         b.months - a.months);
-  }, [allEmployees, vacationsByEmployee, leaveByEmployee, today]);
+  }, [allEmployees, vacationsByEmployee, leaveByEmployee, today, baselines]);
 
   const counts = useMemo(() => {
     const scoped = rows.filter((r) => kindFilter === "todos" || r.kind === kindFilter);
@@ -285,6 +301,11 @@ export default function VacationManagement() {
             <option value="diarist">{employeeKindLabels.diarist}</option>
           </select>
         </label>
+        {can("vacation", "edit") ? (
+          <button className="btn btn-secondary" type="button" onClick={() => setImportOpen(true)} style={{ whiteSpace: "nowrap" }}>
+            <FileUp size={16} /> Importar relatório da contabilidade
+          </button>
+        ) : null}
         <button className="btn btn-secondary" data-testid="vacation-report-btn" onClick={() => setReportOpen(true)} style={{ whiteSpace: "nowrap" }}>
           <CalendarDays size={16} /> Relatório de férias
         </button>
@@ -410,10 +431,19 @@ export default function VacationManagement() {
           employee={editing}
           vacations={vacationsByEmployee.get(editing.id) || []}
           leave={leaveByEmployee.get(editing.id)}
+          baseline={baselines.get(editing.id)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             await refresh();
           }}
+        />
+      ) : null}
+      {importOpen ? (
+        <VacationReportImport
+          employees={allEmployees}
+          companies={companies}
+          onClose={() => setImportOpen(false)}
+          onImported={refresh}
         />
       ) : null}
 
@@ -501,12 +531,14 @@ function VacationEditorModal({
   employee,
   vacations,
   leave,
+  baseline,
   onClose,
   onSaved,
 }: {
   employee: Employee;
   vacations: Vacation[];
   leave: VacationLeaveData | undefined;
+  baseline?: VacationBaseline;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -573,8 +605,8 @@ function VacationEditorModal({
     return set;
   }, [employee.workScheduleDays]);
   const periods = useMemo(
-    () => buildAcquisitionPeriods(employee.admissionDate, today, leave),
-    [employee.admissionDate, leave, today],
+    () => buildAcquisitionPeriods(employee.admissionDate, today, leave, baseline),
+    [employee.admissionDate, leave, today, baseline],
   );
   const [absences, setAbsences] = useState<string[]>([]);
   const [loadingAbsences, setLoadingAbsences] = useState(true);
@@ -608,8 +640,22 @@ function VacationEditorModal({
         // Faltas do ponto + dias de suspensão do cadastro (art. 130); período perdido pelo art. 133 fica sem direito.
         const allAbsences = new Set([...absences, ...(leave?.absenceDates || [])]);
         const count = Array.from(allAbsences).filter((d) => d >= p.startISO && d <= p.endISO).length;
-        const right = p.lost ? { days: 0, lost: true } : cltRightForAbsences(count);
         const periodVacations = vacationsForPeriod(p, vacations);
+        // Período do relatório da contabilidade: direito = gozados + restantes na data
+        // base; só o que foi lançado no sistema depois dela desconta.
+        if (p.report) {
+          const after = periodVacations.filter((v) => (v.startDate || "") >= p.report!.baseDateISO);
+          return {
+            period: p,
+            count,
+            right: { days: p.report.daysTaken + p.report.daysRemaining, lost: false },
+            periodVacations,
+            gozados: p.report.daysTaken + after.reduce((s, v) => s + (v.days || 0), 0),
+            vendidos: after.reduce((s, v) => s + (v.daysSold || 0), 0),
+            pendentes: reportPeriodPending(p, vacations),
+          };
+        }
+        const right = p.lost ? { days: 0, lost: true } : cltRightForAbsences(count);
         const gozados = periodVacations.reduce((s, v) => s + (v.days || 0), 0);
         const vendidos = periodVacations.reduce((s, v) => s + (v.daysSold || 0), 0);
         const pendentes = right.lost ? 0 : Math.max(0, right.days - gozados - vendidos);
@@ -794,6 +840,25 @@ function VacationEditorModal({
         <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 14px" }}>
           Admissão: {employee.admissionDate ? formatDate(employee.admissionDate) : "—"}
         </p>
+        {baseline ? (
+          <div className="vacation-baseline-note">
+            <span>
+              Até {formatDate(baseline.baseDateISO)}, conforme o relatório da contabilidade ({baseline.reportCompany}, como {baseline.reportName}). Depois disso, calculado pelo sistema.
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={async () => {
+                if (!window.confirm(`Remover os dados do relatório da contabilidade de ${employee.name}? As férias voltam a ser calculadas pelo cadastro.`)) return;
+                await deleteVacationBaseline(employee.id);
+                await onSaved();
+                onClose();
+              }}
+            >
+              Remover dados do relatório
+            </button>
+          </div>
+        ) : null}
 
         {showForm ? (
           <>
