@@ -64,6 +64,7 @@ import { badgeClass, formatCurrency, formatDate, labelStatus, todayISO } from "@
 import { parseEmployeePdf } from "@/utils/pdfEmployeeImport";
 import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
 import { loadNewHireRh, markNewHireRhRegistered, newHireRhDocumentKind, newHireRhEmployeeDraft } from "@/modules/employees/data/newHiresRh";
+import { effectivePermissions } from "@/services/permissionProfiles";
 
 type UndoState = { message: string; undo: () => Promise<void> } | null;
 type EmployeeKind = "contract" | "company" | "diarist";
@@ -2017,7 +2018,11 @@ export default function Employees({
       active: true,
       isAdmin: false,
     });
-    await data.applyPermissionProfileToUser(savedUser.id, form.permissionProfileId);
+    // Só mexe nas permissões quando o login é novo ou o "Acesso salvo" mudou:
+    // editar endereço, equipe etc. não pode apagar o que a pessoa tem. E grava a
+    // soma de todos os acessos que valem para ela.
+    if (existingUser && existingUser.permissionProfileId === form.permissionProfileId) return;
+    await data.replaceUserPermissions(savedUser.id, effectivePermissions(savedUser, employee, data.permissionProfiles));
   }
 
   function normalizeCpf(value?: string) {

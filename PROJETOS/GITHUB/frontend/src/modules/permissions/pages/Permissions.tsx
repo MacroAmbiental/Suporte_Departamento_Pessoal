@@ -13,6 +13,8 @@ import {
   structureItemsForGroup,
 } from "@/common/utils/groupStructure";
 import { createUsernameFromName, hashPassword, isSystemTiUser, normalizeUsername, permissionActions, systemScreens } from "@/services/accessControl";
+import { effectivePermissions, employeeMatchesProfile } from "@/services/permissionProfiles";
+import UserAccessCheck from "../components/UserAccessCheck";
 import type {
   AppScreen,
   Employee,
@@ -84,27 +86,6 @@ function isLeadershipRole(role: string) {
   return normalized.includes("gerente")
     || normalized.includes("coordenador")
     || normalized.includes("lider");
-}
-
-function targetMatches(employee: Employee, target: PermissionProfileTarget) {
-  if (target.type === "employee") return employee.id === target.value;
-  if (target.type === "group") return employee.groupId === target.value;
-  if (target.type === "company") return employee.companyId === target.value;
-  if (target.type === "department") return employee.departmentId === target.value;
-  if (target.type === "sector") return employee.sectorId === target.value;
-  if (target.type === "subsector") return employee.subsectorId === target.value;
-  if (target.type === "position") return employee.position === target.value;
-  if (target.type === "role") return employee.role === target.value;
-  return false;
-}
-
-function employeeMatchesProfile(employee: Employee, targets: PermissionProfileTarget[]) {
-  const companyTargets = targets.filter((target) => target.type === "company");
-  const relationTargets = targets.filter((target) => target.type !== "company");
-  const companyMatches = !companyTargets.length || companyTargets.some((target) => targetMatches(employee, target));
-  const relationMatches = !relationTargets.length || relationTargets.some((target) => targetMatches(employee, target));
-
-  return companyMatches && relationMatches;
 }
 
 function toggleMatrixValue(matrix: PermissionMatrix, screen: AppScreen, action: PermissionAction): PermissionMatrix {
@@ -530,7 +511,12 @@ export default function Permissions() {
       && matchedEmployees.some((employee) => employee.id === systemUser.employeeId)
     ));
 
-    await Promise.all(matchedUsers.map((matchedUser) => data.replaceUserPermissions(matchedUser.id, saved.permissions)));
+    // Cada pessoa fica com a soma de todos os acessos que valem para ela, não só
+    // com este: salvar um acesso não pode tirar o que vem de outro.
+    await Promise.all(matchedUsers.map((matchedUser) => data.replaceUserPermissions(
+      matchedUser.id,
+      effectivePermissions(matchedUser, data.employees.find((employee) => employee.id === matchedUser.employeeId), data.permissionProfiles, [saved]),
+    )));
 
     return { saved, appliedCount: matchedUsers.length };
   }
@@ -796,6 +782,8 @@ export default function Permissions() {
           ) : null}
         </div>
       </div>
+
+      <UserAccessCheck canManage={canManage} />
 
       <div className="permissions-layout permissions-simple-layout">
         <aside className="panel permission-users">
