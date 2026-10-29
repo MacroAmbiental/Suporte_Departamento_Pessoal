@@ -23,6 +23,8 @@ import {
   type Signal,
 } from "./classificationModel";
 import { useClassificationEvents } from "./useClassificationCases";
+import SalaryTableHint from "@/modules/salaryTable/SalaryTableHint";
+import { formatSalaryInput } from "@/modules/salaryTable/salaryTableModel";
 
 export type EffectInput = { newRole: string; newPosition: string; newSalary: number; effectiveDate: string; termFile: File | null };
 
@@ -39,9 +41,10 @@ type Props = {
   effect: (item: ClassificationCase, input: EffectInput) => Promise<void>;
 };
 
+// "2.414,00" ou "2.414" = 2414 (ponto + 3 dígitos é milhar); "2414.5" = 2414,5.
 const parseMoney = (text: string) => {
-  const value = text.trim();
-  return Number(value.includes(",") ? value.replace(/\./g, "").replace(",", ".") : value);
+  const value = text.trim().replace(/R\$|\s/g, "");
+  return Number(value.includes(",") || /^\d{1,3}(\.\d{3})+$/.test(value) ? value.replace(/\./g, "").replace(",", ".") : value);
 };
 
 export default function ClassificationCaseModal({ item, employee, promotions, teamName, sameRoleInTeam, canEdit, onClose, save, advance, effect }: Props) {
@@ -171,8 +174,14 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
             <div className="classification-row">
               {field("Função atual", <input disabled value={[item.currentRole, item.currentPosition].filter(Boolean).join(" / ")} />)}
               {field("Função seguinte (escada)", <input disabled={!editable} value={opinion.nextRole || ""} onChange={(event) => setOpinion((current) => ({ ...current, nextRole: event.target.value }))} placeholder="Ex.: PEDREIRO IB" />)}
-              {field("Salário da função seguinte", <input disabled={!editable} value={opinion.nextRoleSalary || ""} onChange={(event) => setOpinion((current) => ({ ...current, nextRoleSalary: event.target.value }))} placeholder="Ex.: 2.023,00" />)}
-              {field("Salário da função pretendida", <input disabled={!editable} value={opinion.targetRoleSalary || ""} onChange={(event) => setOpinion((current) => ({ ...current, targetRoleSalary: event.target.value }))} placeholder="Ex.: 1.927,00" />)}
+              {field("Salário da função seguinte", <>
+                <input disabled={!editable} value={opinion.nextRoleSalary || ""} onChange={(event) => setOpinion((current) => ({ ...current, nextRoleSalary: event.target.value }))} placeholder="Ex.: 2.023,00" />
+                <SalaryTableHint functionNames={[opinion.nextRole]} currentValue={parseMoney(opinion.nextRoleSalary || "")} disabled={!editable} onUse={(value) => setOpinion((current) => ({ ...current, nextRoleSalary: formatSalaryInput(value) }))} />
+              </>)}
+              {field("Salário da função pretendida", <>
+                <input disabled={!editable} value={opinion.targetRoleSalary || ""} onChange={(event) => setOpinion((current) => ({ ...current, targetRoleSalary: event.target.value }))} placeholder="Ex.: 1.927,00" />
+                <SalaryTableHint functionNames={[item.request.funcaoSolicitada]} currentValue={parseMoney(opinion.targetRoleSalary || "")} disabled={!editable} onUse={(value) => setOpinion((current) => ({ ...current, targetRoleSalary: formatSalaryInput(value) }))} />
+              </>)}
             </div>
             <table className="classification-criteria">
               <thead><tr><th>Critério</th>{Object.values(criterionLabels).map((label) => <th key={label}>{label}</th>)}</tr></thead>
@@ -225,7 +234,10 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
                     <div className="classification-row">
                       {field("Nova função", <input disabled={!editable} value={newRole} onChange={(event) => setNewRole(event.target.value)} />)}
                       {field("Novo cargo", <input disabled={!editable} value={newPosition} onChange={(event) => setNewPosition(event.target.value)} />)}
-                      {field("Novo salário (R$)", <input disabled={!editable} value={newSalary} onChange={(event) => setNewSalary(event.target.value)} />)}
+                      {field("Novo salário (R$)", <>
+                        <input disabled={!editable} value={newSalary} onChange={(event) => setNewSalary(event.target.value)} />
+                        <SalaryTableHint functionNames={[newPosition, newRole]} currentValue={parseMoney(newSalary)} disabled={!editable} onUse={(value) => setNewSalary(formatSalaryInput(value))} />
+                      </>)}
                       {field("Vale a partir de", <input type="date" disabled={!editable} value={effectiveDate} onChange={(event) => setEffectiveDate(event.target.value)} />)}
                     </div>
                     <label className="document-file-field">

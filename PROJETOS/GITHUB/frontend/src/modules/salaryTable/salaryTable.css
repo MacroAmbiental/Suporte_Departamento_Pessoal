@@ -66,3 +66,14 @@
 @media (max-width: 720px) {
   .salary-role-grid, .salary-import-form { grid-template-columns: 1fr; }
 }
+
+/* Sugestão embaixo dos campos de salário (cadastro, Classificação). */
+.salary-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; font-weight: 500; }
+.salary-hint small { color: #52677c; font-size: 12px; }
+.salary-hint.is-missing { display: block; color: #8a99a8; font-size: 12px; font-weight: 500; }
+.salary-hint-option { padding: 2px 8px; border: 1px solid #b9d3e8; border-radius: 999px; background: #f2f8fd; color: #155a8d; font: inherit; font-size: 12px; cursor: pointer; }
+.salary-hint-option b { margin-right: 2px; }
+.salary-hint-option:hover:not(:disabled) { border-color: #155a8d; }
+.salary-hint-option.is-current { border-color: #11704a; background: #e3f6ec; color: #11704a; }
+.salary-hint-option:disabled { cursor: default; opacity: 0.6; }
+.salary-hint-warning { color: #8a6400 !important; font-weight: 700; }

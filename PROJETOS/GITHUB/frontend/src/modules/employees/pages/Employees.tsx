@@ -65,6 +65,8 @@ import { parseEmployeePdf } from "@/utils/pdfEmployeeImport";
 import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
 import { loadNewHireRh, markNewHireRhRegistered, newHireRhDocumentKind, newHireRhEmployeeDraft } from "@/modules/employees/data/newHiresRh";
 import { effectivePermissions } from "@/services/permissionProfiles";
+import SalaryTableHint from "@/modules/salaryTable/SalaryTableHint";
+import { formatSalaryInput } from "@/modules/salaryTable/salaryTableModel";
 
 type UndoState = { message: string; undo: () => Promise<void> } | null;
 type EmployeeKind = "contract" | "company" | "diarist";
@@ -2273,6 +2275,9 @@ export default function Employees({
         ) : (
           <input type={dateRegistrationFields.has(field) ? "date" : "text"} {...commonProps} />
         )}
+        {field === "salary" ? (
+          <SalaryTableHint functionNames={[form.position, form.role]} currentValue={form.salary} onUse={(value) => setRegistrationField("salary", formatSalaryInput(value))} />
+        ) : null}
       </label>
     );
   }
@@ -3001,6 +3006,9 @@ export default function Employees({
                       <option value="semana">semana</option>
                     </select>
                   </div>
+                  {form.employeeKind !== "diarist" ? (
+                    <SalaryTableHint functionNames={[form.position, form.role]} currentValue={form.salary} onUse={(value) => setForm((current) => ({ ...current, salary: value }))} />
+                  ) : null}
                 </label>
                 <label className="field">E-mail<input value={form.complement?.email ?? ""} onChange={(e) => setComplement("email", e.target.value)} /></label>
                 <label className="field">Contato de emergência<input value={form.complement?.emergencyContact ?? ""} onChange={(e) => setComplement("emergencyContact", e.target.value)} /></label>
