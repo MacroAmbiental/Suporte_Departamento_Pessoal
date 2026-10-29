@@ -17,6 +17,7 @@
   ShieldCheck,
   Users,
   UserX,
+  Wallet,
   X,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -54,6 +55,7 @@ const navItems: {
     { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },
     { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits", subpage: "beneficios" },
     { to: "/app/employees?tab=demitidos", label: "Demitidos", icon: X, screen: "employees", subpage: "demitidos" },
+    { to: "/app/employees?tab=tabela-salarial", label: "Tabela Salarial", icon: Wallet, screen: "employees", subpage: "tabela-salarial" },
     { to: "/app/processo-abandono", label: "Processo de Abandono", icon: UserX, screen: "abandonment", subpage: "processo-abandono" },
     { to: "/app/processo-classificacao", label: "Processo de Classificação", icon: TrendingUp, screen: "classification", subpage: "processo-classificacao" },
     { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },

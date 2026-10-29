@@ -1,0 +1,68 @@
+/* Tabela Salarial (Funcionários > Tabela Salarial). */
+.salary-table-page { max-width: none; display: grid; gap: 16px; }
+.salary-table-page .page-header { align-items: flex-start; gap: 16px; }
+.salary-table-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.salary-table-locked { display: grid; justify-items: center; gap: 10px; max-width: 420px; margin: 64px auto; padding: 32px 24px; border: 1px solid #dbe5ee; border-radius: 12px; background: #fff; text-align: center; color: #155a8d; }
+.salary-table-locked h1 { margin: 0; font-size: 22px; color: #142e4c; }
+.salary-table-locked p { margin: 0; }
+
+.salary-table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.salary-table-toolbar input[type="search"] { flex: 1 1 260px; max-width: 420px; padding: 10px 12px; border: 1px solid #d6e0eb; border-radius: 8px; font: inherit; }
+.salary-table-check { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: #36536b; }
+
+.salary-table-error { margin: 0; color: #a2212a; font-weight: 700; }
+.salary-table-empty { display: grid; justify-items: start; gap: 10px; padding: 20px; border: 1px dashed #c9d7e5; border-radius: 12px; background: #f8fbfd; }
+.salary-table-empty p { margin: 0; color: #36536b; }
+
+.salary-table-group { display: grid; gap: 8px; }
+.salary-table-group h2 { margin: 6px 0 0; font-size: 18px; color: #142e4c; }
+.salary-table-group h2 small { margin-left: 6px; font-size: 13px; font-weight: 500; color: #63738b; }
+.salary-table-scroll { overflow-x: auto; border: 1px solid #dbe5ee; border-radius: 10px; background: #fff; }
+/* Largura total; Função e % com largura fixa ficam alinhadas entre as categorias,
+   e os níveis de cada categoria dividem o resto. Seletores com
+   .salary-table-page para vencer o .data-table global (largura 100% e 14px entre linhas). */
+.salary-table-page .data-table.salary-table { width: 100%; min-width: 900px; margin: 0; table-layout: fixed; border-collapse: collapse; border-spacing: 0; }
+.salary-table .salary-col-name { width: 22%; }
+.salary-table .salary-col-percent { width: 80px; }
+.salary-table .salary-col-actions { width: 56px; }
+.salary-table-page .data-table.salary-table th,
+.salary-table-page .data-table.salary-table td { padding: 7px 12px; white-space: nowrap; overflow-wrap: normal; word-break: normal; border-bottom: 1px solid #edf1f5; }
+.salary-table-page .data-table.salary-table tbody tr:last-child td { border-bottom: 0; }
+.salary-table-page .data-table.salary-table td:first-child { white-space: normal; }
+.salary-table tbody tr:hover td { background: #f6fafd; }
+.salary-table .is-number, .salary-role-levels .is-number, .salary-import-modal .is-number { text-align: right; font-variant-numeric: tabular-nums; }
+.salary-table tr.is-inactive td { color: #8a99a8; }
+.salary-level { display: inline-flex; align-items: baseline; gap: 6px; }
+.salary-level small { min-width: 22px; color: #52677c; font-size: 12px; font-weight: 700; }
+.salary-level b { color: #c27c0e; }
+.salary-table-badge { display: inline-block; white-space: nowrap; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: #eef1f4; color: #63738b; font-size: 11px; font-weight: 700; }
+.salary-table-row-actions { width: 1%; text-align: right; }
+
+.salary-role-modal { display: grid; gap: 12px; width: min(100%, 720px); padding: 20px 24px; }
+.salary-role-modal .modal-header, .salary-import-modal .modal-header { padding: 0; }
+.salary-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.salary-role-grid .is-wide { grid-column: 1 / -1; }
+.salary-role-modal .data-table.salary-role-levels { margin: 0; border-collapse: collapse; border-spacing: 0; }
+.salary-role-modal .data-table.salary-role-levels th,
+.salary-role-modal .data-table.salary-role-levels td { padding: 6px 10px; border-bottom: 1px solid #edf1f5; }
+.salary-role-levels input { width: 100%; padding: 6px 8px; border: 1px solid #d6e0eb; border-radius: 6px; font: inherit; }
+
+.salary-import-modal { display: grid; gap: 12px; width: min(100%, 1100px); max-height: 92vh; padding: 20px 24px; }
+.salary-import-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.salary-import-summary { margin: 0; color: #36536b; }
+.salary-import-preview { overflow: auto; max-height: 48vh; border: 1px solid #dbe5ee; border-radius: 10px; }
+.salary-import-preview table { margin: 0; }
+.salary-import-modal .data-table.salary-import-table { border-collapse: collapse; border-spacing: 0; }
+.salary-import-modal .data-table.salary-import-table th,
+.salary-import-modal .data-table.salary-import-table td { padding: 7px 10px; vertical-align: top; overflow-wrap: normal; word-break: normal; border-bottom: 1px solid #edf1f5; }
+.salary-import-modal .salary-import-table th:nth-child(-n+2), .salary-import-modal .salary-import-table td:nth-child(-n+2) { white-space: nowrap; }
+.salary-import-levels { font-size: 12px; color: #36536b; }
+.salary-import-status { display: inline-block; white-space: nowrap; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.salary-import-status.is-new { background: #e3f6ec; color: #11704a; }
+.salary-import-status.is-changed { background: #fff4d4; color: #8a6400; }
+.salary-import-status.is-same { background: #eef1f4; color: #63738b; }
+
+@media (max-width: 720px) {
+  .salary-role-grid, .salary-import-form { grid-template-columns: 1fr; }
+}

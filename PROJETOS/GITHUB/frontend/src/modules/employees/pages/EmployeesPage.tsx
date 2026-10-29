@@ -2,6 +2,7 @@ import { EmployeesProvider } from "@/modules/employees/context/EmployeesContext"
 import Employees from "./Employees";
 import { useSearchParams } from "react-router-dom";
 import EmployeeProcesses from "@/modules/employeeProcesses/pages/EmployeeProcesses";
+import SalaryTablePage from "@/modules/salaryTable/SalaryTablePage";
 
 export default function EmployeesPage() {
   const [params, setParams] = useSearchParams();
@@ -14,6 +15,7 @@ export default function EmployeesPage() {
     .filter(Boolean);
 
   if (params.get("tab") === "processos") return <EmployeeProcesses />;
+  if (params.get("tab") === "tabela-salarial") return <SalaryTablePage />;
   return (
     <EmployeesProvider>
       <Employees
