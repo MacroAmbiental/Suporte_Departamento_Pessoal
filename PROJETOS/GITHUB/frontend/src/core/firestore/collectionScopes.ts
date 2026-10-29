@@ -142,6 +142,13 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "employees",
     "employeeDocuments",
   ],
+  classification: [
+    "companies",
+    "companyGroupUnits",
+    "teams",
+    "employees",
+    "employeePromotions",
+  ],
   monitoring: [],
   permissions: [
     "companies",

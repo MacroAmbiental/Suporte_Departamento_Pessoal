@@ -1,0 +1,59 @@
+/* Processo de Classificação: quadro do Abandono (abandonment.css) com 8 colunas. */
+.classification-page { max-width: none; }
+.classification-page .page-header { align-items: flex-start; gap: 16px; }
+.classification-columns { grid-template-columns: repeat(8, minmax(210px, 1fr)); }
+.classification-indicators { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px; }
+.classification-indicators > div { display: grid; gap: 4px; min-width: 180px; padding: 12px 16px; border: 1px solid #dbe5ee; border-radius: 10px; background: #fff; }
+.classification-indicators small { color: #63738b; }
+.classification-indicators strong { font-size: 24px; color: #142e4c; }
+.classification-indicators > div.is-late { border-color: #f1c3c8; background: #fff6f6; }
+.classification-indicators > div.is-late strong { color: #b0333a; }
+.classification-search { flex: 1 1 260px; align-self: center; padding: 10px 12px; border: 1px solid #d6e0eb; border-radius: 8px; font: inherit; }
+.abandonment-card.classification-card-late { border-left-color: #d94f5c; }
+.classification-late-text { color: #b0333a !important; }
+.classification-signal-dot { justify-self: start; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.classification-signal-dot.is-green { background: #e3f6ec; color: #11704a; }
+.classification-signal-dot.is-yellow { background: #fff4d4; color: #8a6400; }
+.classification-signal-dot.is-red { background: #ffe3e8; color: #b42348; }
+.classification-effected { display: inline-flex; align-items: center; gap: 4px; color: #11704a !important; font-weight: 700; }
+
+.classification-code-box { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid #cfe0ef; border-radius: 12px; background: #f4f9fd; color: #155a8d; }
+.classification-code-box > div { display: grid; gap: 2px; }
+.classification-code-box strong { font-size: 28px; letter-spacing: 6px; color: #142e4c; font-variant-numeric: tabular-nums; }
+.classification-code-box small { color: #52677c; }
+.classification-code-error { color: #a2212a; font-weight: 700; }
+
+.classification-modal { display: grid; gap: 12px; width: min(100%, 820px); padding: 20px 24px; }
+.classification-modal .modal-header { padding: 0; }
+.classification-request-summary { padding: 10px 12px; border: 1px solid #dbe5ee; border-radius: 10px; background: #f8fbfd; }
+.classification-request-summary summary { cursor: pointer; font-weight: 700; color: #263b4d; }
+.classification-request-summary dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 0; }
+.classification-request-summary dl .is-wide { grid-column: 1 / -1; }
+.classification-request-summary dt { color: #63738b; font-size: 12px; font-weight: 700; }
+.classification-request-summary dd { margin: 2px 0 0; color: #142e4c; }
+.classification-step { display: grid; gap: 12px; padding: 12px; border: 1px solid #dbe5ee; border-radius: 10px; }
+.classification-step h3 { margin: 0; font-size: 16px; color: #263b4d; }
+.classification-block { display: grid; gap: 8px; padding: 10px 12px; border-radius: 8px; background: #f8fbfd; }
+.classification-block textarea, .classification-step textarea { width: 100%; font: inherit; }
+.classification-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.classification-check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.classification-history-list { margin: 0; padding-left: 18px; color: #36536b; }
+.classification-criteria { width: 100%; border-collapse: collapse; }
+.classification-criteria th, .classification-criteria td { padding: 6px 8px; border-bottom: 1px solid #e6edf4; text-align: center; }
+.classification-criteria th:first-child, .classification-criteria td:first-child { text-align: left; }
+.classification-signal { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.classification-signal > span { font-weight: 700; color: #263b4d; }
+.classification-signal-option { padding: 6px 14px; border: 2px solid transparent; border-radius: 999px; font: inherit; font-weight: 700; cursor: pointer; }
+.classification-signal-option.is-green { background: #e3f6ec; color: #11704a; }
+.classification-signal-option.is-yellow { background: #fff4d4; color: #8a6400; }
+.classification-signal-option.is-red { background: #ffe3e8; color: #b42348; }
+.classification-signal-option.is-selected { border-color: currentColor; }
+.classification-actions { display: grid; gap: 8px; }
+.classification-missing { margin: 0; color: #8a5a00; font-weight: 600; }
+.classification-error { margin: 0; color: #a2212a; font-weight: 700; }
+.classification-history-title { margin: 4px 0 0; font-size: 15px; }
+.classification-history { display: grid; gap: 8px; margin: 0; padding-left: 18px; }
+.classification-history li { display: grid; gap: 2px; }
+.classification-attendance { width: 100%; max-width: 420px; border-collapse: collapse; }
+.classification-attendance th, .classification-attendance td { padding: 4px 8px; border-bottom: 1px solid #e6edf4; text-align: left; }
+.classification-document-button { justify-self: start; }

@@ -1279,6 +1279,7 @@ export const consultarFlagsSecullumPostPiloto = onCall(
 );
 
 export { entrarDP } from "./entrarDP";
+export { codigoClassificacao, conferirCodigoClassificacao, enviarSolicitacaoClassificacao } from "./classificacao";
 
 // SÓ LEITURA (27/10/2026): levantamento para o envio automático das
 // situações do Ponto (falta, folga, férias, afastamento, atestado) ao

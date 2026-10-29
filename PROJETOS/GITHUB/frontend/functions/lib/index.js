@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.enviarJustificativasSecullum = exports.levantarJustificativasSecullum = exports.entrarDP = exports.consultarFlagsSecullumPostPiloto = exports.consultarFlagsSecullumPagina = exports.consultarFlagsSecullum30OutTeste = exports.atualizarFlagsSecullum = exports.atualizarFlagsSecullumTeste = exports.simularAlteracaoFlagsSecullum = exports.diagnosticarAcessoInternoSecullum = exports.conferirFlagsSecullumTeste = exports.prepararAlteracaoNeutroSecullum = exports.enviarBatidaSecullum = exports.obterBatidasSecullum = void 0;
+exports.enviarJustificativasSecullum = exports.levantarJustificativasSecullum = exports.enviarSolicitacaoClassificacao = exports.conferirCodigoClassificacao = exports.codigoClassificacao = exports.entrarDP = exports.consultarFlagsSecullumPostPiloto = exports.consultarFlagsSecullumPagina = exports.consultarFlagsSecullum30OutTeste = exports.atualizarFlagsSecullum = exports.atualizarFlagsSecullumTeste = exports.simularAlteracaoFlagsSecullum = exports.diagnosticarAcessoInternoSecullum = exports.conferirFlagsSecullumTeste = exports.prepararAlteracaoNeutroSecullum = exports.enviarBatidaSecullum = exports.obterBatidasSecullum = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const permissaoDP_1 = require("./permissaoDP");
@@ -1142,6 +1142,10 @@ exports.consultarFlagsSecullumPostPiloto = (0, https_1.onCall)({
 });
 var entrarDP_1 = require("./entrarDP");
 Object.defineProperty(exports, "entrarDP", { enumerable: true, get: function () { return entrarDP_1.entrarDP; } });
+var classificacao_1 = require("./classificacao");
+Object.defineProperty(exports, "codigoClassificacao", { enumerable: true, get: function () { return classificacao_1.codigoClassificacao; } });
+Object.defineProperty(exports, "conferirCodigoClassificacao", { enumerable: true, get: function () { return classificacao_1.conferirCodigoClassificacao; } });
+Object.defineProperty(exports, "enviarSolicitacaoClassificacao", { enumerable: true, get: function () { return classificacao_1.enviarSolicitacaoClassificacao; } });
 // SÓ LEITURA (27/10/2026): levantamento para o envio automático das
 // situações do Ponto (falta, folga, férias, afastamento, atestado) ao
 // Secullum. Devolve as justificativas cadastradas e, dos últimos dias, como

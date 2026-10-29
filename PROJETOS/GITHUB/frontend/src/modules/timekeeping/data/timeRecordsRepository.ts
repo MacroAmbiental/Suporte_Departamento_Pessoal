@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   documentId,
+  getDoc,
   getDocs,
   getDocsFromCache,
   getDocsFromServer,
@@ -659,6 +660,33 @@ export async function loadConfirmedAbsencesForEmployee(
       (record) => record.employeeId === employeeId && record.status === "absence_confirmed",
     );
   }
+}
+
+// Faltas confirmadas e atestados do funcionário no período (Processo de Classificação).
+// Lê só o documento dele em cada dia (timeRecords/{dia}/employeePoints/{id}): sem
+// índice, a consulta por grupo cairia em carregar o ponto de todo mundo.
+export async function loadAbsencesAndCertificatesForEmployee(
+  employeeId: string,
+  startDate: string,
+  endDate: string,
+): Promise<TimeRecord[]> {
+  if (!firestore || !employeeId || !startDate || !endDate || startDate > endDate) return [];
+  const dates: string[] = [];
+  for (let day = new Date(`${startDate}T12:00:00Z`); day.toISOString().slice(0, 10) <= endDate; day.setUTCDate(day.getUTCDate() + 1)) {
+    dates.push(day.toISOString().slice(0, 10));
+  }
+  const records: TimeRecord[] = [];
+  for (let index = 0; index < dates.length; index += 31) {
+    const snapshots = await Promise.all(dates.slice(index, index + 31).map((date) => getDoc(
+      doc(firestore!, TIME_RECORDS_COLLECTION, safeIdPart(date), EMPLOYEE_POINTS_SUBCOLLECTION, employeePointDocumentId({ employeeId })),
+    )));
+    snapshots.forEach((snapshot) => {
+      if (!snapshot.exists()) return;
+      const record = { ...snapshot.data(), id: String(snapshot.data().id || snapshot.id) } as TimeRecord;
+      if (record.status === "absence_confirmed" || record.status === "medical_certificate") records.push(record);
+    });
+  }
+  return records;
 }
 
 export async function deleteTimeRecordTree(record: Pick<TimeRecord, "date" | "employeeId">) {

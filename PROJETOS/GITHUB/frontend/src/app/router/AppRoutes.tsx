@@ -24,7 +24,11 @@ const screenComponents: Record<AppScreen, LazyExoticComponent<ComponentType>> = 
   permissions: lazy(() => import("@/modules/permissions/pages/Permissions")),
   vacation: lazy(() => import("@/modules/vacation/pages/VacationManagementPage")),
   aso: lazy(() => import("@/modules/aso/AsoPage")),
+  classification: lazy(() => import("@/modules/classification/ClassificationPage")),
 };
+
+// Página pública (sem login) do pedido de mudança de função, protegida por código.
+const ClassificationRequestPage = lazy(() => import("@/modules/classification/ClassificationRequestPage"));
 
 function ScreenLoading() {
   return (
@@ -64,6 +68,7 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Login />} />
+      <Route path="/solicitacao-classificacao" element={<Suspense fallback={<ScreenLoading />}><ClassificationRequestPage /></Suspense>} />
       <Route path="/app" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={screenElement("dashboard")} />
         <Route path="s/:routeToken" element={<SecureScreenRoute />} />
@@ -80,6 +85,7 @@ export default function AppRoutes() {
         <Route path="controle-rh" element={<Navigate to={securePath("hrControl")} replace />} />
         <Route path="processo-abandono" element={<Navigate to={securePath("abandonment")} replace />} />
         <Route path="processo-aso" element={<Navigate to={securePath("aso")} replace />} />
+        <Route path="processo-classificacao" element={<Navigate to={securePath("classification")} replace />} />
         <Route path="talent-bank" element={<Navigate to="/app" replace />} />
         <Route path="banco-talentos" element={<Navigate to="/app" replace />} />
         <Route path="notifications" element={<Navigate to={securePath("notifications")} replace />} />

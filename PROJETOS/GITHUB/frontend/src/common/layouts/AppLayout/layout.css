@@ -97,7 +97,8 @@
 }
 
 .sidebar-nav .sidebar-submenu.is-open {
-  max-height: 280px;
+  /* Cabe os 7 itens de Funcionários (a animação usa max-height). */
+  max-height: 420px;
   opacity: 1;
   transform: translateY(0);
 }

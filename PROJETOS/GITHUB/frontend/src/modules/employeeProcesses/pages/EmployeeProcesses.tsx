@@ -16,7 +16,6 @@ import EmployeesPagination from "@/modules/employees/components/EmployeesPaginat
 import "./employeeProcesses.css";
 import { useAuth } from "@/hooks/useAuth";
 import ProcessDrawer from "../components/ProcessDrawer";
-import ReclassificationTab from "../reclassification/ReclassificationTab";
 import { processEntryDate } from "../utils/processEntryDate";
 import type { Employee } from "@/types/domain";
 
@@ -45,7 +44,7 @@ export default function EmployeeProcesses() {
   const [experienceFilter, setExperienceFilter] = useState("");
   const [settlementFilter, setSettlementFilter] = useState("");
   // Experiência (marcos de 30/60 dias) e desligamentos são processos diferentes: uma aba cada.
-  const [view, setView] = useState<"dismissals" | "experience" | "reclassification">("dismissals");
+  const [view, setView] = useState<"dismissals" | "experience">("dismissals");
   useEffect(() => { const timer = window.setInterval(() => setToday(todayISO()), 60000); return () => window.clearInterval(timer); }, []);
   const enrollmentPending = useRef(new Set<string>());
   useEffect(() => {
@@ -227,7 +226,7 @@ O funcionário passa para Demitidos.`)) return;
   // Keep the stored page valid when a realtime update removes the last page.
   if (page !== currentPage) setPage(currentPage);
   function clearFilters() { setSearch(""); setModality(""); setStatus(""); setExperienceFilter(""); setSettlementFilter(""); setPage(1); }
-  function changeView(next: "dismissals" | "experience" | "reclassification") { setView(next); clearFilters(); }
+  function changeView(next: "dismissals" | "experience") { setView(next); clearFilters(); }
   const dismissalCount = processes.filter((process) => !isExperienceRow(process)).length;
   const experienceCount = processes.length - dismissalCount;
   // Cartões clicáveis: cada um liga um filtro da aba (clicar de novo desliga).
@@ -260,9 +259,7 @@ O funcionário passa para Demitidos.`)) return;
       <div className="employee-process-tabs" role="tablist" aria-label="Tipo de processo">
         <button type="button" role="tab" aria-selected={isDismissals} className={`employee-process-tab${isDismissals ? " is-active" : ""}`} onClick={() => changeView("dismissals")}>Desligamentos <b>{loading ? "—" : dismissalCount}</b></button>
         <button type="button" role="tab" aria-selected={view === "experience"} className={`employee-process-tab${view === "experience" ? " is-active" : ""}`} onClick={() => changeView("experience")}>Experiência <b>{loading ? "—" : experienceCount}</b></button>
-        <button type="button" role="tab" aria-selected={view === "reclassification"} className={`employee-process-tab${view === "reclassification" ? " is-active" : ""}`} onClick={() => changeView("reclassification")}>Reclassificação</button>
       </div>
-      {view === "reclassification" ? <ReclassificationTab /> : <>
       <div className="employee-process-summary">
         {cards.map((card) => <button type="button" key={card.key} aria-pressed={card.active} className={`employee-process-card is-clickable${card.active ? " is-selected" : ""}`} onClick={() => { card.toggle(); setPage(1); }}><span><i className={card.tone} />{card.label}</span><strong>{loading ? "—" : card.count}</strong></button>)}
       </div>
@@ -306,7 +303,6 @@ O funcionário passa para Demitidos.`)) return;
           {loading ? <span className="muted">Carregando...</span> : filtered.length ? <EmployeesPagination totalItems={filtered.length} pageStart={pageOffset + 1} pageEnd={Math.min(pageOffset + 10, filtered.length)} currentPage={currentPage} totalPages={totalPages} onPageChange={setPage} /> : <span className="muted">Nenhum processo para exibir.</span>}
         </footer>
       </div>
-      </>}
       {archiveError && <p role="alert">{archiveError} <button type="button" className="btn btn-secondary" onClick={() => setArchiveRetry((value) => value + 1)}>Tentar novamente</button></p>}
       <ProcessHistoryCard />
       {modelDocsOpen && <ProcessModelsModal documents={modelDocuments} busy={modelUploading} editable={can("employees", "edit")} error={attachmentError} onClose={() => setModelDocsOpen(false)} onUpload={(event, modality) => void handleModelDocumentUpload(event, modality)} onOpen={(document) => void openEmployeeDocumentFile(document.fileUrl, document.name).catch(() => setAttachmentError("Falha ao abrir o modelo."))} />}
