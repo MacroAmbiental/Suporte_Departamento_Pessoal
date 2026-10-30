@@ -35,7 +35,8 @@ export type AppScreen =
   | "permissions"
   | "vacation"
   | "aso"
-  | "classification";
+  | "classification"
+  | "toolbox";
 export type PermissionAction = "view" | "create" | "edit" | "delete" | "manage";
 
 export type AuditAction = "create" | "edit" | "delete" | "deactivate" | "bulk";

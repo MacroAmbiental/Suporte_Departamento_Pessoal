@@ -71,6 +71,7 @@ import {
   gravarFlagsSecullum,
   INICIO_JUSTIFICATIVAS_SECULLUM,
   JUSTIFICATIVA_SECULLUM_POR_STATUS,
+  type ResultadoJustificativaSecullum,
 } from "@/modules/timekeeping/services/secullumTechnicalAuth";
 import { exigirSessaoServidor } from "@/services/firebaseSession";
 import ClearFiltersButton from "../../../common/components/ClearFiltersButton";
@@ -99,7 +100,7 @@ import {
 } from "@/common/utils/groupStructure";
 import { badgeClass, labelStatus, todayISO } from "@/utils/format";
 import { isInExperience, processModalities, terminationModes } from "@/modules/employeeProcesses/utils/experience";
-import { employeeLeaveEntryForDate, isEmployeeLeaveOnDate } from "@/modules/employeeProcesses/utils/leavePeriods";
+import { employeeLeaveEntryForDate, readLeavePeriods } from "@/modules/employeeProcesses/utils/leavePeriods";
 import { teamsNamedOn } from "@/common/utils/teamNameHistory";
 
 const fallbackStatuses: AttendanceStatus[] = [
@@ -129,6 +130,13 @@ function loadXlsxModule() {
 
 function employeeKindLabel(employee: Employee) {
   return employeeKindLabels[employeeKindOf(employee)];
+}
+
+// Dia dentro de um período da aba Afastados que já está lançado no Secullum
+// como afastamento: a justificativa dia a dia não vai (daria conflito lá).
+function isCoveredBySecullumLeavePeriod(employee: Employee | undefined, date: string) {
+  const entry = employeeLeaveEntryForDate(employee, date);
+  return Boolean(entry?.periodId && readLeavePeriods(employee).some((period) => period.id === entry.periodId && period.secullum === "lancado"));
 }
 
 function employeeProcessBadge(employee: Employee, date: string) {
@@ -521,7 +529,7 @@ const defaultStatusConditions: StatusCondition[] = [
     value: "day_off",
     label: "Folga",
     rowColor: "#eaf1f7",
-    textColor: "#506477",
+    textColor: "var(--text-muted)",
     active: true,
   },
   {
@@ -537,7 +545,7 @@ const defaultStatusConditions: StatusCondition[] = [
     value: "dsr",
     label: "DSR",
     rowColor: "#eef1f4",
-    textColor: "#56606b",
+    textColor: "var(--text-muted)",
     active: true,
   },
   {
@@ -594,7 +602,7 @@ const emptyStatusConditionForm: StatusConditionForm = {
   value: "",
   label: "",
   rowColor: "#d8f5e7",
-  textColor: "#058356",
+  textColor: "color-mix(in srgb, #058356 var(--ink-keep), #e5e7eb)",
   active: true,
 };
 
@@ -1311,7 +1319,8 @@ function secullumOccurrenceStatus(value: unknown): AttendanceStatus | null {
     .replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
   const statuses: Record<string, AttendanceStatus> = {
     FERIAS: "vacation", FOLGA: "day_off", FERIADO: "holiday",
-    ATESTADO: "medical_certificate", ATEST: "medical_certificate",
+    // "AT.MED" é o que o próprio DP lança no Secullum (sem o ponto: ATMED).
+    ATESTADO: "medical_certificate", ATEST: "medical_certificate", ATMED: "medical_certificate",
     AFASTOU: "leave", AFASTADO: "leave", DSR: "dsr",
     FALTA: "absence_pending",
   };
@@ -1437,6 +1446,25 @@ function isDiaristEmployee(employee: Employee) {
       (employee as any).employeeKind || registrationData.employeeKind || "",
     ).toLowerCase() === "diarist"
   );
+}
+
+// Cores de status são configuráveis (salvas no banco em hex); o tema escuro é
+// aplicado só na hora de pintar, sem alterar o valor salvo. No claro fica a cor
+// original (--neon-keep 100%); no escuro vira a versão neon da cor do texto.
+function neonOf(color: string) {
+  return `oklch(from ${color} 0.86 clamp(0.03, calc(c * 2.4), 0.24) h)`;
+}
+
+function themedStatusText(color?: string) {
+  return color ? `color-mix(in srgb, ${color} var(--neon-keep), ${neonOf(color)})` : color;
+}
+
+function themedStatusBackground(rowColor?: string, textColor?: string, strength = 12) {
+  if (!rowColor) return rowColor;
+  const dark = textColor
+    ? `color-mix(in srgb, ${neonOf(textColor)} ${strength}%, var(--surface))`
+    : "var(--surface)";
+  return `color-mix(in srgb, ${rowColor} var(--neon-keep), ${dark})`;
 }
 
 function employeeRowTextColor(
@@ -1906,9 +1934,10 @@ function createBaseDisplayRecord(
   const normalLimitMinutes = normalLimitMinutesForEmployeeDate(employee, date, settings);
   const scheduleDefaults = scheduleDefaultsForDate(employee, date, settings);
   const noticeAdjustment = noticeWorkAdjustment(employee, date);
-  const leaveDay = isEmployeeLeaveOnDate(employee, date);
-  const status = leaveDay
-    ? "leave"
+  // Atestado de vários dias (aba Afastados) vira Atestado no ponto; o resto, Afastado.
+  const leaveEntry = employeeLeaveEntryForDate(employee, date);
+  const status = leaveEntry
+    ? leaveEntry.kind === "certificate" ? "medical_certificate" : "leave"
     : noticeAdjustment === "leave" && (!existing?.status || isFullDayAbsenceStatus(existing.status)) ? "day_off" :
       existing?.status ||
       (isHoliday(date, settings)
@@ -3967,6 +3996,71 @@ export default function Timekeeping() {
     }
   }
 
+  // Reenvia ao Secullum as justificativas do dia já salvo: o envio normal só
+  // acontece quando a situação muda, então dia salvo por aba com versão antiga
+  // ou que voltou com aviso ("não encontrado", conflito) ficaria de fora.
+  // Repetir é seguro: a function pula o que já está lá e não mexe em horário.
+  async function resendDayJustificativas() {
+    if (!user || busy) return;
+    if (Object.keys(draftRecordsByEmployeeId).length) {
+      window.alert("Salve o dia antes de reenviar ao Secullum.");
+      return;
+    }
+    const itens = Array.from(timeRecordByEmployeeDate.values()).flatMap((record) => {
+      const justificativa = JUSTIFICATIVA_SECULLUM_POR_STATUS[record.status];
+      if (record.date !== filters.date || !justificativa) return [];
+      const employee = employeeById.get(record.employeeId);
+      if (isCoveredBySecullumLeavePeriod(employee, record.date)) return [];
+      const cpf = secullumOnlyDigits(employee?.cpf);
+      if (cpf.length !== 11) return [];
+      const grupos = [
+        !hasFilledTimeValue(record.checkIn) && !hasFilledTimeValue(record.checkOut) ? 1 : 0,
+        !hasFilledTimeValue(record.customFields?.ent2) && !hasFilledTimeValue(record.customFields?.sai2) ? 2 : 0,
+      ].filter(Boolean);
+      if (!grupos.length) return [];
+      return [{ employeeName: employee?.name || record.employeeName || cpf, cpf, status: record.status, justificativa, grupos }];
+    });
+    if (!itens.length) {
+      window.alert("Nenhuma Folga, Falta confirmada, Atestado, Férias ou Afastado salvo neste dia para enviar ao Secullum.");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Reenviar ${itens.length} justificativa(s) deste dia ao Secullum?\n\n` +
+      itens.slice(0, 10).map((item) => `${item.employeeName}: ${item.justificativa}`).join("\n") +
+      (itens.length > 10 ? `\n... e mais ${itens.length - 10}` : "") +
+      "\n\nO que já estiver lançado no Secullum é mantido; horário batido não é alterado."
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    try {
+      const resultados: ResultadoJustificativaSecullum[] = [];
+      for (let inicio = 0; inicio < itens.length; inicio += 300) {
+        resultados.push(...await enviarJustificativasSecullum(user.id, {
+          data: filters.date,
+          itens: itens.slice(inicio, inicio + 300).map(({ cpf, status, grupos }) => ({ cpf, status, grupos })),
+        }));
+      }
+      const nomePorCpf = new Map(itens.map((item) => [item.cpf, item.employeeName]));
+      const nome = (cpf: string) => nomePorCpf.get(cpf) || cpf;
+      const enviados = resultados.filter((r) => r.enviados.length && !r.erro);
+      const jaEstavam = resultados.filter((r) => !r.enviados.length && r.jaEstavam.length && !r.conflitos.length && !r.erro);
+      const pendencias = resultados.flatMap((r) => [
+        ...(r.erro ? [`${nome(r.cpf)}: recusado (${r.erro})`] : []),
+        ...(r.semRegistro ? [`${nome(r.cpf)}: não encontrado no cartão ponto do Secullum nesse dia`] : []),
+        ...r.conflitos.map((c) => `${nome(r.cpf)}: ${c.grupo}ª metade já tem "${c.valor}" no Secullum, não foi alterada`),
+        ...(r.conferido === false ? [`${nome(r.cpf)}: enviado, mas não apareceu na conferência`] : []),
+      ]);
+      window.alert(
+        `Secullum atualizado.\n\nEnviadas agora: ${enviados.length}\nJá estavam lançadas: ${jaEstavam.length}` +
+        (pendencias.length ? `\n\nConfira no Secullum:\n${pendencias.join("\n")}` : ""),
+      );
+    } catch (error) {
+      window.alert(`Não foi possível reenviar ao Secullum.\n\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveWholeDay() {
     if (!user) return;
     setBusy(true);
@@ -3986,6 +4080,9 @@ export default function Timekeeping() {
       // com autenticação, RBAC e verificação pós-POST. Sem ela, falha fechado.
       const changedIds = new Set(Object.keys(draftRecordsByEmployeeId));
       const candidates = recordsToWrite.filter((record) => changedIds.has(record.employeeId));
+      // Flags confirmadas aqui, mas gravadas só depois das justificativas: se o
+      // Secullum recusar uma justificativa, nada de Neutro/Compensado mudou lá.
+      let flagChanges: Array<{ employeeName: string; cpf: string; neutro: boolean; compensado: boolean }> = [];
       if (candidates.length) {
         if (!firebaseApp) throw new Error("Firebase não configurado para conferir o Secullum.");
         const functions = getFunctions(firebaseApp, "southamerica-east1");
@@ -4043,33 +4140,10 @@ export default function Timekeeping() {
             "\n\nSe a integração falhar, o dia não será salvo no Firestore."
           );
           if (!confirmed) return;
-          const gravar = httpsCallable<
-            { cpf: string; data: string; neutro: boolean; compensado: boolean },
-            { ok: boolean; flagsPersistidas: boolean; alteracoesColaterais?: unknown[] }
-          >(functions, "atualizarFlagsSecullum");
-          for (const change of changes) {
-            let result;
-            try {
-              const input = {
-                cpf: change.cpf, data: filters.date,
-                neutro: change.neutro, compensado: change.compensado
-              };
-              result = { data: await gravarFlagsSecullum(user?.id, input) };
-            } catch (error) {
-              // Sessão/permissão: nada foi enviado ao Secullum, mostra o motivo como veio.
-              if (error instanceof Error && (error.message.includes("Sessão expirada") || error.message.includes("Sem permissão") || error.message.includes("Usuário inativo"))) throw error;
-              throw new Error(`Não foi possível confirmar a gravação no Secullum de ${change.employeeName}. ` +
-                "Confira o registro no Secullum antes de tentar novamente; não houve salvamento no Firestore." +
-                `\n\nMotivo: ${error instanceof Error ? error.message : String(error)}`);
-            }
-            if (result.data.ok !== true || result.data.flagsPersistidas !== true ||
-              (result.data.alteracoesColaterais?.length ?? 0) > 0) {
-              throw new Error(`Conferência pós-gravação falhou para ${change.employeeName}. ` +
-                "Não tente repetir automaticamente e confira o Secullum.");
-            }
-          }
+          flagChanges = changes;
         }
       }
+
       // Folga / Falta / Atestado / Férias / Afastado → justificativa no cartão
       // ponto do Secullum, só nas metades do dia sem horário batido; se o DP
       // corrige a situação, a justificativa anterior sai do Secullum. Olha todo
@@ -4082,6 +4156,7 @@ export default function Timekeeping() {
         const anterior = saved ? JUSTIFICATIVA_SECULLUM_POR_STATUS[saved.status] : undefined;
         if ((!justificativa && !anterior) || saved?.status === record.status || record.date < INICIO_JUSTIFICATIVAS_SECULLUM) return [];
         const employee = employeeById.get(record.employeeId);
+        if (isCoveredBySecullumLeavePeriod(employee, record.date)) return [];
         const cpf = secullumOnlyDigits(employee?.cpf);
         if (cpf.length !== 11) return []; // sem CPF não existe no Secullum (ex.: PJ)
         const grupos = justificativa ? [
@@ -4139,6 +4214,28 @@ export default function Timekeeping() {
         });
         if (avisos.length) {
           window.alert(`O dia será salvo, mas confira no Secullum:\n\n${avisos.join("\n")}`);
+        }
+      }
+      // Neutro/Compensado por último (ver flagChanges acima).
+      for (const change of flagChanges) {
+        let result;
+        try {
+          const input = {
+            cpf: change.cpf, data: filters.date,
+            neutro: change.neutro, compensado: change.compensado
+          };
+          result = { data: await gravarFlagsSecullum(user?.id, input) };
+        } catch (error) {
+          // Sessão/permissão: nada foi enviado ao Secullum, mostra o motivo como veio.
+          if (error instanceof Error && (error.message.includes("Sessão expirada") || error.message.includes("Sem permissão") || error.message.includes("Usuário inativo"))) throw error;
+          throw new Error(`Não foi possível confirmar a gravação no Secullum de ${change.employeeName}. ` +
+            "Confira o registro no Secullum antes de tentar novamente; não houve salvamento no Firestore." +
+            `\n\nMotivo: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (result.data.ok !== true || result.data.flagsPersistidas !== true ||
+          (result.data.alteracoesColaterais?.length ?? 0) > 0) {
+          throw new Error(`Conferência pós-gravação falhou para ${change.employeeName}. ` +
+            "Não tente repetir automaticamente e confira o Secullum.");
         }
       }
       const obsoleteRecordIds = new Set(wholeDaySavePlan.obsoleteRecordIds);
@@ -5851,11 +5948,11 @@ export default function Timekeeping() {
             }}
             style={{
               border: isFiltered ? "1px solid #0f766e" : "1px solid #d5dfec",
-              background: isFiltered ? "#e8f7f3" : "#fff",
+              background: isFiltered ? "color-mix(in srgb, #e8f7f3 var(--tint-keep), var(--surface))" : "var(--surface)",
               borderRadius: 6,
               padding: 4,
               cursor: "pointer",
-              color: isFiltered ? "#0f766e" : "inherit",
+              color: isFiltered ? "color-mix(in srgb, #0f766e var(--ink-keep), #e5e7eb)" : "inherit",
             }}
           >
             <Search size={14} />
@@ -5936,12 +6033,12 @@ export default function Timekeeping() {
               left: columnFilterMenuPosition.left,
               width: columnFilterMenuWidth,
               maxWidth: `calc(100vw - ${columnFilterMenuMargin * 2}px)`,
-              background: "#fff",
-              border: "1px solid #d5dfec",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
               borderRadius: 10,
               boxShadow: "0 14px 35px rgba(15, 23, 42, 0.18)",
               padding: 12,
-              color: "#172033",
+              color: "var(--text)",
               textAlign: "left",
             }}
           >
@@ -5995,7 +6092,7 @@ export default function Timekeeping() {
               style={{
                 maxHeight: columnFilterMenuPosition.listMaxHeight,
                 overflow: "auto",
-                border: "1px solid #edf2f7",
+                border: "1px solid var(--border)",
                 borderRadius: 8,
                 padding: 6,
               }}
@@ -6254,7 +6351,7 @@ export default function Timekeeping() {
     if (!origin) return undefined;
     const norm = (v: string) => (v || "").trim();
     if (norm(currentValue) !== norm(origin.value)) return undefined;
-    return SECULLUM_ORIGIN_COLORS[origin.code];
+    return themedStatusText(SECULLUM_ORIGIN_COLORS[origin.code]);
   }
 
   function secullumColumnName(
@@ -6486,8 +6583,8 @@ export default function Timekeeping() {
               padding: "1px 6px",
               borderRadius: 6,
               border: "1px solid #1d4ed8",
-              color: "#1d4ed8",
-              background: "#eff6ff",
+              color: "color-mix(in srgb, #1d4ed8 var(--ink-keep), #e5e7eb)",
+              background: "var(--surface-muted)",
               cursor: "pointer",
             }}
           >
@@ -6509,8 +6606,8 @@ export default function Timekeeping() {
               padding: "1px 6px",
               borderRadius: 6,
               border: "1px solid #0f766e",
-              color: "#0f766e",
-              background: "#f0fdfa",
+              color: "color-mix(in srgb, #0f766e var(--ink-keep), #e5e7eb)",
+              background: "color-mix(in srgb, #f0fdfa var(--tint-keep), var(--surface))",
               cursor: "pointer",
             }}
           >
@@ -6606,9 +6703,9 @@ export default function Timekeeping() {
               title={fullHint}
               style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color }}
             />
-            {pending ? <span title="Edição pendente de salvar" style={{ fontSize: 10, color: "#b45309" }}>●</span> : null}
+            {pending ? <span title="Edição pendente de salvar" style={{ fontSize: 10, color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)" }}>●</span> : null}
           </div>
-          <div style={{ fontSize: 10, marginTop: 2, lineHeight: 1.25, color: color, whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: 10, marginTop: 2, lineHeight: 1.25, color: themedStatusText(color), whiteSpace: "nowrap" }}>
             {secullumStatus === "loading" ? "Consultando…"
               : secullumStatus === "error" ? "Indisponível"
                 : secullumStatus !== "ok" ? "Não conferido"
@@ -6617,14 +6714,14 @@ export default function Timekeeping() {
                       : divergent ? `≠ ${remoteLabel}`
                         : `Sec.: ${remoteLabel}`}
           </div>
-          {violatesStatus ? <div role="alert" style={{ color: "#b91c1c", fontSize: 10, fontWeight: 700 }}>⚠ Status incompatível</div> : null}
+          {violatesStatus ? <div role="alert" style={{ color: "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)", fontSize: 10, fontWeight: 700 }}>⚠ Status incompatível</div> : null}
           {hasRemote && (localValue === null || divergent) ? (
             <button
               type="button"
               disabled={tableLocked || busy}
               title={`Copiar ${fieldLabel} do Secullum (${remoteLabel}) para o Firestore; requer Salvar dia do mês`}
               onClick={() => setFlag(remoteValue as boolean)}
-              style={{ fontSize: 10, padding: "1px 3px", cursor: tableLocked ? "not-allowed" : "pointer", border: "none", background: "transparent", color: "#0f766e" }}
+              style={{ fontSize: 10, padding: "1px 3px", cursor: tableLocked ? "not-allowed" : "pointer", border: "none", background: "transparent", color: "color-mix(in srgb, #0f766e var(--ink-keep), #e5e7eb)" }}
             >
               ← Importar {remoteLabel}
             </button>
@@ -6663,9 +6760,9 @@ export default function Timekeeping() {
       const condition = statusConditionFor(record.status);
       const statusStyle = condition
         ? {
-          backgroundColor: condition.rowColor,
-          color: condition.textColor,
-          borderColor: condition.textColor,
+          backgroundColor: themedStatusBackground(condition.rowColor, condition.textColor),
+          color: themedStatusText(condition.textColor),
+          borderColor: themedStatusText(condition.textColor),
         }
         : undefined;
 
@@ -7000,9 +7097,9 @@ export default function Timekeeping() {
       const selectedCondition = statusConditionFor(record.status);
       const selectStyle = selectedCondition
         ? {
-          backgroundColor: selectedCondition.rowColor,
-          color: selectedCondition.textColor,
-          borderColor: selectedCondition.textColor,
+          backgroundColor: themedStatusBackground(selectedCondition.rowColor, selectedCondition.textColor),
+          color: themedStatusText(selectedCondition.textColor),
+          borderColor: themedStatusText(selectedCondition.textColor),
         }
         : undefined;
 
@@ -7874,8 +7971,8 @@ export default function Timekeeping() {
                         <tr
                           key={condition.id}
                           style={{
-                            backgroundColor: condition.rowColor,
-                            color: condition.textColor,
+                            backgroundColor: themedStatusBackground(condition.rowColor, condition.textColor),
+                            color: themedStatusText(condition.textColor),
                           }}
                         >
                           <td>{condition.label}</td>
@@ -8000,6 +8097,19 @@ export default function Timekeeping() {
                 </button>
               </span>
             ) : null}
+            {canEditTimekeeping && filters.date >= INICIO_JUSTIFICATIVAS_SECULLUM ? (
+              <button
+                className="btn btn-secondary"
+                type="button"
+                disabled={busy || pendingSaveChangesCount > 0}
+                title={pendingSaveChangesCount > 0
+                  ? "Salve o dia antes de reenviar ao Secullum"
+                  : "Manda de novo ao Secullum as Folgas, Faltas confirmadas, Atestados, Férias e Afastados já salvos neste dia"}
+                onClick={() => void resendDayJustificativas()}
+              >
+                <RefreshCw size={16} /> Reenviar ao Secullum
+              </button>
+            ) : null}
             {canEditTimekeeping ? (
               <button
                 className={`btn ${tableLocked ? "btn-secondary" : "btn-primary"}`}
@@ -8039,13 +8149,13 @@ export default function Timekeeping() {
             alignItems: "center",
             margin: "0 16px 12px",
             padding: "8px 12px",
-            border: "1px solid #e2e8f0",
+            border: "1px solid var(--border)",
             borderRadius: 10,
-            background: "#f8fafc",
+            background: "var(--surface-muted)",
             fontSize: 12,
           }}
         >
-          <strong style={{ color: "#334155", marginRight: 4 }}>
+          <strong style={{ color: "var(--text)", marginRight: 4 }}>
             Origem do horário{secullumOriginStats.total ? ` (${secullumOriginStats.total} no total)` : ""}:
           </strong>
           {(
@@ -8080,7 +8190,7 @@ export default function Timekeeping() {
                   padding: "6px 10px",
                   borderRadius: 10,
                   cursor: "pointer",
-                  background: "#fff",
+                  background: "var(--surface)",
                   border: active ? `2px solid ${color}` : "1px solid #e2e8f0",
                   boxShadow: active ? `0 0 0 3px ${color}22` : "none",
                 }}
@@ -8107,11 +8217,11 @@ export default function Timekeeping() {
                     textAlign: "left",
                   }}
                 >
-                  <span style={{ color, fontWeight: 700, fontSize: 12 }}>
+                  <span style={{ color: themedStatusText(color), fontWeight: 700, fontSize: 12 }}>
                     {label}
                   </span>
-                  <span style={{ color: "#475569", fontSize: 12, fontWeight: 600 }}>
-                    <span style={{ color, fontWeight: 700 }}>{pct}%</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12, fontWeight: 600 }}>
+                    <span style={{ color: themedStatusText(color), fontWeight: 700 }}>{pct}%</span>
                     {" · "}
                     {count} func.
                   </span>
@@ -8130,12 +8240,12 @@ export default function Timekeeping() {
               style={{
                 padding: "6px 10px",
                 borderRadius: 10,
-                border: "1px solid #e2e8f0",
-                background: "#f1f5f9",
+                border: "1px solid var(--border)",
+                background: "var(--surface-muted)",
                 cursor: "pointer",
                 fontSize: 12,
                 fontWeight: 600,
-                color: "#334155",
+                color: "var(--text)",
               }}
             >
               Limpar filtro ✕
@@ -8171,7 +8281,7 @@ export default function Timekeeping() {
                 aria-modal="true"
                 onClick={(event) => event.stopPropagation()}
                 style={{
-                  background: "#fff",
+                  background: "var(--surface)",
                   borderRadius: 14,
                   padding: 24,
                   width: "100%",
@@ -8179,7 +8289,7 @@ export default function Timekeeping() {
                   boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
                 }}
               >
-                <h3 style={{ margin: "0 0 8px", fontSize: 18, color: "#0f172a" }}>
+                <h3 style={{ margin: "0 0 8px", fontSize: 18, color: "var(--text)" }}>
                   Registrar batida no Secullum
                 </h3>
                 <div
@@ -8187,28 +8297,28 @@ export default function Timekeeping() {
                     display: "flex",
                     gap: 8,
                     alignItems: "flex-start",
-                    background: "#fef2f2",
-                    border: "1px solid #fecaca",
+                    background: "color-mix(in srgb, #fef2f2 var(--tint-keep), var(--surface))",
+                    border: "1px solid color-mix(in srgb, #fecaca var(--tint-line), var(--surface))",
                     borderRadius: 10,
                     padding: "10px 12px",
                     margin: "12px 0",
                   }}
                 >
                   <Zap size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: 2 }} />
-                  <span style={{ fontSize: 13, color: "#991b1b" }}>
+                  <span style={{ fontSize: 13, color: "color-mix(in srgb, #991b1b var(--ink-keep), #e5e7eb)" }}>
                     Esta ação irá registrar/alterar a batida <strong>diretamente
                       no Secullum (ambiente de produção)</strong>. Confirme antes de
                     prosseguir.
                   </span>
                 </div>
-                <p style={{ fontSize: 14, color: "#334155", margin: "0 0 6px" }}>
+                <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 6px" }}>
                   <strong>Funcionário:</strong> {secullumSendConfirm.employee.name}
                 </p>
-                <p style={{ fontSize: 14, color: "#334155", margin: "0 0 6px" }}>
+                <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 6px" }}>
                   <strong>Data:</strong> {filters.date} &nbsp;•&nbsp;{" "}
                   <strong>Coluna:</strong> {secullumSendConfirm.coluna}
                 </p>
-                <p style={{ fontSize: 14, color: "#334155", margin: "0 0 6px" }}>
+                <p style={{ fontSize: 14, color: "var(--text)", margin: "0 0 6px" }}>
                   <strong>Horário a enviar:</strong> {secullumSendConfirm.hora || "--"}
                   {secullumSendConfirm.secValue
                     ? ` (substituirá ${secullumSendConfirm.secValue} no Secullum)`
@@ -8222,9 +8332,9 @@ export default function Timekeeping() {
                   <div
                     style={{
                       fontSize: 12,
-                      color: "#92400e",
-                      background: "#fffbeb",
-                      border: "1px solid #fde68a",
+                      color: "color-mix(in srgb, #92400e var(--ink-keep), #e5e7eb)",
+                      background: "color-mix(in srgb, #fffbeb var(--tint-keep), var(--surface))",
+                      border: "1px solid color-mix(in srgb, #fde68a var(--tint-line), var(--surface))",
                       borderRadius: 8,
                       padding: "8px 10px",
                       margin: "8px 0 0",
@@ -8242,9 +8352,9 @@ export default function Timekeeping() {
                     data-testid="secullum-send-error"
                     style={{
                       fontSize: 13,
-                      color: "#b91c1c",
-                      background: "#fef2f2",
-                      border: "1px solid #fecaca",
+                      color: "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)",
+                      background: "color-mix(in srgb, #fef2f2 var(--tint-keep), var(--surface))",
+                      border: "1px solid color-mix(in srgb, #fecaca var(--tint-line), var(--surface))",
                       borderRadius: 8,
                       padding: "8px 10px",
                       margin: "10px 0 0",
@@ -8311,7 +8421,7 @@ export default function Timekeeping() {
                 aria-modal="true"
                 onClick={(event) => event.stopPropagation()}
                 style={{
-                  background: "#fff",
+                  background: "var(--surface)",
                   borderRadius: 14,
                   padding: 24,
                   width: "100%",
@@ -8322,10 +8432,10 @@ export default function Timekeeping() {
                   boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
                 }}
               >
-                <h3 style={{ margin: "0 0 4px", fontSize: 18, color: "#0f172a" }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 18, color: "var(--text)" }}>
                   Atualizar em lote pelo Secullum
                 </h3>
-                <p style={{ fontSize: 13, color: "#475569", margin: "0 0 12px" }}>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px" }}>
                   {secullumBatch.filter((item) => item.selected).length} de{" "}
                   {secullumBatch.length} funcionário(s) com alterações reais em{" "}
                   <strong>{filters.date}</strong>. Revise e desmarque quem não
@@ -8354,7 +8464,7 @@ export default function Timekeeping() {
                   style={{
                     overflowY: "auto",
                     flex: 1,
-                    border: "1px solid #e2e8f0",
+                    border: "1px solid var(--border)",
                     borderRadius: 10,
                     padding: 6,
                   }}
@@ -8394,17 +8504,17 @@ export default function Timekeeping() {
                       />
                       <div style={{ flex: 1 }}>
                         <div
-                          style={{ fontWeight: 600, fontSize: 14, color: "#0f172a" }}
+                          style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}
                         >
                           {item.employee.name}
                         </div>
                         {item.diffs.map((d) => (
                           <div
                             key={d.field}
-                            style={{ fontSize: 12, color: "#64748b" }}
+                            style={{ fontSize: 12, color: "var(--text-muted)" }}
                           >
                             {d.label}: {d.from} →{" "}
-                            <strong style={{ color: "#0f766e" }}>{d.to}</strong>
+                            <strong style={{ color: "color-mix(in srgb, #0f766e var(--ink-keep), #e5e7eb)" }}>{d.to}</strong>
                           </div>
                         ))}
                       </div>
@@ -8453,9 +8563,9 @@ export default function Timekeeping() {
               margin: "0 16px 12px",
               padding: "10px 14px",
               borderRadius: 10,
-              border: "1px solid #fecaca",
-              background: "#fef2f2",
-              color: "#991b1b",
+              border: "1px solid color-mix(in srgb, #fecaca var(--tint-line), var(--surface))",
+              background: "color-mix(in srgb, #fef2f2 var(--tint-keep), var(--surface))",
+              color: "color-mix(in srgb, #991b1b var(--ink-keep), #e5e7eb)",
               fontSize: 13,
               display: "flex",
               alignItems: "center",
@@ -8495,13 +8605,13 @@ export default function Timekeeping() {
                 style={{
                   width: 40,
                   height: 40,
-                  border: "4px solid #cbd5e1",
+                  border: "4px solid var(--border)",
                   borderTopColor: "#2563eb",
                   borderRadius: "50%",
                   animation: "secullum-spin 0.8s linear infinite",
                 }}
               />
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#334155" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
                 Carregando dados do Secullum…
               </div>
               <style>{`@keyframes secullum-spin { to { transform: rotate(360deg); } }`}</style>
@@ -8541,7 +8651,7 @@ export default function Timekeeping() {
                           condition?.textColor,
                         );
                         return condition || color
-                          ? { backgroundColor: condition?.rowColor, color }
+                          ? { backgroundColor: themedStatusBackground(condition?.rowColor, condition?.textColor, 6), color: themedStatusText(color) }
                           : undefined;
                       })()}
                     >
@@ -8678,8 +8788,8 @@ export default function Timekeeping() {
                 className="alert-card"
                 style={{
                   borderColor: "#ef4444",
-                  color: "#991b1b",
-                  background: "#fee2e2",
+                  color: "color-mix(in srgb, #991b1b var(--ink-keep), #e5e7eb)",
+                  background: "color-mix(in srgb, #fee2e2 var(--tint-keep), var(--surface))",
                 }}
               >
                 {secullumImportError}
@@ -9261,9 +9371,9 @@ export default function Timekeeping() {
             padding: 18,
             borderRadius: 14,
             border: "1px solid #f59e0b",
-            background: "#fffaf0",
+            background: "color-mix(in srgb, #fffaf0 var(--tint-keep), var(--surface))",
             boxShadow: "0 18px 45px rgba(15, 23, 42, 0.22)",
-            color: "#78350f",
+            color: "color-mix(in srgb, #78350f var(--ink-keep), #e5e7eb)",
           }}
         >
           <div
@@ -9388,10 +9498,10 @@ export default function Timekeeping() {
                     <div
                       key={group.teamId}
                       style={{
-                        border: "1px solid #e2e8f0",
+                        border: "1px solid var(--border)",
                         borderRadius: 12,
                         padding: 12,
-                        background: "#ffffff",
+                        background: "var(--surface)",
                       }}
                       data-testid={`team-schedule-group-${group.teamId}`}
                     >
@@ -9545,7 +9655,7 @@ export default function Timekeeping() {
                                             style={{
                                               fontSize: 11,
                                               fontWeight: 700,
-                                              color: "#1d4ed8",
+                                              color: "color-mix(in srgb, #1d4ed8 var(--ink-keep), #e5e7eb)",
                                             }}
                                           >
                                             (encarregado)
@@ -9563,7 +9673,7 @@ export default function Timekeeping() {
                                       <span
                                         title={`Já possui ponto lançado: ENT.1 ${state.current.ent1 || "--:--"} · SAÍ.1 ${state.current.sai1 || "--:--"} · ENT.2 ${state.current.ent2 || "--:--"} · SAÍ.2 ${state.current.sai2 || "--:--"}`}
                                         style={{
-                                          color: "#b45309",
+                                          color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)",
                                           fontSize: 12,
                                           fontWeight: 600,
                                         }}

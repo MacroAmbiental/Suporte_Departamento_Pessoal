@@ -19,6 +19,7 @@ const screenSlugs: Record<AppScreen, string> = {
   vacation: "ferias",
   aso: "processo-aso",
   classification: "processo-classificacao",
+  toolbox: "caixa-ferramentas",
 };
 
 function base64UrlEncode(value: string) {

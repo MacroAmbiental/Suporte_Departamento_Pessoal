@@ -948,9 +948,9 @@ export function HrControlView(props: HrControlController) {
               {absenceMonitoringPieRows.map((row) => {
                 const filter = row.label.includes("3 a 9") ? "recurrence" : row.label.includes("10 a 29") ? "alert" : "abandonment";
                 const isActive = monitoringRiskFilter === filter;
-                const tone = filter === "recurrence" ? { border: "#ec6b35", background: "#fff6f2", icon: "#ec6b35", text: "#c65f29" }
-                  : filter === "alert" ? { border: "#d59a22", background: "#fffaf0", icon: "#d59a22", text: "#9a6b00" }
-                  : { border: "#d94f5c", background: "#fff3f3", icon: "#d94f5c", text: "#b0333a" };
+                const tone = filter === "recurrence" ? { border: "#ec6b35", background: "color-mix(in srgb, #fff6f2 var(--tint-keep), var(--surface))", icon: "#ec6b35", text: "color-mix(in srgb, #c65f29 var(--ink-keep), #e5e7eb)" }
+                  : filter === "alert" ? { border: "#d59a22", background: "color-mix(in srgb, #fffaf0 var(--tint-keep), var(--surface))", icon: "#d59a22", text: "color-mix(in srgb, #9a6b00 var(--ink-keep), #e5e7eb)" }
+                  : { border: "#d94f5c", background: "color-mix(in srgb, #fff3f3 var(--tint-keep), var(--surface))", icon: "#d94f5c", text: "color-mix(in srgb, #b0333a var(--ink-keep), #e5e7eb)" };
 
                 return (
                   <button
@@ -964,8 +964,8 @@ export function HrControlView(props: HrControlController) {
                       gap: 12,
                       padding: "14px 16px",
                       borderRadius: 12,
-                      border: `2px solid ${isActive ? tone.border : "#dfe7ee"}`,
-                      background: isActive ? tone.background : "#f5f7fb",
+                      border: `2px solid ${isActive ? tone.border : "var(--border)"}`,
+                      background: isActive ? tone.background : "var(--surface-muted)",
                       color: tone.text,
                       cursor: "pointer",
                       minHeight: 90,

@@ -4,9 +4,9 @@ import { formatDate } from "@/utils/format";
 export default function NoticeReductionFields({ value, onChange, end, applies, onAppliesChange }: { applies: boolean; onAppliesChange: (value: boolean) => void; value: string; onChange: (value: string) => void; end: string }) {
   const departure = value === "days" ? addDays(end, -7) : end;
   const lastDayBeforeDeparture = departure ? addDays(departure, -1) : "";
-  return <div style={{ display: "grid", gap: 12, padding: 16, borderRadius: 12, background: "#f3f8fc" }}>
+  return <div style={{ display: "grid", gap: 12, padding: 16, borderRadius: 12, background: "var(--surface-muted)" }}>
     <label className="field">Opção de redução do aviso<select required value={value} onChange={(event) => onChange(event.target.value)}><option value="">Selecione a opção do funcionário</option><option value="none">Sem redução de jornada</option><option value="hours">Redução de 2 horas diárias</option><option value="days">Dispensa nos 7 dias corridos finais</option></select></label>
-    {value && end && <div role="status" aria-live="polite" style={{ display: "grid", gap: 10, padding: 16, border: "1px solid #9acdbd", borderRadius: 10, background: "#eefaf5", color: "#185942" }}>
+    {value && end && <div role="status" aria-live="polite" style={{ display: "grid", gap: 10, padding: 16, border: "1px solid #9acdbd", borderRadius: 10, background: "color-mix(in srgb, #eefaf5 var(--tint-keep), var(--surface))", color: "color-mix(in srgb, #185942 var(--ink-keep), #e5e7eb)" }}>
       <strong style={{ display: "flex", alignItems: "center", gap: 8 }}><CalendarCheck size={20} />{value === "days" ? "Saída calculada / início da dispensa" : "Data de saída"}</strong>
       <strong style={{ fontSize: 25 }}>{formatDate(departure)}</strong>
       {value === "days" ? <>

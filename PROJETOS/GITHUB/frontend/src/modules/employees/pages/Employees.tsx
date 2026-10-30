@@ -2400,7 +2400,7 @@ export default function Employees({
           borderRadius: 999,
           background: "rgba(16, 185, 129, 0.14)",
           border: "1px solid rgba(16, 185, 129, 0.28)",
-          color: "#047857",
+          color: "color-mix(in srgb, #047857 var(--ink-keep), #e5e7eb)",
           fontWeight: 700,
           whiteSpace: "nowrap",
         }}
@@ -3032,7 +3032,7 @@ export default function Employees({
                 <span>{form.role || "-"} · {form.position || "-"}</span>
                 <span>{form.workSchedule || "-"} · {form.weeklyHours || 0}h · {formatCurrency(Number(form.salary || 0))} / {form.salaryPeriod}</span>
                 {form.employeeKind !== "diarist" ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", background: "#fef3c7", color: "#92400e", border: "1px solid #facc15", borderRadius: 6, padding: "6px 10px", fontWeight: 600, width: "fit-content" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", background: "color-mix(in srgb, #fef3c7 var(--tint-keep), var(--surface))", color: "color-mix(in srgb, #92400e var(--ink-keep), #e5e7eb)", border: "1px solid #facc15", borderRadius: 6, padding: "6px 10px", fontWeight: 600, width: "fit-content" }}>
                     Período de experiência: {form.experienceDays} dias
                   </span>
                 ) : null}

@@ -1538,3 +1538,171 @@ export const enviarJustificativasSecullum = onCall(
     return { resultados };
   },
 );
+
+// Afastamentos por período (INSS, férias, atestado de vários dias) cadastrados no
+// Secullum. Só leitura: a aba Afastados do DP compara com os períodos do DP e
+// oferece importar o que só existe lá (o DP é a fonte da verdade).
+type AfastamentoSecullum = {
+  cpf: string;
+  nome: string;
+  inicio: string;
+  fim: string;
+  justificativa: string;
+  motivo: string;
+};
+
+const soData = (v: unknown) => {
+  const m = String(v ?? "").match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+};
+
+export const listarAfastamentosSecullum = onCall(
+  { region: "southamerica-east1", secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] },
+  async (request) => {
+    await exigirPermissaoDP(request, "afastados", "view");
+    const p = (request.data ?? {}) as { dataInicio?: string; dataFim?: string };
+    const valida = (d?: string) => Boolean(d && /^\d{4}-\d{2}-\d{2}$/.test(d));
+    if (!valida(p.dataInicio) || !valida(p.dataFim) || p.dataFim! < p.dataInicio!) {
+      throw new HttpsError("invalid-argument", "Informe dataInicio e dataFim (YYYY-MM-DD).");
+    }
+    const token = await getToken();
+    const [funcs, linhas] = await Promise.all([
+      apiGet<Func[]>("/IntegracaoExterna/Funcionarios", token, {}),
+      apiGet<Array<Record<string, unknown>>>("/IntegracaoExterna/FuncionariosAfastamentos", token, {
+        dataInicio: p.dataInicio!, dataFim: p.dataFim!,
+      }),
+    ]);
+    const porId = new Map<unknown, Func>();
+    (funcs || []).forEach((f) => porId.set(f.Id, f));
+    const afastamentos: AfastamentoSecullum[] = (linhas || []).map((linha) => {
+      const func = porId.get(pickField(linha, ["FuncionarioId", "IdFuncionario"]));
+      const justificativaObj = pickField(linha, ["Justificativa"]);
+      const justificativa = pickField(linha, ["JustificativaNome", "NomeJustificativa", "JustificativaNomeAbreviado"])
+        ?? (typeof justificativaObj === "object" && justificativaObj
+          ? pickField(justificativaObj as Record<string, unknown>, ["NomeAbreviado", "NomeCompleto", "Nome"])
+          : justificativaObj);
+      return {
+        cpf: onlyDigits(pickField(linha, ["Cpf", "FuncionarioCpf", "NumeroCpf"]) ?? func?.Cpf),
+        nome: String(pickField(linha, ["FuncionarioNome", "Nome"]) ?? func?.Nome ?? ""),
+        inicio: soData(pickField(linha, ["Inicio", "DataInicio"])),
+        fim: soData(pickField(linha, ["Fim", "DataFim"])),
+        justificativa: String(justificativa ?? "").trim(),
+        motivo: String(pickField(linha, ["Motivo"]) ?? "").trim(),
+      };
+    }).filter((a) => a.inicio && a.fim);
+    // Nomes dos campos (sem valores) para conferir o formato que o Secullum devolve.
+    const campos = [...new Set((linhas || []).flatMap((l) => Object.keys(l)))].sort();
+    return { afastamentos, campos };
+  },
+);
+
+// Lança / apaga / altera um afastamento por período no Secullum a partir da aba
+// Afastados (o DP é a fonte da verdade). Justificativas aceitas: as do de-para
+// combinado com o DP em 30/10/2026 (INSS, atestado, AFASTOU p/ outros e licenças)
+// e FÉRIAS para o gozo cadastrado no módulo Férias.
+const JUSTIFICATIVAS_AFASTAMENTO = new Set(["INSS", "AT.MED", "AFASTOU", "FÉRIAS"]);
+
+export const sincronizarAfastamentoSecullum = onCall(
+  { region: "southamerica-east1", timeoutSeconds: 60, secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] },
+  async (request) => {
+    const p = (request.data ?? {}) as {
+      acao?: "lancar" | "apagar" | "alterar";
+      cpf?: string; inicio?: string; fim?: string; novoInicio?: string; novoFim?: string;
+      justificativa?: string; motivo?: string;
+    };
+    // Férias vêm do módulo Férias (permissão da tela de férias); o resto, da aba Afastados.
+    await exigirPermissaoDP(request, p.justificativa === "FÉRIAS" ? "vacation" : "afastados", "edit");
+    const cpf = onlyDigits(p.cpf);
+    const data = (d?: string) => Boolean(d && /^\d{4}-\d{2}-\d{2}$/.test(d));
+    if (!["lancar", "apagar", "alterar"].includes(String(p.acao)) || cpf.length !== 11 || !data(p.inicio) || !data(p.fim) || p.fim! < p.inicio!) {
+      throw new HttpsError("invalid-argument", "Dados do afastamento inválidos.");
+    }
+    const novoInicio = p.novoInicio || p.inicio!;
+    if (p.acao === "alterar" && (!data(novoInicio) || !data(p.novoFim) || p.novoFim! < novoInicio)) {
+      throw new HttpsError("invalid-argument", "Novo período inválido.");
+    }
+    const justificativa = String(p.justificativa || "");
+    if (!JUSTIFICATIVAS_AFASTAMENTO.has(justificativa)) {
+      throw new HttpsError("invalid-argument", "Justificativa não permitida para afastamento.");
+    }
+    const token = await getToken();
+    const inicio = p.inicio!;
+    const fim = p.fim!;
+
+    // Afastamentos do funcionário que cruzam o período.
+    const listar = async (de: string, ate: string) => {
+      const linhas = await apiGet<Array<Record<string, unknown>>>(
+        "/IntegracaoExterna/FuncionariosAfastamentos/Cpf", token, { funcionarioCpf: cpf, dataInicio: de, dataFim: ate },
+      );
+      return (linhas || []).map((l) => ({
+        inicio: soData(pickField(l, ["Inicio", "DataInicio"])),
+        fim: soData(pickField(l, ["Fim", "DataFim"])),
+      })).filter((a) => a.inicio && a.fim);
+    };
+    const igual = (a: { inicio: string; fim: string }, i: string, f: string) => a.inicio === i && a.fim === f;
+
+    const lancar = async (i: string, f: string) => {
+      const existentes = await listar(i, f);
+      if (existentes.some((a) => igual(a, i, f))) return; // já está lá
+      if (existentes.length) {
+        throw new HttpsError("failed-precondition",
+          `Já existe outro afastamento no Secullum nesse período (${existentes.map((a) => `${a.inicio} a ${a.fim}`).join(", ")}). Confira no Secullum.`);
+      }
+      const res = await apiPost("/IntegracaoExterna/FuncionariosAfastamentos", token, {
+        Cpf: cpf, Inicio: `${i}T00:00:00`, Fim: `${f}T00:00:00`,
+        Motivo: String(p.motivo || "").slice(0, 200) || "Lançado pelo Sistema DP",
+        JustificativaNome: justificativa,
+      });
+      if (!res.ok) throw new HttpsError("failed-precondition", extractSecullumError(res.data, res.raw));
+      if (!(await listar(i, f)).some((a) => igual(a, i, f))) {
+        throw new HttpsError("internal", "O Secullum aceitou, mas o afastamento não apareceu na conferência. Confira no Secullum.");
+      }
+    };
+
+    // Só apaga quando, no período, existe exatamente o afastamento esperado:
+    // o DELETE da API é por CPF + período e levaria junto outro que estivesse ali.
+    const apagar = async () => {
+      const existentes = await listar(inicio, fim);
+      if (!existentes.length) return; // já não está lá
+      if (existentes.length !== 1 || !igual(existentes[0], inicio, fim)) {
+        throw new HttpsError("failed-precondition",
+          `No Secullum o período não bate com o do DP (${existentes.map((a) => `${a.inicio} a ${a.fim}`).join(", ")}). Ajuste no Secullum.`);
+      }
+      const resp = await fetch(
+        `${BASE_URL}/IntegracaoExterna/FuncionariosAfastamentos/Cpf?${new URLSearchParams({ funcionarioCpf: cpf, dataInicio: inicio, dataFim: fim })}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            secullumidbancoselecionado: SECULLUM_BANK_ID.value(),
+            Accept: "application/json",
+            "Accept-Language": "pt-BR",
+          },
+        },
+      );
+      if (!resp.ok) {
+        const raw = await resp.text();
+        let corpo: unknown = null;
+        try {
+          corpo = raw ? JSON.parse(raw) : null;
+        } catch (_e) {
+          corpo = null;
+        }
+        throw new HttpsError("failed-precondition", extractSecullumError(corpo, raw));
+      }
+      if ((await listar(inicio, fim)).some((a) => igual(a, inicio, fim))) {
+        throw new HttpsError("internal", "O Secullum não apagou o afastamento. Confira no Secullum.");
+      }
+    };
+
+    if (p.acao === "lancar") await lancar(inicio, fim);
+    if (p.acao === "apagar") await apagar();
+    if (p.acao === "alterar") {
+      // A API não altera: apaga o período antigo e lança o novo.
+      await apagar();
+      await lancar(novoInicio, p.novoFim!);
+    }
+    console.log("[AFASTAMENTO_SECULLUM]", { acao: p.acao, cpf: `***${cpf.slice(-3)}`, inicio, fim, novoInicio: p.novoInicio, novoFim: p.novoFim, justificativa, uid: request.auth?.uid });
+    return { ok: true };
+  },
+);

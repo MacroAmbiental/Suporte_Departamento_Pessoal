@@ -2,13 +2,42 @@
   --app-density-scale: 0.75;
   --app-density-viewport-width: calc(100vw / var(--app-density-scale));
   --app-density-viewport-height: calc(100vh / var(--app-density-scale));
-  color: #132434;
-  background: #f4f7fa;
+  /* Paleta neutra (claro/escuro) — mesmo mecanismo do RH/Suprimentos.
+     Cores de marca e de status continuam fixas nas telas. */
+  --bg: #f4f7fa;
+  --surface: #ffffff;
+  --surface-muted: #f8fbfd;
+  --border: #dbe5ee;
+  --text: #132434;
+  --text-muted: #61758a;
+  /* Fundos/bordas coloridos claros e textos coloridos escuros: no claro ficam
+     100% na cor original; no escuro viram um tom da mesma cor (color-mix). */
+  --tint-keep: 100%;
+  --tint-line: 100%;
+  --ink-keep: 100%;
+  --neon-keep: 100%;
+  color-scheme: light;
+  color: var(--text);
+  background: var(--bg);
   font-family: sans-serif ,Inter, "Segoe UI", Arial ;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme="escuro"] {
+  --bg: #0f1420;
+  --surface: #171d2b;
+  --surface-muted: #1e2536;
+  --border: #2a3244;
+  --text: #e5e7eb;
+  --text-muted: #9aa3b2;
+  --tint-keep: 16%;
+  --tint-line: 40%;
+  --ink-keep: 35%;
+  --neon-keep: 0%;
+  color-scheme: dark;
 }
 
 * {

@@ -51,21 +51,45 @@ async function conferirCodigo(codigo) {
 // Lista enxuta de funcionários ativos para o solicitante escolher (só depois do código).
 async function funcionariosAtivos() {
     const db = (0, firestore_1.getFirestore)();
-    const [funcionarios, equipes, unidades, empresas] = await Promise.all([
+    const [funcionarios, equipes, unidades, empresas, empresasDoGrupo, vinculos, alocacoes] = await Promise.all([
         db.collection("employees").where("status", "in", ["active", "leave"]).get(),
         db.collection("teams").get(),
         db.collection("companyGroupUnits").where("type", "==", "team").get(),
         db.collection("companies").get(),
+        db.collection("companyGroupCompanies").get(),
+        db.collection("companyGroupUnitLinks").where("sourceType", "==", "team").get(),
+        db.collection("companyGroupEmployeeAssignments").get(),
     ]);
     const nomeEquipe = new Map();
     equipes.docs.forEach((doc) => nomeEquipe.set(doc.id, String(doc.get("name") || "")));
     unidades.docs.forEach((doc) => nomeEquipe.set(doc.id, String(doc.get("name") || "")));
     const nomeEmpresa = new Map(empresas.docs.map((doc) => [doc.id, String(doc.get("name") || "")]));
+    const grupoDaUnidade = new Map(unidades.docs.map((doc) => [doc.id, String(doc.get("groupId") || "")]));
+    const grupoDaEmpresa = new Map(empresasDoGrupo.docs.map((doc) => [String(doc.get("companyId") || ""), String(doc.get("groupId") || "")]));
+    const alocacao = new Map(alocacoes.docs.map((doc) => [`${doc.get("groupId")}:${doc.get("employeeId")}`, String(doc.get("teamUnitId") || "")]));
+    // Mesma regra do Controle de ponto (timekeepingTeamStructure): a equipe atual
+    // vem da estrutura de grupos; o teamId do cadastro é só o último recurso.
+    function equipeAtual(doc) {
+        const companyId = String(doc.get("companyId") || "");
+        const teamId = String(doc.get("teamId") || "");
+        const groupId = String(doc.get("groupId") || "") || grupoDaEmpresa.get(companyId) || "";
+        const chave = `${groupId}:${doc.id}`;
+        if (alocacao.has(chave)) {
+            const teamUnitId = alocacao.get(chave) || "";
+            if (!teamUnitId)
+                return "";
+            if (grupoDaUnidade.get(teamUnitId) === groupId)
+                return teamUnitId;
+        }
+        const vinculo = vinculos.docs.find((item) => item.get("companyId") === companyId && item.get("sourceId") === teamId
+            && item.get("groupId") === groupId && grupoDaUnidade.has(String(item.get("groupUnitId") || "")));
+        return String(vinculo?.get("groupUnitId") || "") || teamId;
+    }
     return funcionarios.docs
         .map((doc) => ({
         id: doc.id,
         name: String(doc.get("name") || ""),
-        team: nomeEquipe.get(String(doc.get("teamId") || "")) || "",
+        team: nomeEquipe.get(equipeAtual(doc)) || "",
         role: String(doc.get("role") || ""),
         company: nomeEmpresa.get(String(doc.get("companyId") || "")) || "",
     }))

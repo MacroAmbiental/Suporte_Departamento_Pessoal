@@ -123,7 +123,7 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
         <details className="classification-request-summary" open={item.stage === "request"}>
           <summary>Solicitação de {item.request.solicitante}: {item.currentRole || "—"} → {item.request.funcaoSolicitada}</summary>
           <dl>
-            <div><dt>Equipe</dt><dd>{item.request.equipe || "—"}</dd></div>
+            <div><dt>Equipe</dt><dd>{teamName || item.request.equipe || "—"}{teamName && item.request.equipe && item.request.equipe.trim().toLowerCase() !== teamName.trim().toLowerCase() ? <small className="muted"> (informada na solicitação: {item.request.equipe})</small> : null}</dd></div>
             <div><dt>Tempo no cargo</dt><dd>{item.request.tempoNoCargo}</dd></div>
             <div><dt>Já desempenha a função?</dt><dd>{item.request.jaDesempenha} ({item.request.haQuantoTempo})</dd></div>
             <div className="is-wide"><dt>Motivos</dt><dd>{item.request.motivos.join("; ")}</dd></div>

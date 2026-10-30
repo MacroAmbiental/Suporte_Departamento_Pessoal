@@ -15,7 +15,7 @@
   align-items: flex-start;
   gap: 6px;
   margin-top: 8px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 400;
   line-height: 1.5;
@@ -31,7 +31,7 @@
   
 
 .employee-team-owner.is-assigned {
-  color: #2ad384;
+  color: color-mix(in srgb, #2ad384 var(--ink-keep), #e5e7eb);
   font-size: 16px;
 
 
@@ -46,7 +46,7 @@
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: #ecfdf5;
+  background: color-mix(in srgb, #ecfdf5 var(--tint-keep), var(--surface));
   font-size: 11px;
   font-weight: 600;
 }

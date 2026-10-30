@@ -22,6 +22,7 @@ export const systemScreens: { key: AppScreen; label: string; path: string }[] = 
   { key: "hrControl", label: "Controle RH", path: "/app/hr-control" },
   { key: "abandonment", label: "Processo de Abandono", path: "/app/processo-abandono" },
   { key: "notifications", label: "Notificações", path: "/app/notifications" },
+  { key: "toolbox", label: "Caixa de ferramentas", path: "/app/caixa-ferramentas" },
   { key: "monitoring", label: "Monitoramento", path: "/app/monitoring" },
   { key: "permissions", label: "Permissões do sistema", path: "/app/permissions" },
 ];

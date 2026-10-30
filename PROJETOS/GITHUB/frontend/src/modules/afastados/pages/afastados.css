@@ -1,0 +1,63 @@
+/* Afastados (Funcionários > Afastados). */
+.afastados-page { display: grid; gap: 16px; }
+.afastados-page .page-header { align-items: flex-start; gap: 16px; }
+
+.afastados-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.afastados-filters input[type="search"] { flex: 1 1 240px; max-width: 360px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.afastados-filters label { display: grid; gap: 4px; font-weight: 600; color: var(--text-muted); font-size: 13px; }
+.afastados-filters select { min-width: 200px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+
+.afastados-empty { padding: 32px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-muted); color: var(--text-muted); }
+.afastados-list { display: grid; gap: 14px; }
+.afastados-card { display: grid; gap: 10px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.afastados-card-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+.afastados-card-header strong { display: block; font-size: 17px; color: color-mix(in srgb, #15314d var(--ink-keep), #e5e7eb); }
+.afastados-card-header small { color: var(--text-muted); font-size: 13px; }
+.afastados-count { padding: 6px 10px; border-radius: 999px; background: color-mix(in srgb, #edf7f2 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #126c54 var(--ink-keep), #e5e7eb); font-weight: 700; font-size: 12px; }
+
+.afastados-entry { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; background: var(--surface-muted); }
+.afastados-entry.is-leave { border-left-color: color-mix(in srgb, #c27c0e var(--ink-keep), #e5e7eb); }
+.afastados-entry.is-license { border-left-color: color-mix(in srgb, #0e7b66 var(--ink-keep), #e5e7eb); }
+.afastados-entry.is-certificate { border-left-color: color-mix(in srgb, #2f80c3 var(--ink-keep), #e5e7eb); }
+.afastados-entry.is-suspension { border-left-color: color-mix(in srgb, #a2212a var(--ink-keep), #e5e7eb); }
+.afastados-entry-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.afastados-entry-title strong { color: var(--text); }
+.afastados-entry-dates { color: color-mix(in srgb, #49657d var(--ink-keep), #e5e7eb); font-size: 13px; font-weight: 600; }
+.afastados-entry-reason { color: var(--text-muted); font-size: 13px; }
+.afastados-entry-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 6px; }
+.afastados-entry-actions input[type="date"] { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.afastados-delete { color: color-mix(in srgb, #a2212a var(--ink-keep), #e5e7eb); }
+
+.afastados-kind { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: var(--surface); color: var(--text-muted); }
+.afastados-kind.is-leave { background: color-mix(in srgb, #fff6e7 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #6b4d23 var(--ink-keep), #e5e7eb); }
+.afastados-kind.is-license { background: color-mix(in srgb, #ebfaf5 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #0e7b66 var(--ink-keep), #e5e7eb); }
+.afastados-kind.is-certificate { background: color-mix(in srgb, #e3f0fb var(--tint-keep), var(--surface)); color: color-mix(in srgb, #155a8d var(--ink-keep), #e5e7eb); }
+.afastados-kind.is-suspension { background: color-mix(in srgb, #fde8ea var(--tint-keep), var(--surface)); color: color-mix(in srgb, #a2212a var(--ink-keep), #e5e7eb); }
+.afastados-kind.is-ongoing { background: color-mix(in srgb, #e3f6ea var(--tint-keep), var(--surface)); color: color-mix(in srgb, #1f7a43 var(--ink-keep), #e5e7eb); }
+
+.afastados-modal { display: grid; gap: 12px; width: min(100%, 640px); padding: 20px 24px; }
+.afastados-modal .modal-header { padding: 0; }
+.afastados-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.afastados-form .is-wide { grid-column: 1 / -1; }
+.afastados-error { margin: 0; color: color-mix(in srgb, #a2212a var(--ink-keep), #e5e7eb); font-weight: 700; }
+
+.afastados-secullum { padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.afastados-secullum summary { font-weight: 700; cursor: pointer; color: var(--text); }
+.afastados-secullum-hint { margin: 8px 0; color: var(--text-muted); font-size: 13px; }
+.afastados-secullum-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
+.afastados-secullum-bar label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.afastados-secullum-bar input { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.afastados-secullum-table { overflow: auto; max-height: 50vh; border: 1px solid var(--border); border-radius: 10px; }
+.afastados-secullum-table table { width: 100%; border-collapse: collapse; }
+.afastados-secullum-table th, .afastados-secullum-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 13px; }
+.afastados-secullum-table th { position: sticky; top: 0; background: var(--surface-muted); color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+.afastados-secullum-table small { color: var(--text-muted); }
+.afastados-secullum-table tr.is-so-secullum td { background: color-mix(in srgb, #fff6e7 var(--tint-keep), var(--surface)); }
+.afastados-secullum-table tr.is-diferente td, .afastados-secullum-table tr.is-sem-funcionario td { background: color-mix(in srgb, #fde8ea var(--tint-keep), var(--surface)); }
+.afastados-secullum-import { display: flex; gap: 6px; align-items: center; }
+.afastados-secullum-import select { max-width: 230px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+
+.afastados-sync { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+.afastados-sync.is-ok { background: color-mix(in srgb, #e3f0fb var(--tint-keep), var(--surface)); color: color-mix(in srgb, #155a8d var(--ink-keep), #e5e7eb); }
+.afastados-sync.is-pending { background: color-mix(in srgb, #fff4e0 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #9a5b00 var(--ink-keep), #e5e7eb); }
+.afastados-secullum-table tr.is-ferias-diferente td { background: color-mix(in srgb, #fde8ea var(--tint-keep), var(--surface)); }

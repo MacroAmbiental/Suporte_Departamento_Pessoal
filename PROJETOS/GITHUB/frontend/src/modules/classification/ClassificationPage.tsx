@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useDomainData } from "@/hooks/useDomainData";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import { formatDate, todayISO } from "@/utils/format";
+import { timekeepingTeamStructure } from "@/modules/timekeeping/utils/teamStructure";
 import {
   CLASSIFICATION_MAX_FILE_BYTES,
   CLASSIFICATION_SLA_DAYS,
@@ -49,10 +50,13 @@ export default function ClassificationPage() {
     ...data.teams.map((team) => [team.id, team.name] as [string, string]),
     ...data.companyGroupUnits.filter((unit) => unit.type === "team").map((unit) => [unit.id, unit.name] as [string, string]),
   ]), [data.companyGroupUnits, data.teams]);
+  // Equipe atual pela estrutura de grupos (o teamId do cadastro pode estar desatualizado).
+  const { employeeTeamId } = useMemo(() => timekeepingTeamStructure(data), [data]);
   const selectedEmployee = selected ? employeeById.get(selected.employeeId) : undefined;
+  const selectedTeamId = selectedEmployee ? employeeTeamId(selectedEmployee) : "";
   // Pessoas da mesma equipe que já exercem a função pedida (função ou cargo).
-  const sameRoleInTeam = selected && selectedEmployee?.teamId
-    ? data.employees.filter((employee) => employee.status !== "terminated" && employee.teamId === selectedEmployee.teamId && employee.id !== selectedEmployee.id
+  const sameRoleInTeam = selected && selectedEmployee && selectedTeamId
+    ? data.employees.filter((employee) => employee.status !== "terminated" && employeeTeamId(employee) === selectedTeamId && employee.id !== selectedEmployee.id
       && [employee.role, employee.position].some((value) => value && sameRoleKey(value) === sameRoleKey(selected.request.funcaoSolicitada))).length
     : 0;
 
@@ -145,7 +149,7 @@ export default function ClassificationPage() {
           item={selected}
           employee={selectedEmployee}
           promotions={data.employeePromotions}
-          teamName={teamNameById.get(selectedEmployee?.teamId || "") || selected.request.equipe}
+          teamName={teamNameById.get(selectedTeamId) || selected.request.equipe}
           sameRoleInTeam={sameRoleInTeam}
           canEdit={canEdit}
           onClose={() => setSelectedId(null)}

@@ -1,16 +1,16 @@
 /* Página pública de solicitação de mudança de função. */
-.classification-request { min-height: 100vh; display: flex; justify-content: center; padding: 32px 16px; background: #eef4f9; font-family: inherit; }
-.classification-request-card { width: min(100%, 720px); display: grid; gap: 20px; align-content: start; padding: 28px; border: 1px solid #d6e0eb; border-radius: 14px; background: #fff; }
-.classification-request-card header h1 { margin: 0; color: #142e4c; font-size: 26px; }
-.classification-request-card header p { margin: 4px 0 0; color: #52677c; }
+.classification-request { min-height: 100vh; display: flex; justify-content: center; padding: 32px 16px; background: var(--surface-muted); font-family: inherit; }
+.classification-request-card { width: min(100%, 720px); display: grid; gap: 20px; align-content: start; padding: 28px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.classification-request-card header h1 { margin: 0; color: color-mix(in srgb, #142e4c var(--ink-keep), #e5e7eb); font-size: 26px; }
+.classification-request-card header p { margin: 4px 0 0; color: var(--text-muted); }
 .classification-request-step { display: grid; gap: 18px; }
-.classification-request-step > label, .classification-request-step fieldset { display: grid; gap: 8px; color: #1f3347; font-weight: 700; }
-.classification-request-step fieldset { margin: 0; padding: 14px; border: 1px solid #dbe5ee; border-radius: 10px; }
+.classification-request-step > label, .classification-request-step fieldset { display: grid; gap: 8px; color: var(--text); font-weight: 700; }
+.classification-request-step fieldset { margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
 .classification-request-step legend { padding: 0 6px; }
-.classification-request-step input:not([type="radio"]):not([type="checkbox"]), .classification-request-step textarea { padding: 10px 12px; border: 1px solid #c9d6e3; border-radius: 8px; font: inherit; font-weight: 400; }
+.classification-request-step input:not([type="radio"]):not([type="checkbox"]), .classification-request-step textarea { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-weight: 400; }
 .classification-request-step .choice { display: flex; align-items: center; gap: 8px; font-weight: 400; }
-.classification-request-step small { color: #52677c; font-weight: 400; }
+.classification-request-step small { color: var(--text-muted); font-weight: 400; }
 .classification-request-step button { justify-self: start; padding: 12px 22px; border: 0; border-radius: 8px; background: #138a5e; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 .classification-request-step button:disabled { opacity: .6; cursor: default; }
-.classification-request-error { margin: 0; color: #a2212a; font-weight: 700; }
-.classification-request-done h2 { margin: 0 0 8px; color: #138a5e; }
+.classification-request-error { margin: 0; color: color-mix(in srgb, #a2212a var(--ink-keep), #e5e7eb); font-weight: 700; }
+.classification-request-done h2 { margin: 0 0 8px; color: color-mix(in srgb, #138a5e var(--ink-keep), #e5e7eb); }

@@ -30,9 +30,9 @@
 :is(.modal-backdrop, .modal-overlay, .models-modal-backdrop) > :is(.modal-panel, .confirm-modal, .wizard-modal, .structure-modal, .entity-form-modal, .group-detail-modal, .group-wizard-modal, .models-modal, [role="dialog"]) {
   max-width: 100% !important;
   max-height: calc(100dvh - 48px) !important;
-  border: 1px solid #dbe5ee;
+  border: 1px solid var(--border);
   border-radius: 16px !important;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 24px 70px rgba(9, 32, 48, 0.24);
   overflow-y: auto;
   overscroll-behavior: contain;

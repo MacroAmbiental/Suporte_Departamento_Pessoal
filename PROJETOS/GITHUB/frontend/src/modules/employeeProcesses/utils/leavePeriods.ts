@@ -1,6 +1,6 @@
 import type { Employee } from "@/types/domain";
 
-export type LeaveEntryKind = "suspension" | "leave" | "license";
+export type LeaveEntryKind = "suspension" | "leave" | "license" | "certificate";
 
 export type LeaveEntry = {
   kind: LeaveEntryKind;
@@ -8,7 +8,42 @@ export type LeaveEntry = {
   start: string;
   end: string;
   reason: string;
+  /** Só nos períodos da aba Afastados (lista); os campos antigos do cadastro não têm. */
+  periodId?: string;
 };
+
+// Períodos lançados na aba Afastados: vários por funcionário (INSS, atestado de
+// vários dias, licença). Ficam no cadastro como texto JSON porque registrationData
+// só guarda texto; assim ponto, etiquetas e férias leem tudo pelo mesmo caminho.
+export const LEAVE_PERIODS_FIELD = "leavePeriods";
+
+export type LeavePeriod = {
+  id: string;
+  kind: Exclude<LeaveEntryKind, "suspension">;
+  label: string;
+  start: string;
+  end: string;
+  reason: string;
+  cid?: string;
+  /** "secullum" quando veio do botão Importar da aba Afastados. */
+  origin?: "secullum";
+  /** "lancado" = o mesmo período está no Secullum; "sem-cpf" = funcionário fora do Secullum. */
+  secullum?: "lancado" | "sem-cpf";
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+};
+
+export function readLeavePeriods(employee: Employee | null | undefined): LeavePeriod[] {
+  const raw = employee?.registrationData?.[LEAVE_PERIODS_FIELD];
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item) => item && item.id && item.start && item.end) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function employeeLeaveEntries(employee: Employee | null | undefined): LeaveEntry[] {
   if (!employee) return [];
@@ -50,6 +85,15 @@ export function employeeLeaveEntries(employee: Employee | null | undefined): Lea
       reason: String(fields.licenseReason || fields.absenceReason || "—"),
     });
   }
+
+  readLeavePeriods(employee).forEach((period) => entries.push({
+    kind: period.kind,
+    label: period.label,
+    start: period.start,
+    end: period.end,
+    reason: period.reason || "—",
+    periodId: period.id,
+  }));
 
   return entries
     .filter((entry) => entry.start && entry.end)

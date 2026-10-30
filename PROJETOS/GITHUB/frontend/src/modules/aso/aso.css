@@ -1,8 +1,8 @@
 /* Processo de ASO: usa o quadro do Processo de Abandono (abandonment.css). */
 .aso-page .page-header { align-items: flex-end; }
-.aso-search { min-width: 260px; padding: 8px 10px; border: 1px solid #d6e0eb; border-radius: 8px; font: inherit; }
+.aso-search { min-width: 260px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
 .abandonment-card.aso-card-overdue { border-left-color: #d94f5c; }
-.aso-overdue-text { color: #b0333a !important; }
+.aso-overdue-text { color: color-mix(in srgb, #b0333a var(--ink-keep), #e5e7eb) !important; }
 .aso-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .aso-case-modal { display: grid; gap: 12px; width: min(100%, 640px); padding: 20px 24px; }
 .aso-case-modal .modal-header { padding: 0; }
@@ -11,9 +11,9 @@
 .aso-page { max-width: none; }
 .abandonment-card .btn.btn-soft { font-size: 13px; }
 .aso-case-files { display: flex; flex-wrap: wrap; gap: 8px; }
-.aso-case-step { display: grid; gap: 10px; padding: 12px; border: 1px solid #dbe5ee; border-radius: 10px; background: #f8fbfd; }
-.aso-case-step h3 { margin: 0; font-size: 16px; color: #263b4d; }
+.aso-case-step { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.aso-case-step h3 { margin: 0; font-size: 16px; color: var(--text); }
 .aso-case-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .aso-case-step textarea { width: 100%; font: inherit; }
-.aso-stage-line { color: #36536b !important; font-size: 13px; font-weight: 600; }
+.aso-stage-line { color: color-mix(in srgb, #36536b var(--ink-keep), #e5e7eb) !important; font-size: 13px; font-weight: 600; }
 .aso-case-files .btn { font-size: 14px; }

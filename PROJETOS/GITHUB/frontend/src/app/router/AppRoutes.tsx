@@ -25,6 +25,7 @@ const screenComponents: Record<AppScreen, LazyExoticComponent<ComponentType>> = 
   vacation: lazy(() => import("@/modules/vacation/pages/VacationManagementPage")),
   aso: lazy(() => import("@/modules/aso/AsoPage")),
   classification: lazy(() => import("@/modules/classification/ClassificationPage")),
+  toolbox: lazy(() => import("@/modules/toolbox/ToolboxPage")),
 };
 
 // Página pública (sem login) do pedido de mudança de função, protegida por código.
@@ -94,6 +95,7 @@ export default function AppRoutes() {
         <Route path="monitoramento" element={<Navigate to={securePath("monitoring")} replace />} />
         <Route path="permissions" element={<Navigate to={securePath("permissions")} replace />} />
         <Route path="permissoes" element={<Navigate to={securePath("permissions")} replace />} />
+        <Route path="caixa-ferramentas" element={<Navigate to={securePath("toolbox")} replace />} />
         <Route path="ferias" element={<Navigate to={securePath("vacation")} replace />} />
         <Route path="vacation" element={<Navigate to={securePath("vacation")} replace />} />
       </Route>

@@ -30,6 +30,18 @@ import {
 } from "@/modules/vacation/data/vacationsRepository";
 import { employeeVacationLeaveData, loadPointLeaveDays, type PointLeaveDays } from "@/modules/vacation/data/vacationLeaveData";
 import { loadConfirmedAbsencesForEmployee } from "@/modules/timekeeping/data/timeRecordsRepository";
+import { sincronizarAfastamentoSecullum } from "@/modules/afastados/data/afastamentosSecullum";
+import { INICIO_JUSTIFICATIVAS_SECULLUM } from "@/modules/timekeeping/services/secullumTechnicalAuth";
+
+// Gozo das férias vai para o Secullum como afastamento FÉRIAS (o DP é a fonte da verdade).
+const cpfDigits = (cpf?: string) => {
+  const digits = (cpf || "").replace(/\D/g, "");
+  return digits.length === 11 ? digits : "";
+};
+
+// Só férias com gozo a partir da entrada da integração: meses já fechados não são mexidos.
+const goesToSecullum = (v: { startDate?: string; endDate?: string; days?: number }) =>
+  Boolean(v.startDate && v.endDate && (v.days || 0) > 0 && v.endDate >= INICIO_JUSTIFICATIVAS_SECULLUM);
 
 type CardKey = "todos" | VacationBucket | "programadas" | "feriasnow";
 
@@ -46,9 +58,9 @@ const cardOrder: {
     { key: "vencido", ...bucketMeta.vencido },
     { key: "afastado", ...bucketMeta.afastado, label: "Afastados" },
     { key: "emdia", ...bucketMeta.emdia, label: "Férias em dia" },
-    { key: "todos", label: "Todos os funcionários", color: "#334155", bg: "#f1f5f9", border: "#cbd5e1" },
-    { key: "feriasnow", label: "Funcionários de férias", sub: "De férias atualmente", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
-    { key: "programadas", label: "Férias programadas", sub: "Início futuro", color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc" },
+    { key: "todos", label: "Todos os funcionários", color: "var(--text)", bg: "var(--surface-muted)", border: "var(--border)" },
+    { key: "feriasnow", label: "Funcionários de férias", sub: "De férias atualmente", color: "color-mix(in srgb, #7c3aed var(--ink-keep), #e5e7eb)", bg: "var(--surface-muted)", border: "color-mix(in srgb, #ddd6fe var(--tint-line), var(--surface))" },
+    { key: "programadas", label: "Férias programadas", sub: "Início futuro", color: "color-mix(in srgb, #0891b2 var(--ink-keep), #e5e7eb)", bg: "var(--surface-muted)", border: "color-mix(in srgb, #a5f3fc var(--tint-line), var(--surface))" },
   ];
 
 const bucketRank: Record<VacationBucket, number> = { vencido: 0, proximo: 1, iniciado: 2, afastado: 3, emdia: 4 };
@@ -271,7 +283,7 @@ export default function VacationManagement() {
           <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Plane size={22} /> Gerenciamento de Férias
           </h1>
-          <p style={{ color: "#64748b", margin: "4px 0 0", fontSize: 14 }}>
+          <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: 14 }}>
             Registre férias, acompanhe vencimentos e sincronize com o Controle de Ponto.
           </p>
         </div>
@@ -284,16 +296,16 @@ export default function VacationManagement() {
             placeholder="Pesquisar por nome…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: "100%", padding: "10px 12px 10px 36px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 14 }}
+            style={{ width: "100%", padding: "10px 12px 10px 36px", borderRadius: 10, border: "1px solid var(--border)", fontSize: 14 }}
           />
         </div>
-        <label style={{ fontSize: 13, color: "#475569", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+        <label style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
           Tipo de contrato
           <select
             data-testid="vacation-kind-filter"
             value={kindFilter}
             onChange={(e) => setKindFilter(e.target.value as EmployeeKind | "todos")}
-            style={{ padding: "9px 12px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 14, background: "#fff" }}
+            style={{ padding: "9px 12px", borderRadius: 10, border: "1px solid var(--border)", fontSize: 14, background: "var(--surface)" }}
           >
             <option value="todos">Todos</option>
             <option value="company">{employeeKindLabels.company}</option>
@@ -345,22 +357,22 @@ export default function VacationManagement() {
       </div>
 
       {!pointLeave ? (
-        <p style={{ margin: "-6px 0 12px", fontSize: 12, color: pointLeaveError ? "#b91c1c" : "#64748b" }}>
+        <p style={{ margin: "-6px 0 12px", fontSize: 12, color: pointLeaveError ? "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)" : "var(--text-muted)" }}>
           {pointLeaveError
             ? "Não foi possível carregar faltas e afastamentos do ponto — situação calculada sem eles."
             : "Carregando faltas e afastamentos do ponto…"}
         </p>
       ) : null}
 
-      <div className="panel" style={{ borderRadius: 14, overflow: "hidden", border: "1px solid #e2e8f0" }}>
+      <div className="panel" style={{ borderRadius: 14, overflow: "hidden", border: "1px solid var(--border)" }}>
         {loading ? (
-          <div style={{ padding: 24, color: "#64748b" }}>Carregando férias…</div>
+          <div style={{ padding: 24, color: "var(--text-muted)" }}>Carregando férias…</div>
         ) : filteredRows.length === 0 ? (
-          <div style={{ padding: 24, color: "#64748b" }} data-testid="vacation-empty">Nenhum funcionário encontrado para este filtro.</div>
+          <div style={{ padding: 24, color: "var(--text-muted)" }} data-testid="vacation-empty">Nenhum funcionário encontrado para este filtro.</div>
         ) : (
           <table className="table" style={{ width: "100%", borderCollapse: "collapse", whiteSpace: "nowrap" }}>
             <thead>
-              <tr style={{ background: "#f8fafc", textAlign: "left", fontSize: 12, color: "#475569" }}>
+              <tr style={{ background: "var(--surface-muted)", textAlign: "left", fontSize: 12, color: "var(--text-muted)" }}>
                 <th style={{ padding: "10px 12px" }}>Funcionário</th>
                 <th style={{ padding: "10px 12px" }}>Tipo de contrato</th>
                 <th style={{ padding: "10px 12px" }}>Situação</th>
@@ -380,18 +392,18 @@ export default function VacationManagement() {
                     className="vacation-list-row"
                     data-testid={`vacation-row-${r.employee.id}`}
                     onClick={() => setEditing(r.employee)}
-                    style={{ borderTop: "1px solid #f1f5f9", cursor: "pointer" }}
+                    style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
                   >
-                    <td style={{ padding: "10px 12px", fontWeight: 600, color: "#0f172a", whiteSpace: "normal" }}>
+                    <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--text)", whiteSpace: "normal" }}>
                       {r.employee.name}
                       {r.onVacationNow ? (
-                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 999, padding: "2px 8px" }}>
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "color-mix(in srgb, #7c3aed var(--ink-keep), #e5e7eb)", background: "var(--surface-muted)", border: "1px solid color-mix(in srgb, #ddd6fe var(--tint-line), var(--surface))", borderRadius: 999, padding: "2px 8px" }}>
                           Em férias hoje
                         </span>
                       ) : null}
                     </td>
-                    <td style={{ padding: "10px 12px", color: "#475569", fontSize: 12 }}>
-                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: r.kind === "company" ? "#eef2ff" : r.kind === "diarist" ? "#fef9c3" : "#f1f5f9", border: "1px solid #e2e8f0", fontWeight: 600 }}>
+                    <td style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 12 }}>
+                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: r.kind === "company" ? "var(--surface-muted)" : r.kind === "diarist" ? "color-mix(in srgb, #fef9c3 var(--tint-keep), var(--surface))" : "var(--surface-muted)", border: "1px solid var(--border)", fontWeight: 600 }}>
                         {employeeKindLabels[r.kind]}
                       </span>
                     </td>
@@ -400,22 +412,22 @@ export default function VacationManagement() {
                         {meta.label}
                       </span>
                     </td>
-                    <td style={{ padding: "10px 12px", color: "#334155" }}>{r.reference ? `${r.months} meses` : "—"}</td>
-                    <td style={{ padding: "10px 12px", color: "#334155" }}>{r.reference ? formatDate(r.reference) : "—"}</td>
-                    <td style={{ padding: "10px 12px", color: "#334155" }}>
+                    <td style={{ padding: "10px 12px", color: "var(--text)" }}>{r.reference ? `${r.months} meses` : "—"}</td>
+                    <td style={{ padding: "10px 12px", color: "var(--text)" }}>{r.reference ? formatDate(r.reference) : "—"}</td>
+                    <td style={{ padding: "10px 12px", color: "var(--text)" }}>
                       {r.pendingLimit ? (
                         <span style={{ fontWeight: 600, color: meta.color }}>{formatDate(r.pendingLimit)}</span>
                       ) : r.limiteEmCurso ? (
                         <span>
                           {formatDate(r.limiteEmCurso)}
-                          <span style={{ marginLeft: 6, fontSize: 10, color: "#0891b2", fontWeight: 700 }}>(em curso)</span>
+                          <span style={{ marginLeft: 6, fontSize: 10, color: "color-mix(in srgb, #0891b2 var(--ink-keep), #e5e7eb)", fontWeight: 700 }}>(em curso)</span>
                         </span>
                       ) : "—"}
                     </td>
-                    <td style={{ padding: "10px 12px", color: "#334155" }}>
+                    <td style={{ padding: "10px 12px", color: "var(--text)" }}>
                       {r.lastVacation ? `${formatDate(r.lastVacation.startDate)} a ${formatDate(r.lastVacation.endDate)}` : "Nunca registrado"}
                     </td>
-                    <td style={{ padding: "10px 12px", textAlign: "right", color: "#2563eb", fontSize: 13, fontWeight: 600 }}>
+                    <td style={{ padding: "10px 12px", textAlign: "right", color: "color-mix(in srgb, #2563eb var(--ink-keep), #e5e7eb)", fontSize: 13, fontWeight: 600 }}>
                       Lançar/editar
                     </td>
                   </tr>
@@ -450,26 +462,26 @@ export default function VacationManagement() {
       {reportOpen ? createPortal(
         <div className="modal-overlay" data-testid="vacation-report-modal" style={overlayStyle} onClick={() => setReportOpen(false)}>
           <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ ...dialogStyle, maxWidth: 720 }}>
-            <h3 style={{ margin: "0 0 12px", fontSize: 18, color: "#0f172a" }}>Relatório de férias por período</h3>
+            <h3 style={{ margin: "0 0 12px", fontSize: 18, color: "var(--text)" }}>Relatório de férias por período</h3>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-              <label style={{ fontSize: 13, color: "#475569" }}>
+              <label style={{ fontSize: 13, color: "var(--text-muted)" }}>
                 De<br />
                 <input type="date" data-testid="vacation-report-from" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} style={inputStyle} />
               </label>
-              <label style={{ fontSize: 13, color: "#475569" }}>
+              <label style={{ fontSize: 13, color: "var(--text-muted)" }}>
                 Até<br />
                 <input type="date" data-testid="vacation-report-to" value={reportTo} onChange={(e) => setReportTo(e.target.value)} style={inputStyle} />
               </label>
             </div>
-            <div style={{ maxHeight: "50vh", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 10 }}>
+            <div style={{ maxHeight: "50vh", overflowY: "auto", border: "1px solid var(--border)", borderRadius: 10 }}>
               {!reportFrom || !reportTo ? (
-                <div style={{ padding: 16, color: "#64748b" }}>Selecione o período para ver os funcionários que entraram/voltaram de férias.</div>
+                <div style={{ padding: 16, color: "var(--text-muted)" }}>Selecione o período para ver os funcionários que entraram/voltaram de férias.</div>
               ) : reportRows.length === 0 ? (
-                <div style={{ padding: 16, color: "#64748b" }}>Nenhuma férias no período selecionado.</div>
+                <div style={{ padding: 16, color: "var(--text-muted)" }}>Nenhuma férias no período selecionado.</div>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
-                    <tr style={{ background: "#f8fafc", textAlign: "left", color: "#475569" }}>
+                    <tr style={{ background: "var(--surface-muted)", textAlign: "left", color: "var(--text-muted)" }}>
                       <th style={{ padding: "8px 10px" }}>Funcionário</th>
                       <th style={{ padding: "8px 10px" }}>Início</th>
                       <th style={{ padding: "8px 10px" }}>Retorno</th>
@@ -478,7 +490,7 @@ export default function VacationManagement() {
                   </thead>
                   <tbody>
                     {reportRows.map((r) => (
-                      <tr key={r.vacation.id} style={{ borderTop: "1px solid #f1f5f9" }}>
+                      <tr key={r.vacation.id} style={{ borderTop: "1px solid var(--border)" }}>
                         <td style={{ padding: "8px 10px", fontWeight: 600 }}>{r.employee?.name || "—"}</td>
                         <td style={{ padding: "8px 10px" }}>{formatDate(r.vacation.startDate)}</td>
                         <td style={{ padding: "8px 10px" }}>{formatDate(r.vacation.endDate)}</td>
@@ -516,7 +528,7 @@ const overlayStyle = {
   padding: 16,
 };
 const dialogStyle = {
-  background: "#fff",
+  background: "var(--surface)",
   borderRadius: 14,
   padding: 24,
   width: "100%",
@@ -525,7 +537,7 @@ const dialogStyle = {
   overflowY: "auto" as const,
   boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
 };
-const inputStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14, marginTop: 4 };
+const inputStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", fontSize: 14, marginTop: 4 };
 
 function VacationEditorModal({
   employee,
@@ -543,6 +555,8 @@ function VacationEditorModal({
   onSaved: () => Promise<void>;
 }) {
   const { confirmAccessKey } = useDomainData();
+  const { user } = useAuth();
+  const [sendingId, setSendingId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -798,6 +812,27 @@ function VacationEditorModal({
     setError("");
     try {
       const existing = editingId ? vacations.find((v) => v.id === editingId) : undefined;
+      // Secullum antes do DP: se recusar, nada é gravado aqui.
+      const cpf = cpfDigits(employee.cpf);
+      const hasGozo = goesToSecullum({ startDate: start, endDate: end, days });
+      let secullum: Vacation["secullum"] = cpf ? "" : "sem-cpf";
+      if (cpf) {
+        const wasSent = existing?.secullum === "lancado" && existing.startDate && existing.endDate;
+        if (wasSent && !hasGozo) {
+          await sincronizarAfastamentoSecullum(user?.id, { acao: "apagar", cpf, inicio: existing.startDate, fim: existing.endDate, justificativa: "FÉRIAS" });
+        } else if (wasSent && (existing.startDate !== start || existing.endDate !== end)) {
+          await sincronizarAfastamentoSecullum(user?.id, {
+            acao: "alterar", cpf, inicio: existing.startDate, fim: existing.endDate, novoInicio: start, novoFim: end,
+            justificativa: "FÉRIAS", motivo: motivo.trim(),
+          });
+          secullum = "lancado";
+        } else if (wasSent) {
+          secullum = "lancado";
+        } else if (hasGozo) {
+          await sincronizarAfastamentoSecullum(user?.id, { acao: "lancar", cpf, inicio: start, fim: end, justificativa: "FÉRIAS", motivo: motivo.trim() });
+          secullum = "lancado";
+        }
+      }
       await saveVacation({
         id: editingId || undefined,
         createdAt: existing?.createdAt,
@@ -811,6 +846,7 @@ function VacationEditorModal({
         soldEndDate: soldEnd,
         motivo: motivo.trim(),
         notes,
+        secullum,
       });
       const wasEditing = Boolean(editingId);
       resetForm();
@@ -826,11 +862,38 @@ function VacationEditorModal({
   async function handleDelete(id: string) {
     if (!window.confirm("Excluir este registro de férias?")) return;
     setBusy(true);
+    setError("");
     try {
+      const vacation = vacations.find((v) => v.id === id);
+      const cpf = cpfDigits(employee.cpf);
+      if (vacation?.secullum === "lancado" && cpf && vacation.startDate && vacation.endDate) {
+        await sincronizarAfastamentoSecullum(user?.id, { acao: "apagar", cpf, inicio: vacation.startDate, fim: vacation.endDate, justificativa: "FÉRIAS" });
+      }
       await deleteVacation(id);
       await onSaved();
+    } catch (e) {
+      setError(`Não foi possível excluir: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Férias cadastradas antes da integração (ou quando o Secullum recusou): envia agora.
+  async function sendToSecullum(vacation: Vacation) {
+    const cpf = cpfDigits(employee.cpf);
+    if (!cpf || !vacation.startDate || !vacation.endDate || sendingId) return;
+    setSendingId(vacation.id);
+    setError("");
+    try {
+      await sincronizarAfastamentoSecullum(user?.id, {
+        acao: "lancar", cpf, inicio: vacation.startDate, fim: vacation.endDate, justificativa: "FÉRIAS", motivo: vacation.motivo || "",
+      });
+      await saveVacation({ ...vacation, secullum: "lancado" });
+      await onSaved();
+    } catch (e) {
+      setError(`Não foi possível enviar ao Secullum: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSendingId("");
     }
   }
 
@@ -840,10 +903,10 @@ function VacationEditorModal({
     <div className="modal-overlay" data-testid="vacation-editor-modal" style={overlayStyle}>
       <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ ...dialogStyle, maxWidth: 940, maxHeight: "92vh" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <h3 style={{ margin: 0, fontSize: 18, color: "#0f172a" }}>Férias — {employee.name}</h3>
+          <h3 style={{ margin: 0, fontSize: 18, color: "var(--text)" }}>Férias — {employee.name}</h3>
           <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button>
         </div>
-        <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 14px" }}>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
           Admissão: {employee.admissionDate ? formatDate(employee.admissionDate) : "—"}
         </p>
         {baseline ? (
@@ -875,81 +938,81 @@ function VacationEditorModal({
         {showForm ? (
           <>
             {editingId ? (
-              <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
+              <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "color-mix(in srgb, #1d4ed8 var(--ink-keep), #e5e7eb)", background: "var(--surface-muted)", border: "1px solid color-mix(in srgb, #bfdbfe var(--tint-line), var(--surface))", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
                 Editando lançamento — período aquisitivo {acqYear || "—"}
               </div>
             ) : (
-              <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "#047857", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
+              <div data-testid="vacation-mode" style={{ fontSize: 12, fontWeight: 700, color: "color-mix(in srgb, #047857 var(--ink-keep), #e5e7eb)", background: "color-mix(in srgb, #ecfdf5 var(--tint-keep), var(--surface))", border: "1px solid color-mix(in srgb, #a7f3d0 var(--tint-line), var(--surface))", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
                 Novo lançamento — período aquisitivo {acqYear || "—"}
               </div>
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <label style={{ fontSize: 13, color: "#475569" }}>
+              <label style={{ fontSize: 13, color: "var(--text-muted)" }}>
                 Início das férias
                 <input type="date" data-testid="vacation-start" value={start} min={admission || undefined} onChange={(e) => setStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
               </label>
-              <label style={{ fontSize: 13, color: "#475569" }}>
+              <label style={{ fontSize: 13, color: "var(--text-muted)" }}>
                 Retorno (último dia)
                 <input type="date" data-testid="vacation-end" value={end} min={start || admission || undefined} onChange={(e) => setEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
               </label>
-              <label style={{ fontSize: 13, color: "#475569" }}>
+              <label style={{ fontSize: 13, color: "var(--text-muted)" }}>
                 Período aquisitivo (ano)
-                <input type="number" data-testid="vacation-acqyear" value={acqYear} readOnly title="Definido automaticamente pelo período selecionado" placeholder="—" style={{ ...inputStyle, width: "100%", background: "#f1f5f9", color: "#475569", cursor: "not-allowed" }} />
+                <input type="number" data-testid="vacation-acqyear" value={acqYear} readOnly title="Definido automaticamente pelo período selecionado" placeholder="—" style={{ ...inputStyle, width: "100%", background: "var(--surface-muted)", color: "var(--text-muted)", cursor: "not-allowed" }} />
               </label>
             </div>
-            <p style={{ fontSize: 13, color: "#334155", margin: "8px 0 0" }}>
+            <p style={{ fontSize: 13, color: "var(--text)", margin: "8px 0 0" }}>
               Dias gozados: <strong>{days || "—"}</strong>
             </p>
             {folgaWeekdays.size > 0 ? (
-              <p style={{ fontSize: 12, color: "#b45309", margin: "6px 0 0" }} data-testid="vacation-clt-hint">
+              <p style={{ fontSize: 12, color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)", margin: "6px 0 0" }} data-testid="vacation-clt-hint">
                 CLT art. 134, §3º: as férias não podem iniciar nos 2 dias que antecedem a folga/repouso semanal do funcionário.
               </p>
             ) : null}
 
             {selectedPeriodRow ? (
-              <div data-testid="vacation-alloc-summary" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0", fontSize: 13, color: "#334155" }}>
+              <div data-testid="vacation-alloc-summary" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "var(--surface-muted)", border: "1px solid var(--border)", fontSize: 13, color: "var(--text)" }}>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 18px" }}>
                   <span>Direito: <strong>{rightDays} dias</strong></span>
                   <span>Já alocado: <strong>{alocadosOutros} dias</strong></span>
                   <span>Esta inclusão: <strong>{days + soldDays} dias</strong></span>
-                  <span style={{ fontWeight: 700, color: restante < 0 ? "#b91c1c" : restante === 0 ? "#047857" : "#b45309" }}>
+                  <span style={{ fontWeight: 700, color: restante < 0 ? "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)" : restante === 0 ? "color-mix(in srgb, #047857 var(--ink-keep), #e5e7eb)" : "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)" }}>
                     {restante < 0 ? `Excede em ${Math.abs(restante)} dias` : restante === 0 ? "Tudo alocado" : `Restam ${restante} dias`}
                   </span>
                 </div>
-                <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
+                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
                   Fracionamento (CLT art. 134, §1º): até 3 períodos, um com no mínimo 14 dias e os demais com no mínimo 5 dias. Venda (abono) limitada a 1/3 (máx. {maxVenda} dias).
                 </div>
               </div>
             ) : null}
 
-            <div style={{ marginTop: 12, padding: "10px 12px", border: "1px dashed #cbd5e1", borderRadius: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginBottom: 6 }}>Férias vendidas (abono) — período</div>
+            <div style={{ marginTop: 12, padding: "10px 12px", border: "1px dashed var(--border)", borderRadius: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>Férias vendidas (abono) — período</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <label style={{ fontSize: 13, color: "#475569" }}>
+                <label style={{ fontSize: 13, color: "var(--text-muted)" }}>
                   Início da venda
                   <input type="date" data-testid="vacation-sold-start" value={soldStart} min={admission || undefined} onChange={(e) => setSoldStart(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
                 </label>
-                <label style={{ fontSize: 13, color: "#475569" }}>
+                <label style={{ fontSize: 13, color: "var(--text-muted)" }}>
                   Fim da venda
                   <input type="date" data-testid="vacation-sold-end" value={soldEnd} min={soldStart || admission || undefined} onChange={(e) => setSoldEnd(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
                 </label>
               </div>
-              <p style={{ fontSize: 12, color: "#334155", margin: "8px 0 0" }}>
+              <p style={{ fontSize: 12, color: "var(--text)", margin: "8px 0 0" }}>
                 Dias vendidos: <strong>{soldDays || "—"}</strong>
               </p>
             </div>
 
-            <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
-              Motivo {!start && !end && !soldStart && !soldEnd ? <strong style={{ color: "#b45309" }}>(obrigatório sem gozo/venda)</strong> : "(opcional)"}
+            <label style={{ fontSize: 13, color: "var(--text-muted)", display: "block", marginTop: 10 }}>
+              Motivo {!start && !end && !soldStart && !soldEnd ? <strong style={{ color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)" }}>(obrigatório sem gozo/venda)</strong> : "(opcional)"}
               <input type="text" data-testid="vacation-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: sem histórico, afastamento, etc." style={{ ...inputStyle, width: "100%" }} />
             </label>
-            <label style={{ fontSize: 13, color: "#475569", display: "block", marginTop: 10 }}>
+            <label style={{ fontSize: 13, color: "var(--text-muted)", display: "block", marginTop: 10 }}>
               Observações
               <input type="text" data-testid="vacation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="opcional" style={{ ...inputStyle, width: "100%" }} />
             </label>
 
-            {error ? <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 10 }}>{error}</div> : null}
+            {error ? <div style={{ color: "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)", fontSize: 13, marginTop: 10 }}>{error}</div> : null}
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 16 }}>
               <div>
@@ -969,7 +1032,7 @@ function VacationEditorModal({
 
         <div style={{ marginTop: 22 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
-            <h4 style={{ fontSize: 14, color: "#0f172a", margin: 0 }}>Períodos aquisitivos (CLT — art. 130)</h4>
+            <h4 style={{ fontSize: 14, color: "var(--text)", margin: 0 }}>Períodos aquisitivos (CLT — art. 130)</h4>
             <button
               className="btn btn-secondary"
               data-testid="vacation-print-employee"
@@ -980,14 +1043,14 @@ function VacationEditorModal({
             </button>
           </div>
           {!employee.admissionDate ? (
-            <div style={{ padding: 12, color: "#b45309", fontSize: 13 }}>
+            <div style={{ padding: 12, color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)", fontSize: 13 }}>
               Sem data de admissão cadastrada — não é possível calcular os períodos aquisitivos.
             </div>
           ) : (
-            <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflowX: "auto" }}>
+            <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: "#f8fafc", textAlign: "left", color: "#475569" }}>
+                  <tr style={{ background: "var(--surface-muted)", textAlign: "left", color: "var(--text-muted)" }}>
                     <th style={{ padding: "8px 10px" }}>Período aquisitivo</th>
                     <th style={{ padding: "8px 10px" }}>Limite de gozo</th>
                     <th style={{ padding: "8px 10px", textAlign: "center" }}>Faltas</th>
@@ -1000,16 +1063,16 @@ function VacationEditorModal({
                 </thead>
                 <tbody>
                   {periodRows.map(({ period, count, right, gozados, vendidos, pendentes, periodVacations }) => (
-                    <tr key={period.index} data-testid={`vacation-period-${period.year}`} style={{ borderTop: "1px solid #f1f5f9" }}>
+                    <tr key={period.index} data-testid={`vacation-period-${period.year}`} style={{ borderTop: "1px solid var(--border)" }}>
                       <td style={{ padding: "8px 10px" }}>
                         {formatDate(period.startISO)} a {formatDate(period.endISO)}
                         {!period.complete ? (
-                          <span style={{ marginLeft: 6, fontSize: 10, color: "#0891b2", fontWeight: 700 }}>(em curso)</span>
+                          <span style={{ marginLeft: 6, fontSize: 10, color: "color-mix(in srgb, #0891b2 var(--ink-keep), #e5e7eb)", fontWeight: 700 }}>(em curso)</span>
                         ) : null}
                       </td>
                       <td style={{ padding: "8px 10px" }}>{period.limitISO ? formatDate(period.limitISO) : "—"}</td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>{loadingAbsences ? "…" : count}</td>
-                      <td style={{ padding: "8px 10px", fontWeight: 700, color: right.lost ? "#b91c1c" : "#0f172a" }}>
+                      <td style={{ padding: "8px 10px", fontWeight: 700, color: right.lost ? "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)" : "var(--text)" }}>
                         {period.lost ? (
                           <span title={`${period.lost.reason}. Novo período aquisitivo a partir do retorno (${formatDate(period.lost.returnISO)}).`}>
                             0 · Perdido (art. 133)
@@ -1018,14 +1081,14 @@ function VacationEditorModal({
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>{gozados || 0}</td>
                       <td style={{ padding: "8px 10px", textAlign: "center" }}>{vendidos || 0}</td>
-                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700, color: right.lost ? "#b91c1c" : pendentes > 0 ? "#b45309" : "#047857" }}>
+                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700, color: right.lost ? "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)" : pendentes > 0 ? "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)" : "color-mix(in srgb, #047857 var(--ink-keep), #e5e7eb)" }}>
                         {loadingAbsences ? "…" : right.lost ? "—" : pendentes}
                       </td>
                       <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
                         {!period.complete ? (
                           <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>Não vencido</span>
                         ) : right.lost ? (
-                          <span style={{ fontSize: 11, color: "#b91c1c", fontWeight: 700 }}>Direito perdido</span>
+                          <span style={{ fontSize: 11, color: "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)", fontWeight: 700 }}>Direito perdido</span>
                         ) : pendentes > 0 ? (
                           <span style={{ display: "inline-flex", gap: 6 }}>
                             {periodVacations.length > 0 ? (
@@ -1048,7 +1111,7 @@ function VacationEditorModal({
                             </button>
                           </span>
                         ) : (
-                          <span style={{ fontSize: 11, color: "#047857", fontWeight: 700 }}>Concluído</span>
+                          <span style={{ fontSize: 11, color: "color-mix(in srgb, #047857 var(--ink-keep), #e5e7eb)", fontWeight: 700 }}>Concluído</span>
                         )}
                       </td>
                     </tr>
@@ -1056,7 +1119,7 @@ function VacationEditorModal({
                 </tbody>
               </table>
               {loadingAbsences ? (
-                <div style={{ padding: "8px 10px", fontSize: 12, color: "#64748b" }}>Carregando faltas confirmadas…</div>
+                <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--text-muted)" }}>Carregando faltas confirmadas…</div>
               ) : null}
             </div>
           )}
@@ -1064,10 +1127,10 @@ function VacationEditorModal({
 
         {sorted.length > 0 ? (
           <div style={{ marginTop: 20 }}>
-            <h4 style={{ fontSize: 14, color: "#0f172a", margin: "0 0 8px" }}>Histórico</h4>
-            <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
+            <h4 style={{ fontSize: 14, color: "var(--text)", margin: "0 0 8px" }}>Histórico</h4>
+            <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
               {sorted.map((v) => (
-                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderTop: "1px solid #f1f5f9", fontSize: 13 }}>
+                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderTop: "1px solid var(--border)", fontSize: 13 }}>
                   <span>
                     <strong>{v.acquisitionYear ? `Férias ${v.acquisitionYear}` : "Férias"}</strong>{" — "}
                     {v.startDate && v.endDate
@@ -1077,8 +1140,18 @@ function VacationEditorModal({
                       ? ` · vendidas: ${v.soldStartDate && v.soldEndDate ? `${formatDate(v.soldStartDate)} a ${formatDate(v.soldEndDate)} (${v.daysSold} dias)` : `${v.daysSold} dias`}`
                       : ""}
                     {v.notes ? ` · ${v.notes}` : ""}
+                    {goesToSecullum(v) ? (
+                      <span className={`vacation-sync ${v.secullum === "lancado" ? "is-ok" : "is-pending"}`}>
+                        {v.secullum === "lancado" ? "No Secullum" : v.secullum === "sem-cpf" ? "Sem CPF" : "Só no DP"}
+                      </span>
+                    ) : null}
                   </span>
-                  <span style={{ display: "flex", gap: 4 }}>
+                  <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    {v.secullum !== "lancado" && goesToSecullum(v) && cpfDigits(employee.cpf) ? (
+                      <button className="btn btn-secondary vacation-send-btn" type="button" onClick={() => void sendToSecullum(v)} disabled={busy || Boolean(sendingId)}>
+                        {sendingId === v.id ? "Enviando..." : "Enviar ao Secullum"}
+                      </button>
+                    ) : null}
                     <button className="icon-button" data-testid={`vacation-edit-hist-${v.id}`} onClick={() => editVacation(v)} aria-label="Editar" disabled={busy}>
                       <Pencil size={14} color="#2563eb" />
                     </button>

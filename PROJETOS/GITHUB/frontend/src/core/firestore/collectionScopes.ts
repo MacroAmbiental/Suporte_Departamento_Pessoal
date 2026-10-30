@@ -144,10 +144,25 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
   ],
   classification: [
     "companies",
+    // Equipe atual vem da estrutura de grupos (mesma regra do ponto).
+    "companyGroupCompanies",
     "companyGroupUnits",
+    "companyGroupUnitLinks",
+    "companyGroupEmployeeAssignments",
     "teams",
     "employees",
     "employeePromotions",
+  ],
+  // Os arquivos ficam no computador; do DP vem só a equipe atual de cada
+  // funcionário (Cartão-Ponto por equipe), com a mesma regra do ponto.
+  toolbox: [
+    "companyGroupCompanies",
+    "companyGroupUnits",
+    "companyGroupUnitLinks",
+    "companyGroupEmployeeAssignments",
+    "teams",
+    "employees",
+    "dismissedEmployees",
   ],
   monitoring: [],
   permissions: [

@@ -1,0 +1,56 @@
+/* Caixa de ferramentas. */
+.toolbox-page { display: grid; gap: 16px; }
+.toolbox-page .page-header { align-items: flex-start; }
+.toolbox-tool-title { display: flex; align-items: center; gap: 14px; }
+.toolbox-back { justify-self: start; }
+
+.toolbox-icon { display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 12px; background: color-mix(in srgb, #e3f0fb var(--tint-keep), var(--surface)); color: color-mix(in srgb, #155a8d var(--ink-keep), #e5e7eb); }
+.toolbox-icon.is-large { width: 60px; height: 60px; border-radius: 16px; }
+
+.toolbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.toolbox-card { display: grid; justify-items: center; align-content: start; gap: 10px; padding: 24px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); font: inherit; text-align: center; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.toolbox-card:hover, .toolbox-card:focus-visible { border-color: color-mix(in srgb, #2f80c3 var(--ink-keep), #e5e7eb); box-shadow: 0 6px 18px rgba(16, 42, 67, 0.12); transform: translateY(-2px); }
+.toolbox-card strong { font-size: 16px; }
+.toolbox-card small { color: var(--text-muted); font-size: 13px; line-height: 1.4; }
+
+.toolbox-soon { padding: 24px; border: 1px dashed var(--border); border-radius: 12px; background: var(--surface-muted); color: var(--text-muted); }
+
+.toolbox-tool { display: grid; gap: 14px; }
+.toolbox-tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--border); }
+.toolbox-tabs button { padding: 9px 14px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--text-muted); font: inherit; font-weight: 700; cursor: pointer; }
+.toolbox-tabs button.is-active { border-bottom-color: color-mix(in srgb, #2f80c3 var(--ink-keep), #e5e7eb); color: var(--text); }
+
+.toolbox-panel { display: grid; gap: 12px; }
+.toolbox-hint { margin: 0; color: var(--text-muted); }
+.toolbox-files { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.toolbox-file { display: grid; gap: 4px; flex: 1 1 260px; max-width: 380px; padding: 12px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); }
+.toolbox-file span { font-weight: 700; color: var(--text); }
+.toolbox-file input { font: inherit; color: var(--text-muted); }
+.toolbox-file small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.toolbox-progress { margin: 0; color: var(--text-muted); }
+.toolbox-error { margin: 0; color: color-mix(in srgb, #a2212a var(--ink-keep), #e5e7eb); font-weight: 700; }
+
+.toolbox-summary { display: flex; flex-wrap: wrap; gap: 14px; }
+.toolbox-summary span { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.toolbox-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.toolbox-actions input[type="search"] { flex: 1 1 240px; max-width: 380px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.toolbox-count { margin-left: auto; color: var(--text-muted); font-weight: 700; }
+
+.toolbox-table-wrap { overflow: auto; max-height: 62vh; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.toolbox-table { width: 100%; border-collapse: collapse; }
+.toolbox-table th, .toolbox-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.toolbox-table th { position: sticky; top: 0; z-index: 1; background: var(--surface-muted); color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+.toolbox-table tbody tr { cursor: default; }
+.toolbox-table tbody tr:hover td { background: var(--surface-muted); }
+.toolbox-table tr.is-alert td { background: color-mix(in srgb, #fff4e0 var(--tint-keep), var(--surface)); }
+.toolbox-row-actions { width: 1%; }
+.toolbox-row-actions .btn { padding: 6px 8px; margin-left: 4px; }
+
+.toolbox-status { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--surface-muted); color: var(--text-muted); font-size: 11px; font-weight: 800; }
+.toolbox-status.is-ok { background: color-mix(in srgb, #e3f6ea var(--tint-keep), var(--surface)); color: color-mix(in srgb, #1f7a43 var(--ink-keep), #e5e7eb); }
+.toolbox-status.is-warn { background: color-mix(in srgb, #fff4e0 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #9a5b00 var(--ink-keep), #e5e7eb); }
+.toolbox-status.is-bad { background: color-mix(in srgb, #fde8ea var(--tint-keep), var(--surface)); color: color-mix(in srgb, #a2212a var(--ink-keep), #e5e7eb); }
+
+.toolbox-pending { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.toolbox-pending summary { font-weight: 700; cursor: pointer; }
+.toolbox-pending .toolbox-table { margin-top: 8px; }

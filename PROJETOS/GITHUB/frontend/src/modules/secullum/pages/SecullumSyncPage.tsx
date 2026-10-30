@@ -75,7 +75,7 @@ export default function SecullumSyncPage() {
                     <h2>Resultado</h2>
                     <pre
                         style={{
-                            background: "#f3f4f6",
+                            background: "var(--surface-muted)",
                             padding: "20px",
                             borderRadius: "8px",
                             overflowX: "auto",

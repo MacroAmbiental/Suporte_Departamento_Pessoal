@@ -12,9 +12,12 @@
   LayoutDashboard,
   LogOut,
   Menu,
+  Moon,
   Plane,
   RotateCcw,
   ShieldCheck,
+  Sun,
+  Toolbox,
   Users,
   UserX,
   Wallet,
@@ -25,6 +28,8 @@ import { canNavigateAway } from "../../navGuard";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useDomainData } from "@/hooks/useDomainData";
+import { useTheme } from "@/hooks/useTheme";
+import { useNewVersionCheck } from "@/hooks/useNewVersionCheck";
 import { screenFromPathname } from "@/core/routing/currentScreen";
 import { securePath } from "@/services/secureRoutes";
 import type { AppScreen } from "@/types/domain";
@@ -49,9 +54,9 @@ const navItems: {
     { to: "/app/notifications", label: "Notificações", icon: Bell, screen: "notifications", subpage: "notificacoes" },
     { to: "/app/processo-aso", label: "Processo de ASO", icon: Stethoscope, screen: "aso", subpage: "processo-aso" },
     { to: "/app/employees", label: "Funcionários", icon: Users, screen: "employees" },
-    { to: "/app/afastados", label: "Afastados", icon: CalendarClock, screen: "afastados" },
     { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping", subpage: "controle-ponto" },
     { to: "/app/ferias", label: "Férias", icon: Plane, screen: "vacation", subpage: "ferias" },
+    { to: "/app/afastados", label: "Afastados", icon: CalendarClock, screen: "afastados", subpage: "afastados" },
     { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },
     { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits", subpage: "beneficios" },
     { to: "/app/employees?tab=demitidos", label: "Demitidos", icon: X, screen: "employees", subpage: "demitidos" },
@@ -59,6 +64,7 @@ const navItems: {
     { to: "/app/processo-abandono", label: "Processo de Abandono", icon: UserX, screen: "abandonment", subpage: "processo-abandono" },
     { to: "/app/processo-classificacao", label: "Processo de Classificação", icon: TrendingUp, screen: "classification", subpage: "processo-classificacao" },
     { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
+    { to: "/app/caixa-ferramentas", label: "Caixa de ferramentas", icon: Toolbox, screen: "toolbox" },
     { to: "/app/monitoring", label: "Monitoramento", icon: Activity, screen: "monitoring" },
     { to: "/app/permissions", label: "Permissões do sistema", icon: ShieldCheck, screen: "permissions" },
   ];
@@ -216,20 +222,22 @@ export default function Layout() {
   const location = useLocation();
   const { user, logout, can } = useAuth();
   const domain = useDomainData();
+  const { tema, alternarTema } = useTheme();
+  const hasNewVersion = useNewVersionCheck();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const today = todayISO();
   const activeAlerts = alertsToNotify(domain.documentAlerts, domain.employeeDocuments, domain.employees, today).length;
-  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "benefits", "timekeeping", "abandonment", "classification"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && (can("notifications", "view") || can("aso", "view")))), [can]);
+  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "afastados", "benefits", "timekeeping", "abandonment", "classification"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && (can("notifications", "view") || can("aso", "view")))), [can]);
   const currentScreen = useMemo(() => screenFromPathname(location.pathname), [location.pathname]);
-  const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "benefits", "timekeeping", "abandonment", "classification"].includes(item.screen)), [visibleNavItems]);
+  const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "afastados", "benefits", "timekeeping", "abandonment", "classification"].includes(item.screen)), [visibleNavItems]);
   const recordSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && (item.screen === "notifications" || item.screen === "aso")), [visibleNavItems]);
   const employeeTab = new URLSearchParams(location.search).get("tab");
   const isEmployeeProcessActive = currentScreen === "employees" && employeeTab === "processos";
   const isEmployeeDismissedActive = currentScreen === "employees" && employeeTab === "demitidos";
   const [employeesMenuOpen, setEmployeesMenuOpen] = useState(false);
   const [recordsMenuOpen, setRecordsMenuOpen] = useState(false);
-  const isEmployeesGroupActive = ["employees", "vacation", "benefits", "timekeeping", "abandonment", "classification"].includes(currentScreen || "");
+  const isEmployeesGroupActive = ["employees", "vacation", "afastados", "benefits", "timekeeping", "abandonment", "classification"].includes(currentScreen || "");
   const isRecordsGroupActive = currentScreen === "records" || currentScreen === "notifications" || currentScreen === "aso";
   const isEmployeesMenuOpen = employeesMenuOpen || isEmployeesGroupActive;
   const isRecordsMenuOpen = recordsMenuOpen || isRecordsGroupActive;
@@ -441,6 +449,21 @@ export default function Layout() {
         </nav>
 
         <div className="sidebar-footer">
+          <div className="theme-row">
+            <Sun size={15} aria-hidden="true" />
+            <button
+              type="button"
+              role="switch"
+              aria-checked={tema === "escuro"}
+              aria-label="Alternar modo escuro"
+              title={tema === "escuro" ? "Modo escuro" : "Modo claro"}
+              className={`theme-switch${tema === "escuro" ? " is-on" : ""}`}
+              onClick={alternarTema}
+            >
+              <span />
+            </button>
+            <Moon size={15} aria-hidden="true" />
+          </div>
           <div className="brand-status"><span /><strong>{user?.position || user?.role || "Perfil"}</strong></div>
           <button className="logout-button" type="button" onClick={handleLogout}><LogOut size={17} />Sair</button>
         </div>
@@ -473,6 +496,14 @@ export default function Layout() {
         <main className={`workspace ${isWideWorkspace ? "is-wide" : ""}${currentScreen === "records" || currentScreen === "timekeeping" || currentScreen === "benefits" || currentScreen === "employees" || currentScreen === "notifications" || currentScreen === "hrControl" || currentScreen === "abandonment" || currentScreen === "vacation" || currentScreen === "aso" || currentScreen === "classification" ? " is-fullwidth" : ""}${currentScreen === "employees" && ["processos", "demitidos"].includes(employeeTab || "") ? " employee-process-workspace" : ""}${currentScreen === "vacation" ? " vacation-workspace" : ""}`}>
           <Outlet />
         </main>
+        {hasNewVersion ? (
+          <div className="new-version-banner" role="status">
+            <span>Saiu uma versão nova do sistema. Salve o que estiver fazendo e recarregue a página.</span>
+            <button type="button" onClick={() => window.location.reload()}>
+              <RotateCcw size={15} /> Recarregar
+            </button>
+          </div>
+        ) : null}
         {domain.undoState ? (
           <div className="undo-toast" role="status">
             <span>{domain.undoState.message}</span>

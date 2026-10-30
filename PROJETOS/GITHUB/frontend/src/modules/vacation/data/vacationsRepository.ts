@@ -24,6 +24,8 @@ export interface Vacation {
   soldNote?: string;
   motivo?: string;
   notes?: string;
+  /** "lancado" = o gozo está no Secullum como FÉRIAS; "sem-cpf" = fora do Secullum; "" = só no DP. */
+  secullum?: "lancado" | "sem-cpf" | "";
   createdAt: string;
   updatedAt: string;
 }
@@ -323,37 +325,37 @@ export const bucketMeta: Record<
   proximo: {
     label: "Próximo ao limite",
     sub: `Limite de gozo em até ${VACATION_NEAR_LIMIT_MONTHS} meses`,
-    color: "#b45309",
-    bg: "#fffbeb",
-    border: "#fde68a",
+    color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)",
+    bg: "color-mix(in srgb, #fffbeb var(--tint-keep), var(--surface))",
+    border: "color-mix(in srgb, #fde68a var(--tint-line), var(--surface))",
   },
   iniciado: {
     label: "Iniciou o período",
     sub: "1 ano completo, férias a tirar",
-    color: "#1d4ed8",
-    bg: "#eff6ff",
-    border: "#bfdbfe",
+    color: "color-mix(in srgb, #1d4ed8 var(--ink-keep), #e5e7eb)",
+    bg: "var(--surface-muted)",
+    border: "color-mix(in srgb, #bfdbfe var(--tint-line), var(--surface))",
   },
   vencido: {
     label: "Período vencido",
     sub: "Limite de gozo já passou",
-    color: "#b91c1c",
-    bg: "#fef2f2",
-    border: "#fecaca",
+    color: "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)",
+    bg: "color-mix(in srgb, #fef2f2 var(--tint-keep), var(--surface))",
+    border: "color-mix(in srgb, #fecaca var(--tint-line), var(--surface))",
   },
   afastado: {
     label: "Afastado",
     sub: "Afastamento ou licença em curso",
-    color: "#be185d",
-    bg: "#fdf2f8",
-    border: "#fbcfe8",
+    color: "color-mix(in srgb, #be185d var(--ink-keep), #e5e7eb)",
+    bg: "color-mix(in srgb, #fdf2f8 var(--tint-keep), var(--surface))",
+    border: "color-mix(in srgb, #fbcfe8 var(--tint-line), var(--surface))",
   },
   emdia: {
     label: "Em dia",
     sub: "Menos de 1 ano ou férias já tiradas",
-    color: "#047857",
-    bg: "#ecfdf5",
-    border: "#a7f3d0",
+    color: "color-mix(in srgb, #047857 var(--ink-keep), #e5e7eb)",
+    bg: "color-mix(in srgb, #ecfdf5 var(--tint-keep), var(--surface))",
+    border: "color-mix(in srgb, #a7f3d0 var(--tint-line), var(--surface))",
   },
 };
 
