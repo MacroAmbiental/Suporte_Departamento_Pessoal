@@ -1648,8 +1648,10 @@ export const sincronizarAfastamentoSecullum = onCall(
         throw new HttpsError("failed-precondition",
           `Já existe outro afastamento no Secullum nesse período (${existentes.map((a) => `${a.inicio} a ${a.fim}`).join(", ")}). Confira no Secullum.`);
       }
+      // O Secullum exige DataInclusao (data/hora do lançamento, horário de Brasília).
+      const agoraSP = new Date().toLocaleString("sv-SE", { timeZone: "America/Sao_Paulo" }).replace(" ", "T");
       const res = await apiPost("/IntegracaoExterna/FuncionariosAfastamentos", token, {
-        Cpf: cpf, Inicio: `${i}T00:00:00`, Fim: `${f}T00:00:00`,
+        Cpf: cpf, Inicio: `${i}T00:00:00`, Fim: `${f}T00:00:00`, DataInclusao: agoraSP,
         Motivo: String(p.motivo || "").slice(0, 200) || "Lançado pelo Sistema DP",
         JustificativaNome: justificativa,
       });
