@@ -1,6 +1,8 @@
 import { ArrowLeft, Combine, FileStack, Scale, Toolbox, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { useSearchParams } from "react-router-dom";
+import ConferenciaFolhaPonto from "./conferencia/ConferenciaFolhaPonto";
+import ContrachequesComprovantes from "./contracheques/ContrachequesComprovantes";
 import JuntarRecibos from "./recibos/JuntarRecibos";
 import "./toolbox.css";
 
@@ -16,6 +18,7 @@ const tools: { key: ToolKey; title: string; description: string; icon: LucideIco
     title: "Conferência de folha e ponto",
     description: "Compara o Extrato Mensal com o Cartão-Ponto: horas extras, faltas, insalubridade e relação de pagamentos.",
     icon: Scale,
+    component: ConferenciaFolhaPonto,
   },
   {
     key: "juntar-recibos",
@@ -29,6 +32,7 @@ const tools: { key: ToolKey; title: string; description: string; icon: LucideIco
     title: "Contracheques e comprovantes",
     description: "Junta cada contracheque com o comprovante de transferência do mesmo funcionário.",
     icon: Combine,
+    component: ContrachequesComprovantes,
   },
 ];
 

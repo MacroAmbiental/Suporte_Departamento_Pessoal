@@ -1443,21 +1443,49 @@ exports.sincronizarAfastamentoSecullum = (0, https_1.onCall)({ region: "southame
     const token = await getToken();
     const inicio = p.inicio;
     const fim = p.fim;
-    // Afastamentos do funcionário que cruzam o período.
+    // A API grava e lista por CPF, mas recontratado tem mais de um cadastro no
+    // Secullum com o mesmo CPF (o antigo fica em "Funcionários Demitidos") e o
+    // lançamento pode cair no cadastro demitido (caso Jefferson, 03/11/2026).
+    // Cada afastamento listado traz o Nº Folha: só vale o do cadastro ativo.
+    const folhaDe = (v) => String(v ?? "").trim();
+    const funcs = await apiGet("/IntegracaoExterna/Funcionarios", token, {});
+    const cadastros = (funcs || []).filter((f) => onlyDigits(f.Cpf) === cpf);
+    const ativos = cadastros.filter((f) => !pickField(f, ["Demissao", "DataDemissao"]));
+    if (ativos.length !== 1 || !folhaDe(ativos[0].NumeroFolha)) {
+        console.warn("[AFASTAMENTO_SECULLUM] cadastro ativo não identificado", {
+            cpf: `***${cpf.slice(-3)}`, cadastros: cadastros.length, ativos: ativos.length,
+            campos: [...new Set(cadastros.flatMap((f) => Object.keys(f)))].sort(),
+        });
+        throw new https_1.HttpsError("failed-precondition", ativos.length > 1 ?
+            "Este CPF tem mais de um cadastro ativo no Secullum. Lance o afastamento direto no Secullum, no cadastro certo." :
+            "Funcionário não encontrado no Secullum pelo CPF (ou sem Nº Folha). Confira o cadastro no Secullum.");
+    }
+    const folhaAtiva = folhaDe(ativos[0].NumeroFolha);
+    // Afastamentos do CPF (todos os cadastros) que cruzam o período.
     const listar = async (de, ate) => {
         const linhas = await apiGet("/IntegracaoExterna/FuncionariosAfastamentos/Cpf", token, { funcionarioCpf: cpf, dataInicio: de, dataFim: ate });
         return (linhas || []).map((l) => ({
             inicio: soData(pickField(l, ["Inicio", "DataInicio"])),
             fim: soData(pickField(l, ["Fim", "DataFim"])),
+            folha: folhaDe(pickField(l, ["NumeroFolha"])),
         })).filter((a) => a.inicio && a.fim);
     };
     const igual = (a, i, f) => a.inicio === i && a.fim === f;
+    const doAtivo = (a) => a.folha === folhaAtiva;
+    const periodos = (lista) => lista.map((a) => `${a.inicio} a ${a.fim}${doAtivo(a) ? "" : " (em outro cadastro do CPF)"}`).join(", ");
+    const outroCadastro = (lista) => {
+        if (lista.some((a) => !doAtivo(a))) {
+            throw new https_1.HttpsError("failed-precondition", `Este CPF tem afastamento em outro cadastro do Secullum (provavelmente um contrato antigo, em Funcionários Demitidos): ${periodos(lista)}. ` +
+                "Ajuste direto no Secullum: o lançamento automático não consegue escolher o cadastro.");
+        }
+    };
     const lancar = async (i, f) => {
         const existentes = await listar(i, f);
+        outroCadastro(existentes);
         if (existentes.some((a) => igual(a, i, f)))
             return; // já está lá
         if (existentes.length) {
-            throw new https_1.HttpsError("failed-precondition", `Já existe outro afastamento no Secullum nesse período (${existentes.map((a) => `${a.inicio} a ${a.fim}`).join(", ")}). Confira no Secullum.`);
+            throw new https_1.HttpsError("failed-precondition", `Já existe outro afastamento no Secullum nesse período (${periodos(existentes)}). Confira no Secullum.`);
         }
         // O Secullum exige DataInclusao (data/hora do lançamento, horário de Brasília).
         const agoraSP = new Date().toLocaleString("sv-SE", { timeZone: "America/Sao_Paulo" }).replace(" ", "T");
@@ -1468,20 +1496,32 @@ exports.sincronizarAfastamentoSecullum = (0, https_1.onCall)({ region: "southame
         });
         if (!res.ok)
             throw new https_1.HttpsError("failed-precondition", extractSecullumError(res.data, res.raw));
-        if (!(await listar(i, f)).some((a) => igual(a, i, f))) {
+        const depois = (await listar(i, f)).filter((a) => igual(a, i, f));
+        if (!depois.length) {
             throw new https_1.HttpsError("internal", "O Secullum aceitou, mas o afastamento não apareceu na conferência. Confira no Secullum.");
         }
-    };
-    // Só apaga quando, no período, existe exatamente o afastamento esperado:
-    // o DELETE da API é por CPF + período e levaria junto outro que estivesse ali.
-    const apagar = async () => {
-        const existentes = await listar(inicio, fim);
-        if (!existentes.length)
-            return; // já não está lá
-        if (existentes.length !== 1 || !igual(existentes[0], inicio, fim)) {
-            throw new https_1.HttpsError("failed-precondition", `No Secullum o período não bate com o do DP (${existentes.map((a) => `${a.inicio} a ${a.fim}`).join(", ")}). Ajuste no Secullum.`);
+        if (!depois.some(doAtivo)) {
+            // Caiu no cadastro antigo do CPF: desfaz (era o único afastamento do CPF
+            // nesse período, conferido antes do POST) e avisa.
+            console.warn("[AFASTAMENTO_SECULLUM] gravado em outro cadastro do CPF", {
+                cpf: `***${cpf.slice(-3)}`, folhas: depois.map((a) => a.folha), i, f,
+            });
+            let desfeito = false;
+            try {
+                await apagarNoSecullum(i, f);
+                desfeito = !(await listar(i, f)).some((a) => igual(a, i, f));
+            }
+            catch (e) {
+                console.error("[AFASTAMENTO_SECULLUM] falha ao desfazer", e);
+            }
+            throw new https_1.HttpsError("failed-precondition", "O Secullum gravou o afastamento em outro cadastro deste CPF (contrato antigo, em Funcionários Demitidos). " +
+                (desfeito ? "O lançamento foi desfeito. " : "NÃO foi possível desfazer: exclua lá em Funcionários Demitidos. ") +
+                "Lance direto no Secullum, no cadastro ativo.");
         }
-        const resp = await fetch(`${BASE_URL}/IntegracaoExterna/FuncionariosAfastamentos/Cpf?${new URLSearchParams({ funcionarioCpf: cpf, dataInicio: inicio, dataFim: fim })}`, {
+    };
+    // DELETE da API: por CPF + período (não escolhe o cadastro).
+    const apagarNoSecullum = async (i, f) => {
+        const resp = await fetch(`${BASE_URL}/IntegracaoExterna/FuncionariosAfastamentos/Cpf?${new URLSearchParams({ funcionarioCpf: cpf, dataInicio: i, dataFim: f })}`, {
             method: "DELETE",
             headers: {
                 Authorization: `Bearer ${token}`,
@@ -1501,6 +1541,19 @@ exports.sincronizarAfastamentoSecullum = (0, https_1.onCall)({ region: "southame
             }
             throw new https_1.HttpsError("failed-precondition", extractSecullumError(corpo, raw));
         }
+    };
+    // Só apaga quando, no período, existe exatamente o afastamento esperado e no
+    // cadastro ativo: o DELETE é por CPF + período e levaria junto outro que
+    // estivesse ali (inclusive de outro cadastro do mesmo CPF).
+    const apagar = async () => {
+        const existentes = await listar(inicio, fim);
+        if (!existentes.length)
+            return; // já não está lá
+        outroCadastro(existentes);
+        if (existentes.length !== 1 || !igual(existentes[0], inicio, fim)) {
+            throw new https_1.HttpsError("failed-precondition", `No Secullum o período não bate com o do DP (${periodos(existentes)}). Ajuste no Secullum.`);
+        }
+        await apagarNoSecullum(inicio, fim);
         if ((await listar(inicio, fim)).some((a) => igual(a, inicio, fim))) {
             throw new https_1.HttpsError("internal", "O Secullum não apagou o afastamento. Confira no Secullum.");
         }
