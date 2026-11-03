@@ -1,19 +1,45 @@
-import { getAuth, signInWithCustomToken, signOut } from "firebase/auth";
+import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut, type User as FirebaseUser } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { firebaseApp } from "@/services/firebase";
 
 // Sessão do Firebase Auth aberta pela function "entrarDP", que confere
-// usuário e senha no servidor. O login da tela não depende dela: se falhar,
-// o sistema segue como antes (só o que exige a sessão fica indisponível).
+// usuário e senha no servidor. Desde 03/11/2026 o login depende dela: o banco
+// do DP só aceita quem tem essa sessão (uid = id do systemUsers).
 
-export async function iniciarSessaoServidor(username: string, password: string): Promise<void> {
-  if (!firebaseApp) return;
+export const SERVIDOR_INDISPONIVEL = "Não foi possível conferir o login no servidor. Verifique a internet e tente de novo.";
+
+// true = sessão aberta; false = usuário/senha recusados pelo servidor.
+// Outros erros (rede, servidor fora) são lançados com SERVIDOR_INDISPONIVEL.
+export async function iniciarSessaoServidor(username: string, password: string): Promise<boolean> {
+  if (!firebaseApp) throw new Error("Firebase não configurado.");
   const entrar = httpsCallable<{ username: string; password: string }, { token: string }>(
     getFunctions(firebaseApp, "southamerica-east1"),
     "entrarDP",
   );
-  const { data } = await entrar({ username, password });
-  await signInWithCustomToken(getAuth(firebaseApp), data.token);
+  let token: string;
+  try {
+    ({ data: { token } } = await entrar({ username, password }));
+  } catch (error) {
+    const code = (error as { code?: string })?.code ?? "";
+    if (code === "functions/permission-denied" || code === "functions/invalid-argument") return false;
+    console.error("Falha ao abrir a sessão no servidor.", error);
+    throw new Error(SERVIDOR_INDISPONIVEL);
+  }
+  await signInWithCustomToken(getAuth(firebaseApp), token);
+  return true;
+}
+
+// Uid da sessão já salva no navegador (espera o Firebase carregar).
+export async function uidSessaoSalva(): Promise<string | null> {
+  if (!firebaseApp) return null;
+  const auth = getAuth(firebaseApp);
+  await auth.authStateReady();
+  return auth.currentUser?.uid ?? null;
+}
+
+export function observarSessao(callback: (user: FirebaseUser | null) => void): () => void {
+  if (!firebaseApp) return () => undefined;
+  return onAuthStateChanged(getAuth(firebaseApp), callback);
 }
 
 export const SESSAO_EXPIRADA = "Sessão expirada. Saia e entre de novo no sistema para gravar no Secullum.";

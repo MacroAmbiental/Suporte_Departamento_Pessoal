@@ -50,14 +50,14 @@ export default function Login() {
     setLoading(true);
     setError("");
 
-    const accepted = await login(username, password);
+    const result = await login(username, password);
 
-    if (accepted) {
+    if (result === true) {
       navigate("/app", { replace: true });
       return;
     }
 
-    setError("Usuário ou senha inválidos.");
+    setError(result === false ? "Usuário ou senha inválidos." : result);
     setLoading(false);
   }
 
