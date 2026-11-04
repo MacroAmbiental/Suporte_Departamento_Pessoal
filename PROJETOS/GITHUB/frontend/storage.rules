@@ -1,0 +1,44 @@
+rules_version = '2';
+
+// Arquivos do DP (bucket macro-ambiental.firebasestorage.app) — fechado em 04/11/2026.
+// Antes: documentos dos funcionários (employeeDocuments/...) podiam ser lidos
+// sem login por quem soubesse o caminho.
+//
+// Só entra quem fez login pelo Suporte ou pelo Oficial (marca dp = true,
+// emitida pela function entrarDP). O sistema grava só em
+// employeeDocuments/{funcionário}/{arquivo}: ASO, Classificação, desligamento,
+// afastamento, licença e suspensão.
+//
+// NÃO afeta:
+// - links já salvos no banco (getDownloadURL com token): continuam abrindo;
+//   o banco onde eles ficam já está fechado;
+// - quem usa conta de serviço (Admin SDK ignora as regras): RH copiando os
+//   documentos dos novos contratados (novosContratadosRH/...), functions.
+//
+// Limite: 10 MB por arquivo; PDF, imagem (sem SVG), Word e Excel.
+// Voltar atrás em emergência: trocar usuarioDP() por `true` e publicar.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function usuarioDP() {
+      return request.auth != null && request.auth.token.dp == true;
+    }
+
+    function arquivoPermitido() {
+      return request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches(
+          'application/pdf|image/(png|jpe?g|webp|gif|heic|heif|bmp|tiff)|application/msword|application/vnd[.]ms-excel|application/vnd[.]openxmlformats-officedocument[.](wordprocessingml[.]document|spreadsheetml[.]sheet)'
+        );
+    }
+
+    // Ler e baixar: qualquer pasta, só usuário do DP.
+    match /{todos=**} {
+      allow read: if usuarioDP();
+    }
+
+    // Gravar e apagar: só a pasta que o sistema usa.
+    match /employeeDocuments/{funcionario}/{arquivo} {
+      allow create, update: if usuarioDP() && arquivoPermitido();
+      allow delete: if usuarioDP();
+    }
+  }
+}
