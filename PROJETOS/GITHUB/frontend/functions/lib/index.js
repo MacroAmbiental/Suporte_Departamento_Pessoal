@@ -165,6 +165,8 @@ exports.obterBatidasSecullum = (0, https_1.onCall)({
         SECULLUM_BANK_ID,
     ],
 }, async (request) => {
+    // 04/11/2026: devolve nome, CPF e batidas de todos; só para quem entrou no DP.
+    await (0, permissaoDP_1.exigirPermissaoDP)(request, "timekeeping", "view");
     const data = request.data?.data;
     if (!data || !/^\d{4}-\d{2}-\d{2}$/.test(data)) {
         throw new https_1.HttpsError("invalid-argument", "Informe 'data' no formato YYYY-MM-DD.");
@@ -334,8 +336,9 @@ exports.obterBatidasSecullum = (0, https_1.onCall)({
  * POST /IntegracaoExterna/CartaoPonto/Manual — insere/edita 1 coluna.
  */
 exports.enviarBatidaSecullum = (0, https_1.onCall)({ region: "southamerica-east1", secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] }, async (request) => {
-    // TODO: exigirPermissaoDP(request, "timekeeping", "edit") quando o Oficial
-    // também abrir a sessão do entrarDP — hoje ele chama esta function sem sessão.
+    // 04/11/2026: grava no Secullum de produção; o Oficial já abre a sessão do
+    // entrarDP (127a936), então a checagem que faltava entra aqui.
+    await (0, permissaoDP_1.exigirPermissaoDP)(request, "timekeeping", "edit");
     const p = (request.data ?? {});
     const cpf = onlyDigits(p.cpf);
     if (!cpf) {
@@ -996,6 +999,8 @@ exports.consultarFlagsSecullumPagina = (0, https_1.onCall)({
     region: "southamerica-east1",
     secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID],
 }, async (request) => {
+    // 04/11/2026: consulta Neutro/Compensado por CPF; só para quem entrou no DP.
+    await (0, permissaoDP_1.exigirPermissaoDP)(request, "timekeeping", "view");
     const entrada = (request.data ?? {});
     const dia = entrada.data;
     const rawCpfs = entrada.cpfs;

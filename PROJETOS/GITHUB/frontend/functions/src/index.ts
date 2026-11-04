@@ -165,6 +165,8 @@ export const obterBatidasSecullum = onCall(
     ],
   },
   async (request) => {
+    // 04/11/2026: devolve nome, CPF e batidas de todos; só para quem entrou no DP.
+    await exigirPermissaoDP(request, "timekeeping", "view");
     const data = (
       request.data as { data?: string } | undefined
     )?.data;
@@ -375,8 +377,9 @@ export const obterBatidasSecullum = onCall(
 export const enviarBatidaSecullum = onCall(
   { region: "southamerica-east1", secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID] },
   async (request) => {
-    // TODO: exigirPermissaoDP(request, "timekeeping", "edit") quando o Oficial
-    // também abrir a sessão do entrarDP — hoje ele chama esta function sem sessão.
+    // 04/11/2026: grava no Secullum de produção; o Oficial já abre a sessão do
+    // entrarDP (127a936), então a checagem que faltava entra aqui.
+    await exigirPermissaoDP(request, "timekeeping", "edit");
     const p = (request.data ?? {}) as {
       cpf?: string;
       data?: string;
@@ -1135,6 +1138,8 @@ export const consultarFlagsSecullumPagina = onCall(
     secrets: [SECULLUM_USERNAME, SECULLUM_PASSWORD, SECULLUM_BANK_ID],
   },
   async (request) => {
+    // 04/11/2026: consulta Neutro/Compensado por CPF; só para quem entrou no DP.
+    await exigirPermissaoDP(request, "timekeeping", "view");
     const entrada = (request.data ?? {}) as { data?: unknown; cpfs?: unknown };
     const dia = entrada.data;
     const rawCpfs = entrada.cpfs;
