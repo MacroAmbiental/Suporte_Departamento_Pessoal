@@ -1,0 +1,134 @@
+/* Benefícios — funcionários em tabela (aba Funcionários e modal Gerenciar) — 04/11/2026 */
+
+/* ---------- Barra de topo da aba: chips de contagem + botão ---------- */
+.benefit-employees-area { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.benefit-employees-topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.benefit-employees-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.benefit-employees-chip {
+  display: inline-flex; align-items: baseline; gap: 6px; height: 34px; padding: 0 14px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  color: var(--text-muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  line-height: 32px;
+}
+.benefit-employees-chip strong { color: var(--text); font-size: 15px; font-weight: 800; }
+.benefit-employees-chip:hover { background: var(--surface-muted); }
+.benefit-employees-chip.is-active {
+  border-color: color-mix(in srgb, #0b9369 var(--tint-line), var(--surface));
+  background: color-mix(in srgb, #e7f6f0 var(--tint-keep), var(--surface));
+  color: color-mix(in srgb, #0b6b4d var(--ink-keep), #e5e7eb);
+}
+.benefit-employees-chip.is-active strong { color: inherit; }
+.benefit-employees-chip.is-warning strong { color: color-mix(in srgb, #b45309 var(--ink-keep), #fcd34d); }
+.benefit-employees-chip.is-warning.is-active {
+  border-color: color-mix(in srgb, #eda100 var(--tint-line), var(--surface));
+  background: color-mix(in srgb, #fff8e6 var(--tint-keep), var(--surface));
+  color: color-mix(in srgb, #8a5300 var(--ink-keep), #e5e7eb);
+}
+
+/* ---------- Filtros: quebram em linhas, sem rolagem lateral ---------- */
+.benefit-employees-area .benefits-employee-filter-panel,
+.benefit-employees-modal-v2 .benefits-employee-filter-panel {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 0;
+}
+.benefit-employees-area .benefits-employee-filter-panel > .benefits-employee-search,
+.benefit-employees-modal-v2 .benefits-employee-filter-panel > .benefits-employee-search { flex: 2 1 300px; }
+.benefit-employees-area .benefits-employee-filter-panel > select,
+.benefit-employees-modal-v2 .benefits-employee-filter-panel > select { flex: 1 1 170px; min-width: 150px; height: 38px; padding: 0 8px; font-size: 13px; font-weight: 600; }
+.benefit-employees-area .benefits-employee-filter-panel > .btn,
+.benefit-employees-modal-v2 .benefits-employee-filter-panel > .btn { flex: none; height: 38px; }
+
+/* ---------- Tabela ---------- */
+.benefit-employees-table-wrap {
+  min-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+}
+.benefit-employees-area .benefit-employees-table-wrap { max-height: calc(var(--app-density-viewport-height, 100vh) - 570px); }
+.benefit-employees-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.benefit-employees-table thead th {
+  position: sticky; top: 0; z-index: 1; padding: 0; border-bottom: 1px solid var(--border);
+  background: var(--surface-muted); color: var(--text-muted); font-size: 12px; font-weight: 800; text-align: left; white-space: nowrap;
+}
+.benefit-employees-table thead th > button {
+  display: inline-flex; align-items: center; gap: 4px; width: 100%; padding: 9px 12px; border: 0; background: transparent;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.benefit-employees-table thead th > button:hover { color: var(--text); }
+.benefit-employees-table thead th:not(:has(button)) { padding: 9px 12px; }
+.benefit-employees-table td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle;
+}
+.benefit-employees-table tbody tr:last-child td { border-bottom: 0; }
+/* Uma linha por pessoa: textos longos (empresa, setor) cortam com reticências. */
+.benefit-employees-table td > span,
+.benefit-employees-table td > small,
+.benefit-employees-table td.is-name strong { display: block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.benefit-employees-table tbody tr:hover td { background: var(--surface-muted); }
+.benefit-employees-table td small { display: block; margin-top: 1px; color: var(--text-muted); font-size: 11.5px; }
+.benefit-employees-table td.is-name strong { display: block; font-weight: 700; }
+.benefit-employees-table .is-check { width: 40px; padding-right: 0; text-align: center; }
+.benefit-employees-table .is-check input { width: 16px; height: 16px; cursor: pointer; }
+.benefit-employees-table .is-status { white-space: nowrap; }
+.benefit-employees-table tr.is-selected td { background: color-mix(in srgb, #f0faf6 var(--tint-keep), var(--surface)); }
+.benefit-employees-table tr.is-unassigned td { color: var(--text-muted); }
+.benefit-employees-table tr.is-conflict td.is-name strong { color: color-mix(in srgb, #8a5300 var(--ink-keep), #fcd34d); }
+.benefit-employees-modal-v2 .benefit-employees-table tbody tr { cursor: pointer; }
+
+.benefit-employee-badge {
+  display: inline-block; max-width: 260px; overflow: hidden; padding: 2px 9px; border-radius: 999px; text-overflow: ellipsis;
+  background: var(--surface-muted); color: var(--text-muted); font-size: 11.5px; font-weight: 700; vertical-align: middle;
+}
+.benefit-employee-badge.is-conflict {
+  background: color-mix(in srgb, #fff3d6 var(--tint-keep), var(--surface));
+  color: color-mix(in srgb, #8a5300 var(--ink-keep), #fcd34d);
+}
+.benefit-employee-badge.is-muted { background: transparent; border: 1px dashed var(--border); }
+.benefit-employees-empty { margin: 0; padding: 28px 16px; color: var(--text-muted); text-align: center; }
+
+.benefit-employees-area .benefits-pagination,
+.benefit-employees-modal-v2 .benefits-pagination { margin-top: 0; padding: 6px 10px; }
+
+/* ---------- Modal "Gerenciar funcionários" largo ---------- */
+.modal-panel.benefit-employees-modal-v2 {
+  display: flex; flex-direction: column; gap: 12px;
+  width: min(96vw, 1440px); height: min(92vh, 1000px); max-height: none; overflow: hidden; padding: 20px 24px;
+}
+.benefit-employees-modal-v2 .modal-header { margin: 0; }
+.benefit-employees-modal-v2 .modal-header small { display: block; margin-top: 2px; color: var(--text-muted); font-size: 13px; font-weight: 600; }
+.benefit-employees-modal-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.benefit-employees-segmented { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
+.benefit-employees-segmented button {
+  height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.benefit-employees-segmented button.is-active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(15, 35, 55, .12); }
+.benefit-employees-bulk { display: flex; flex-wrap: wrap; gap: 8px; }
+.benefit-employees-bulk .btn { height: 34px; font-size: 13px; }
+.benefit-employees-modal-v2 .benefit-employees-table-wrap { flex: 1 1 auto; min-height: 0; }
+.benefit-employees-modal-footer {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding-top: 12px; border-top: 1px solid var(--border);
+}
+.benefit-employees-modal-counts { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-muted); font-size: 13px; font-weight: 600; }
+.benefit-employees-modal-counts b { color: var(--text); font-size: 15px; }
+.benefit-employees-modal-counts .is-added b { color: color-mix(in srgb, #0b6b4d var(--ink-keep), #6ee7b7); }
+.benefit-employees-modal-counts .is-removed b { color: color-mix(in srgb, #b42318 var(--ink-keep), #fca5a5); }
+.benefit-employees-modal-footer .form-actions { margin: 0; }
+
+@media (max-width: 820px) {
+  .modal-panel.benefit-employees-modal-v2 { width: 100vw; height: 100vh; border-radius: 0; padding: 14px 16px; }
+  .benefit-employees-area .benefit-employees-table-wrap { max-height: none; }
+}
+
+/* ---------- Fatia 3: cabeçalho e lista lateral (04/11) ---------- */
+/* Excluir: botão de ícone discreto, vermelho só ao passar o mouse. */
+.benefits-delete-button { color: var(--text-muted); }
+.benefits-delete-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #f3b8bd var(--tint-line), var(--surface));
+  background: color-mix(in srgb, #fff1f2 var(--tint-keep), var(--surface));
+  color: color-mix(in srgb, #b42318 var(--ink-keep), #fca5a5);
+}
+/* Lista lateral legível (o sistema todo roda em zoom 0,75). */
+.benefits-redesign .benefits-navigation-header strong { font-size: 14px; }
+.benefits-redesign .benefits-navigation-item { padding-top: 10px; padding-bottom: 10px; }
+.benefits-redesign .benefits-navigation-copy strong { font-size: 16px; }
+.benefits-redesign .benefits-navigation-copy small { font-size: 12.5px; }
+.benefits-redesign .benefits-navigation-count { font-size: 13px; font-weight: 800; }

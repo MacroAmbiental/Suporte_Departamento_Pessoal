@@ -96,3 +96,40 @@
   .benefit-sheet-formula { margin-left: 0; }
   .benefit-sheet-grid .is-name { min-width: 180px; }
 }
+
+/* ---------- Regra de cálculo compacta (04/11) ---------- */
+.benefit-rule { gap: 12px; }
+.benefit-rule-card { gap: 12px; padding: 14px 16px; }
+.benefit-rule-basics { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+.benefit-rule-basics .field { margin: 0; }
+.benefit-rule-daily { width: 220px; }
+.benefit-rule-period { width: 300px; }
+.benefit-rule-row {
+  display: grid; grid-template-columns: minmax(150px, 220px) 160px minmax(170px, 220px) minmax(0, 1fr) 36px;
+  align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted);
+}
+.benefit-rule-row.is-head {
+  padding: 0 10px; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 800;
+}
+.benefit-rule-components { gap: 6px; }
+.benefit-rule-row > input,
+.benefit-rule-row > select,
+.benefit-rule-add-status {
+  min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface);
+  color: color-mix(in srgb, #183146 var(--ink-keep), #e5e7eb); font: inherit; font-size: 13px; font-weight: 600;
+}
+.benefit-rule-row > select.is-plus { color: color-mix(in srgb, #087f58 var(--ink-keep), #6ee7b7); }
+.benefit-rule-row > select.is-minus { color: color-mix(in srgb, #b42318 var(--ink-keep), #fca5a5); }
+.benefit-rule-row .benefit-rule-statuses { gap: 5px; }
+.benefit-rule-row .benefit-rule-statuses button { padding: 3px 8px; font-size: 12px; }
+.benefit-rule-row .benefit-rule-statuses button:hover:not(:disabled) { border-color: #c83d49; }
+.benefit-rule-add-status { width: auto; height: 26px; padding: 0 6px; border-style: dashed; border-radius: 999px; color: var(--text-muted); font-size: 12px; }
+.benefit-rule-row .benefit-rule-statuses em { color: var(--text-muted); font-size: 12px; }
+.benefit-rule-row .benefit-rule-remove { align-self: center; margin: 0; }
+.benefit-rule-order-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 12px; }
+.benefit-rule-order-grid .field { margin: 0; }
+@media (max-width: 1100px) {
+  .benefit-rule-row { grid-template-columns: 1fr 1fr; }
+  .benefit-rule-row.is-head { display: none; }
+  .benefit-rule-row .benefit-rule-statuses { grid-column: 1 / -1; }
+}

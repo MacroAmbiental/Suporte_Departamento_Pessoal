@@ -47,6 +47,12 @@ import { createId, formatCurrency, normalizeUrl, todayISO } from "@/utils/format
 import { parseBenefitExcelFile } from "@/utils/benefitExcelImport";
 import BenefitCalculationSheet from "@/modules/benefits/components/BenefitCalculationSheet";
 import BenefitRuleEditor from "@/modules/benefits/components/BenefitRuleEditor";
+import { employeeKindLabels, employeeKindOf } from "@/common/utils/employeeKind";
+import BenefitEmployeesTable, {
+  sortBenefitEmployees,
+  type BenefitEmployeeInfo,
+  type BenefitEmployeeSort,
+} from "@/modules/benefits/components/BenefitEmployeesTable";
 import {
   calcRuleFieldKey,
   readCalcRule,
@@ -149,7 +155,7 @@ const defaultBenefitColumns = "Funcionário\nCPF\nMatrícula\nValor\nDesconto\nT
 const minColumnWidth = 160;
 const defaultColumnWidth = 220;
 const maxColumnWidth = 560;
-const employeePageSizeOptions = [12, 24, 48, 96];
+const employeePageSizeOptions = [25, 50, 100, 200];
 const timekeepingSettingsColumnKey = "__timekeeping_calculation_settings";
 const defaultBenefitTimekeepingSettings: BenefitTimekeepingSettings = {
   usefulMinutesByWeekday: {
@@ -996,7 +1002,6 @@ export default function Benefits() {
   const [companyFilterIds, setCompanyFilterIds] = useState<string[]>([]);
   const [selectedBenefitId, setSelectedBenefitId] = useState("");
   const [activeTab, setActiveTab] = useState<BenefitsTab>("employees");
-  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [newColumnModalOpen, setNewColumnModalOpen] = useState(false);
   const [openRowMenu, setOpenRowMenu] = useState<number | null>(null);
   const [tableSort, setTableSort] = useState<TableSort>(null);
@@ -1033,7 +1038,10 @@ export default function Benefits() {
   const [employeeFilters, setEmployeeFilters] = useState<EmployeeFilterState>(emptyEmployeeFilters);
   const [employeeQuickFilter, setEmployeeQuickFilter] = useState<EmployeeQuickFilter | null>(null);
   const [employeePage, setEmployeePage] = useState(1);
-  const [employeePageSize, setEmployeePageSize] = useState(employeePageSizeOptions[0]);
+  const [employeePageSize, setEmployeePageSize] = useState(employeePageSizeOptions[1]);
+  const [employeeSort, setEmployeeSort] = useState<BenefitEmployeeSort>({ key: "name", dir: "asc" });
+  const [employeeModalSort, setEmployeeModalSort] = useState<BenefitEmployeeSort>({ key: "name", dir: "asc" });
+  const [employeeModalShow, setEmployeeModalShow] = useState<"all" | "selected" | "unselected">("all");
   const [employeeModalFilters, setEmployeeModalFilters] = useState<EmployeeFilterState>(emptyEmployeeFilters);
   const [employeeModalPage, setEmployeeModalPage] = useState(1);
   const [employeeModalPageSize, setEmployeeModalPageSize] = useState(employeePageSizeOptions[1]);
@@ -1081,7 +1089,6 @@ export default function Benefits() {
   useEffect(() => {
     setIncompatibilitySelection(parseJson<string[]>(selectedBenefit?.customFields?.incompatibleBenefitIds, []));
     setBenefitReferenceMonth(selectedBenefit?.customFields?.surveyReferenceMonth || currentMonthValue());
-    setMoreActionsOpen(false);
     setOpenRowMenu(null);
     setOpenColumnMenu(null);
   }, [selectedBenefit?.id, selectedBenefit?.customFields?.incompatibleBenefitIds, selectedBenefit?.customFields?.surveyReferenceMonth]);
@@ -1114,9 +1121,26 @@ export default function Benefits() {
       : []
   ), [data.employeeBenefits, selectedBenefit]);
   const assignedEmployeeIds = useMemo(() => new Set(assignedEmployeeBenefits.map((benefit) => benefit.employeeId)), [assignedEmployeeBenefits]);
+  // Todos os funcionários ativos do grupo, de qualquer empresa e tipo (CLT,
+  // Contrato, Diarista): o benefício é contratado numa empresa, mas atende
+  // gente cadastrada nas outras (04/11: 42 de Contrato estão na Saneamento).
   const benefitCompanyEmployees = useMemo(() => data.employees
-    .filter((employee) => employee.companyId === selectedBenefit?.companyId && employee.status !== "terminated" && (!employee.admissionDate || employee.admissionDate <= todayISO()))
-    .sort((a, b) => a.name.localeCompare(b.name)), [data.employees, selectedBenefit?.companyId]);
+    .filter((employee) => employee.status !== "terminated" && (!employee.admissionDate || employee.admissionDate <= todayISO()))
+    .sort((a, b) => a.name.localeCompare(b.name)), [data.employees]);
+  // Lista lateral conta igual ao cabeçalho: vínculo ativo de funcionário ativo
+  // (antes contava também desligados: 151 na lista x 129 no cabeçalho do VT).
+  const assignedCountByBenefit = useMemo(() => {
+    const activeIds = new Set(benefitCompanyEmployees.map((employee) => employee.id));
+    const counted = new Map<string, Set<string>>();
+    data.employeeBenefits.forEach((item) => {
+      if (item.active === false || !activeIds.has(item.employeeId)) return;
+      const ids = counted.get(item.contractId) || new Set<string>();
+      ids.add(item.employeeId);
+      counted.set(item.contractId, ids);
+    });
+    return new Map(Array.from(counted, ([contractId, ids]) => [contractId, ids.size]));
+  }, [benefitCompanyEmployees, data.employeeBenefits]);
+  const companyNameById = useMemo(() => new Map(data.companies.map((company) => [company.id, company.name])), [data.companies]);
   const assignedEmployees = useMemo(() => (
     benefitCompanyEmployees.filter((employee) => assignedEmployeeIds.has(employee.id))
   ), [assignedEmployeeIds, benefitCompanyEmployees]);
@@ -1253,14 +1277,45 @@ export default function Benefits() {
     }
     return assignedEmployees;
   }, [assignedEmployeeIds, assignedEmployees, benefitCompanyEmployees, employeeBenefitConflicts, employeeQuickFilter]);
-  const filteredEmployees = useMemo(() => (
-    quickFilteredEmployees.filter((employee) => employeeMatchesFilters(employee, employeeFilters))
-  ), [employeeFilters, employeeMatchesFilters, quickFilteredEmployees]);
+  const describeEmployee = useMemo(() => {
+    const cache = new Map<string, BenefitEmployeeInfo>();
+    return (employee: Employee): BenefitEmployeeInfo => {
+      const cached = cache.get(employee.id);
+      if (cached) return cached;
+      const info: BenefitEmployeeInfo = {
+        department: departmentById.get(employee.departmentId)?.name || "Sem departamento",
+        sector: sectorById.get(employee.sectorId)?.name || "Sem setor",
+        team: employee.teamId ? teamById.get(employee.teamId)?.name || "Sem equipe" : "Sem equipe",
+        kind: employeeKindLabels[employeeKindOf(employee)],
+        company: companyNameById.get(employee.companyId) || "Sem empresa",
+        status: employeeStatusLabels[employee.status] || employee.status,
+        conflicts: employeeBenefitConflicts.get(employee.id) || [],
+      };
+      cache.set(employee.id, info);
+      return info;
+    };
+  }, [companyNameById, departmentById, employeeBenefitConflicts, sectorById, teamById]);
+  const filteredEmployees = useMemo(() => sortBenefitEmployees(
+    quickFilteredEmployees.filter((employee) => employeeMatchesFilters(employee, employeeFilters)),
+    employeeSort,
+    describeEmployee,
+  ), [describeEmployee, employeeFilters, employeeMatchesFilters, employeeSort, quickFilteredEmployees]);
   const employeePageCount = Math.max(1, Math.ceil(filteredEmployees.length / employeePageSize));
   const pagedEmployees = filteredEmployees.slice((employeePage - 1) * employeePageSize, employeePage * employeePageSize);
-  const visibleEmployeesForModal = useMemo(() => (
+  const employeeSelectionSet = useMemo(() => new Set(employeeSelection), [employeeSelection]);
+  const modalFilteredEmployees = useMemo(() => (
     benefitCompanyEmployees.filter((employee) => employeeMatchesFilters(employee, employeeModalFilters))
   ), [benefitCompanyEmployees, employeeMatchesFilters, employeeModalFilters]);
+  const visibleEmployeesForModal = useMemo(() => sortBenefitEmployees(
+    modalFilteredEmployees.filter((employee) => (
+      employeeModalShow === "all"
+      || (employeeModalShow === "selected") === employeeSelectionSet.has(employee.id)
+    )),
+    employeeModalSort,
+    describeEmployee,
+  ), [describeEmployee, employeeModalShow, employeeModalSort, employeeSelectionSet, modalFilteredEmployees]);
+  const selectionAddedCount = employeeSelection.filter((id) => !assignedEmployeeIds.has(id)).length;
+  const selectionRemovedCount = assignedEmployees.filter((employee) => !employeeSelectionSet.has(employee.id)).length;
   const employeeModalPageCount = Math.max(1, Math.ceil(visibleEmployeesForModal.length / employeeModalPageSize));
   const pagedEmployeesForModal = visibleEmployeesForModal.slice((employeeModalPage - 1) * employeeModalPageSize, employeeModalPage * employeeModalPageSize);
   const hasActiveEmployeeFilters = Object.values(employeeFilters).some(Boolean);
@@ -1403,7 +1458,6 @@ export default function Benefits() {
     setEmployeeModalFilters(emptyEmployeeFilters);
     setEmployeePage(1);
     setEmployeeModalPage(1);
-    setMoreActionsOpen(false);
     setOpenRowMenu(null);
   }
 
@@ -1411,6 +1465,7 @@ export default function Benefits() {
     if (!selectedBenefit || busy) return;
     setEmployeeSelection(assignedEmployees.map((employee) => employee.id));
     setEmployeeModalFilters(emptyEmployeeFilters);
+    setEmployeeModalShow("all");
     setEmployeeModalPage(1);
     setEmployeeModalOpen(true);
   }
@@ -1421,6 +1476,28 @@ export default function Benefits() {
       if (employeeBenefitConflicts.has(employeeId)) return current;
       return [...current, employeeId];
     });
+  }
+
+  // "Selecionar todos" vale para quem aparece com os filtros da tela (todas as
+  // páginas), pulando quem tem benefício incompatível.
+  function selectVisibleEmployees() {
+    setEmployeeSelection((current) => {
+      const next = new Set(current);
+      visibleEmployeesForModal.forEach((employee) => {
+        if (!employeeBenefitConflicts.has(employee.id)) next.add(employee.id);
+      });
+      return Array.from(next);
+    });
+  }
+
+  function unselectVisibleEmployees() {
+    const visibleIds = new Set(visibleEmployeesForModal.map((employee) => employee.id));
+    setEmployeeSelection((current) => current.filter((id) => !visibleIds.has(id)));
+  }
+
+  function changeEmployeeModalShow(show: "all" | "selected" | "unselected") {
+    setEmployeeModalShow(show);
+    setEmployeeModalPage(1);
   }
 
   function toggleEmployeeQuickFilter(filter: EmployeeQuickFilter) {
@@ -2309,7 +2386,6 @@ export default function Benefits() {
   const currentSurveyCompletions = surveyCompletions[benefitReferenceMonth] || {};
   const unassignedEmployeeCount = Math.max(0, benefitCompanyEmployees.length - assignedEmployees.length);
   const ineligibleEmployeeCount = benefitCompanyEmployees.filter((employee) => employeeBenefitConflicts.has(employee.id)).length;
-  const selectedUnassignedCount = Math.max(0, benefitCompanyEmployees.length - employeeSelection.length);
   const conflictingAssignedEmployees = assignedEmployees.filter((employee) => employeeBenefitConflicts.has(employee.id));
   const sortedSnapshots = savedSnapshots.slice().sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 
@@ -2361,7 +2437,7 @@ export default function Benefits() {
           </div>
           <div className="benefits-navigation-list">
             {benefits.map((benefit) => {
-              const employeeCount = data.employeeBenefits.filter((item) => item.contractId === benefit.id && item.active !== false).length;
+              const employeeCount = assignedCountByBenefit.get(benefit.id) || 0;
               return (
                 <button
                   type="button"
@@ -2383,7 +2459,7 @@ export default function Benefits() {
           </div>
         </aside>
 
-        <main className={`benefits-detail ${activeTab === "calc" || activeTab === "rule" ? "is-calculation" : ""}`}>
+        <main className="benefits-detail is-calculation">
           {selectedBenefit ? (
             <>
               <header className="benefits-detail-header">
@@ -2404,17 +2480,19 @@ export default function Benefits() {
                 </div>
                 <div className="benefits-detail-actions">
                   <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => openEditBenefitModal(selectedBenefit)}><Edit3 size={16} /> Editar benefício</button>
-                  <button className="btn btn-secondary" type="button" disabled={busy || !selectedBenefit.websiteUrl} onClick={visitBenefitSite}><ExternalLink size={16} /> Visitar site</button>
-                  <div className="benefits-more-wrap">
-                    <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => setMoreActionsOpen((current) => !current)}>
-                      <MoreVertical size={16} /> Mais ações <ChevronDown size={15} />
-                    </button>
-                    {moreActionsOpen ? (
-                      <div className="benefits-more-menu">
-                        <button type="button" className="is-danger" onClick={() => { setMoreActionsOpen(false); deleteBenefit(selectedBenefit); }}><Trash2 size={15} /> Excluir benefício</button>
-                      </div>
-                    ) : null}
-                  </div>
+                  {selectedBenefit.websiteUrl ? (
+                    <button className="btn btn-secondary" type="button" disabled={busy} onClick={visitBenefitSite}><ExternalLink size={16} /> Visitar site</button>
+                  ) : null}
+                  <button
+                    className="icon-button benefits-delete-button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => deleteBenefit(selectedBenefit)}
+                    aria-label="Excluir benefício"
+                    title="Excluir benefício"
+                  >
+                    <Trash2 size={17} />
+                  </button>
                 </div>
               </header>
 
@@ -2426,39 +2504,36 @@ export default function Benefits() {
 
               <div className="benefits-tab-content">
                 {activeTab === "employees" ? (
-                  <section className="benefits-employees-tab">
-                    <div className="benefits-section-heading">
-                      <div>
-                        <h3>Funcionários vinculados</h3>
-                        <p>Adicione ou remova pessoas e confira impedimentos entre benefícios.</p>
+                  <section className="benefits-employees-tab benefit-employees-area">
+                    <div className="benefit-employees-topbar">
+                      <div className="benefit-employees-chips" role="group" aria-label="Mostrar funcionários">
+                        <button
+                          type="button"
+                          className={`benefit-employees-chip ${!employeeQuickFilter || employeeQuickFilter === "selected" ? "is-active" : ""}`}
+                          aria-pressed={!employeeQuickFilter || employeeQuickFilter === "selected"}
+                          onClick={() => setEmployeeQuickFilter(null)}
+                        >
+                          <strong>{assignedEmployees.length}</strong> vinculados
+                        </button>
+                        <button
+                          type="button"
+                          className={`benefit-employees-chip ${employeeQuickFilter === "unselected" ? "is-active" : ""}`}
+                          aria-pressed={employeeQuickFilter === "unselected"}
+                          onClick={() => toggleEmployeeQuickFilter("unselected")}
+                        >
+                          <strong>{unassignedEmployeeCount}</strong> não vinculados
+                        </button>
+                        <button
+                          type="button"
+                          className={`benefit-employees-chip is-warning ${employeeQuickFilter === "ineligible" ? "is-active" : ""}`}
+                          aria-pressed={employeeQuickFilter === "ineligible"}
+                          onClick={() => toggleEmployeeQuickFilter("ineligible")}
+                          title="Funcionários que já têm um benefício incompatível com este"
+                        >
+                          <strong>{ineligibleEmployeeCount}</strong> com benefício incompatível
+                        </button>
                       </div>
                       <button className="btn btn-primary" type="button" disabled={busy} onClick={openEmployeeModal}><UserPlus size={16} /> Gerenciar funcionários</button>
-                    </div>
-                    <div className="benefits-summary-grid" aria-label="Filtros rápidos de funcionários">
-                      <button
-                        type="button"
-                        className={`benefits-summary-card ${employeeQuickFilter === "selected" ? "is-active" : ""}`}
-                        aria-pressed={employeeQuickFilter === "selected"}
-                        onClick={() => toggleEmployeeQuickFilter("selected")}
-                      >
-                        <strong>{assignedEmployees.length}</strong><span>Selecionados</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`benefits-summary-card ${employeeQuickFilter === "unselected" ? "is-active" : ""}`}
-                        aria-pressed={employeeQuickFilter === "unselected"}
-                        onClick={() => toggleEmployeeQuickFilter("unselected")}
-                      >
-                        <strong>{unassignedEmployeeCount}</strong><span>Não selecionados</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`benefits-summary-card ${ineligibleEmployeeCount ? "is-danger" : ""} ${employeeQuickFilter === "ineligible" ? "is-active" : ""}`}
-                        aria-pressed={employeeQuickFilter === "ineligible"}
-                        onClick={() => toggleEmployeeQuickFilter("ineligible")}
-                      >
-                        <strong>{ineligibleEmployeeCount}</strong><span>Sem direito por incompatibilidade</span>
-                      </button>
                     </div>
                     <EmployeeFilterControls
                       filters={employeeFilters}
@@ -2476,29 +2551,20 @@ export default function Benefits() {
                     {conflictingAssignedEmployees.length ? (
                       <div className="benefits-compact-alert is-warning"><ShieldAlert size={17} /><span><strong>{conflictingAssignedEmployees.length} vínculo(s) incompatível(is).</strong> Remova esses funcionários ou ajuste as regras do benefício.</span></div>
                     ) : null}
-                    <div className="benefits-employee-cards">
-                      {pagedEmployees.map((employee) => {
-                        const conflictNames = employeeBenefitConflicts.get(employee.id) || [];
-                        const departmentName = departmentById.get(employee.departmentId)?.name || "Sem departamento";
-                        const sectorName = sectorById.get(employee.sectorId)?.name || "Sem setor";
-                        const teamName = employee.teamId ? teamById.get(employee.teamId)?.name || "Sem equipe" : "Sem equipe";
-                        return (
-                          <article className={`benefits-employee-card ${conflictNames.length ? "is-ineligible" : ""}`} key={employee.id}>
-                            <div className="benefits-avatar">{employee.name.slice(0, 2).toUpperCase()}</div>
-                            <div>
-                              <strong>{employee.name}</strong>
-                              <span>{employee.registration || "Sem matrícula"} · {employee.cpf || "Sem CPF"}</span>
-                              <small>{employee.role || employee.position || "Sem função"}</small>
-                              <small>{departmentName} · {sectorName} · {teamName}</small>
-                              {conflictNames.length ? <em>Sem direito: já vinculado a {conflictNames.join(", ")}</em> : null}
-                            </div>
-                          </article>
-                        );
-                      })}
-                      {!employeeQuickFilter && !assignedEmployees.length ? <p className="benefits-empty-state">Nenhum funcionário vinculado a este benefício.</p> : null}
-                      {employeeQuickFilter && !quickFilteredEmployees.length ? <p className="benefits-empty-state">Nenhum funcionário encontrado para o filtro selecionado.</p> : null}
-                      {quickFilteredEmployees.length > 0 && !filteredEmployees.length ? <p className="benefits-empty-state">Nenhum funcionário encontrado para os filtros aplicados.</p> : null}
-                    </div>
+                    <BenefitEmployeesTable
+                      employees={pagedEmployees}
+                      describe={describeEmployee}
+                      sort={employeeSort}
+                      onSort={setEmployeeSort}
+                      assignedIds={employeeQuickFilter === "ineligible" ? assignedEmployeeIds : undefined}
+                      emptyText={
+                        !employeeQuickFilter && !assignedEmployees.length
+                          ? "Nenhum funcionário vinculado a este benefício."
+                          : !quickFilteredEmployees.length
+                            ? "Nenhum funcionário encontrado para o filtro selecionado."
+                            : "Nenhum funcionário encontrado para os filtros aplicados."
+                      }
+                    />
                     {filteredEmployees.length ? (
                       <PaginationControls
                         page={employeePage}
@@ -2796,11 +2862,13 @@ export default function Benefits() {
 
       {employeeModalOpen ? (
         <ModalPortal className="modal-backdrop" role="presentation">
-          <form className="modal-panel wizard-card benefit-employees-modal" onSubmit={saveEmployeeSelection}>
-            <div className="modal-header"><h2>Funcionários do benefício</h2><button className="icon-button" type="button" disabled={busy} onClick={() => setEmployeeModalOpen(false)} aria-label="Fechar"><X size={18} /></button></div>
-            <div className="benefit-employee-modal-summary">
-              <div><strong>{selectedBenefit?.name}</strong><span>{selectedCompany?.name || "Empresa não informada"}</span></div>
-              <div className="benefit-employee-modal-counts"><span><b>{employeeSelection.length}</b> selecionados</span><span><b>{selectedUnassignedCount}</b> não selecionados</span><span className={ineligibleEmployeeCount ? "is-danger" : ""}><b>{ineligibleEmployeeCount}</b> sem direito</span></div>
+          <form className="modal-panel wizard-card benefit-employees-modal-v2" onSubmit={saveEmployeeSelection}>
+            <div className="modal-header">
+              <div>
+                <h2>Funcionários do benefício · {selectedBenefit?.name}</h2>
+                <small>Contratado em {selectedCompany?.name || "empresa não informada"} · a lista mostra os funcionários ativos de todas as empresas do grupo</small>
+              </div>
+              <button className="icon-button" type="button" disabled={busy} onClick={() => setEmployeeModalOpen(false)} aria-label="Fechar"><X size={18} /></button>
             </div>
             <EmployeeFilterControls
               filters={employeeModalFilters}
@@ -2815,23 +2883,31 @@ export default function Benefits() {
               statusOptions={statusOptions}
               searchPlaceholder="Buscar por nome, CPF, matrícula, função, setor, equipe ou incompatibilidade"
             />
-            <div className="benefit-employee-list">
-              {pagedEmployeesForModal.map((employee) => {
-                const conflictNames = employeeBenefitConflicts.get(employee.id) || [];
-                const isSelected = employeeSelection.includes(employee.id);
-                const isBlocked = conflictNames.length > 0 && !isSelected;
-                const departmentName = departmentById.get(employee.departmentId)?.name || "Sem departamento";
-                const sectorName = sectorById.get(employee.sectorId)?.name || "Sem setor";
-                const teamName = employee.teamId ? teamById.get(employee.teamId)?.name || "Sem equipe" : "Sem equipe";
-                return (
-                  <label className={`benefit-employee-option ${conflictNames.length ? "is-ineligible" : ""}`} key={employee.id}>
-                    <input type="checkbox" disabled={busy || isBlocked} checked={isSelected} onChange={() => toggleEmployeeSelection(employee.id)} />
-                    <span><strong>{employee.name}</strong><small>{employee.registration || "Sem matrícula"} · {employee.cpf || "Sem CPF"} · {employee.role || employee.position || "Sem função"}</small><small>{departmentName} · {sectorName} · {teamName}</small>{conflictNames.length ? <em>Sem direito: já possui {conflictNames.join(", ")}{isSelected ? ". Remova este vínculo para salvar." : ""}</em> : null}</span>
-                  </label>
-                );
-              })}
-              {!visibleEmployeesForModal.length ? <p className="muted">Nenhum funcionário encontrado nesta empresa.</p> : null}
+            <div className="benefit-employees-modal-tools">
+              <div className="benefit-employees-segmented" role="group" aria-label="Mostrar">
+                <button type="button" className={employeeModalShow === "all" ? "is-active" : ""} onClick={() => changeEmployeeModalShow("all")}>Todos ({modalFilteredEmployees.length})</button>
+                <button type="button" className={employeeModalShow === "selected" ? "is-active" : ""} onClick={() => changeEmployeeModalShow("selected")}>Só selecionados</button>
+                <button type="button" className={employeeModalShow === "unselected" ? "is-active" : ""} onClick={() => changeEmployeeModalShow("unselected")}>Só não selecionados</button>
+              </div>
+              <div className="benefit-employees-bulk">
+                <button className="btn btn-secondary" type="button" disabled={busy || !visibleEmployeesForModal.length} onClick={selectVisibleEmployees}>
+                  <Check size={15} /> Selecionar os {visibleEmployeesForModal.length} da lista
+                </button>
+                <button className="btn btn-ghost" type="button" disabled={busy || !visibleEmployeesForModal.length} onClick={unselectVisibleEmployees}>
+                  <X size={15} /> Desmarcar os da lista
+                </button>
+              </div>
             </div>
+            <BenefitEmployeesTable
+              employees={pagedEmployeesForModal}
+              describe={describeEmployee}
+              sort={employeeModalSort}
+              onSort={setEmployeeModalSort}
+              selectedIds={employeeSelectionSet}
+              onToggle={toggleEmployeeSelection}
+              disabled={busy}
+              emptyText="Nenhum funcionário encontrado."
+            />
             {visibleEmployeesForModal.length ? (
               <PaginationControls
                 page={employeeModalPage}
@@ -2841,7 +2917,15 @@ export default function Benefits() {
                 onPageSizeChange={setEmployeeModalPageSize}
               />
             ) : null}
-            <div className="form-actions"><button className="btn btn-ghost" disabled={busy} type="button" onClick={() => setEmployeeModalOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={busy} type="submit"><Check size={16} /> Salvar funcionários</button></div>
+            <div className="benefit-employees-modal-footer">
+              <div className="benefit-employees-modal-counts">
+                <span><b>{employeeSelection.length}</b> selecionados</span>
+                {selectionAddedCount ? <span className="is-added"><b>+{selectionAddedCount}</b> a incluir</span> : null}
+                {selectionRemovedCount ? <span className="is-removed"><b>−{selectionRemovedCount}</b> a retirar</span> : null}
+                {ineligibleEmployeeCount ? <span><b>{ineligibleEmployeeCount}</b> com benefício incompatível (bloqueados)</span> : null}
+              </div>
+              <div className="form-actions"><button className="btn btn-ghost" disabled={busy} type="button" onClick={() => setEmployeeModalOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={busy} type="submit"><Check size={16} /> Salvar funcionários</button></div>
+            </div>
           </form>
         </ModalPortal>
       ) : null}

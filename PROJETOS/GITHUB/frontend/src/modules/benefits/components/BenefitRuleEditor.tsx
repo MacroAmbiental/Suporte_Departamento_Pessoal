@@ -1,4 +1,4 @@
-import { Check, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Check, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import "./benefitCalculation.css";
 import { useDomainData } from "@/hooks/useDomainData";
@@ -128,13 +128,13 @@ export default function BenefitRuleEditor({
             O período padrão abaixo é o que a apuração abre; lá dá pra trocar entre mês inteiro e quinzenas.
           </p>
         </header>
-        <div className="form-grid">
-          <label className="field">
+        <div className="benefit-rule-basics">
+          <label className="field benefit-rule-daily">
             Valor por dia (R$)
             <input inputMode="decimal" value={dailyValueText} disabled={saving} onChange={(event) => changeDailyValue(event.target.value)} />
-            <small>{formatCurrency(form.dailyValue)} por dia</small>
+            <small>{formatCurrency(form.dailyValue)} por dia · 20 dias = {formatCurrency(form.dailyValue * 20)}</small>
           </label>
-          <label className="field">
+          <label className="field benefit-rule-period">
             Período padrão
             <select value={form.period} disabled={saving} onChange={(event) => setForm((current) => ({ ...current, period: event.target.value === "biweekly" ? "biweekly" : "month" }))}>
               <option value="month">Mensal (mês fechado)</option>
@@ -156,52 +156,77 @@ export default function BenefitRuleEditor({
           </div>
         </header>
 
-        <div className="benefit-rule-components">
-          {form.components.map((component) => (
-            <div className="benefit-rule-component" key={component.id}>
-              <div className="benefit-rule-component-main">
-                <label className="field">
-                  Nome da coluna
-                  <input value={component.label} disabled={saving} onChange={(event) => updateComponent(component.id, { label: event.target.value })} />
-                </label>
-                <label className="field">
-                  Efeito
-                  <select value={component.sign} disabled={saving} onChange={(event) => updateComponent(component.id, { sign: Number(event.target.value) === 1 ? 1 : -1 })}>
-                    <option value={1}>Soma dias</option>
-                    <option value={-1}>Desconta dias</option>
-                  </select>
-                </label>
-                <label className="field">
-                  Tipo de dia
-                  <select
-                    value={component.overtimePercent === null ? "" : String(component.overtimePercent)}
-                    disabled={saving}
-                    onChange={(event) => updateComponent(component.id, { overtimePercent: event.target.value ? Number(event.target.value) : null })}
-                  >
-                    {percentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                </label>
-                <button type="button" className="icon-button benefit-rule-remove" disabled={saving} aria-label={`Remover ${component.label}`} onClick={() => removeComponent(component.id)}>
+        <div className="benefit-rule-components" role="table" aria-label="Colunas da apuração">
+          {form.components.length ? (
+            <div className="benefit-rule-row is-head" role="row">
+              <span role="columnheader">Nome da coluna</span>
+              <span role="columnheader">Efeito</span>
+              <span role="columnheader">Tipo de dia</span>
+              <span role="columnheader">Status do ponto que contam</span>
+              <span />
+            </div>
+          ) : null}
+          {form.components.map((component) => {
+            const available = statusOptions.filter((option) => !component.statuses.includes(option.value));
+            return (
+              <div className="benefit-rule-row" role="row" key={component.id}>
+                <input
+                  aria-label="Nome da coluna"
+                  value={component.label}
+                  disabled={saving}
+                  onChange={(event) => updateComponent(component.id, { label: event.target.value })}
+                />
+                <select
+                  aria-label="Efeito"
+                  className={component.sign === 1 ? "is-plus" : "is-minus"}
+                  value={component.sign}
+                  disabled={saving}
+                  onChange={(event) => updateComponent(component.id, { sign: Number(event.target.value) === 1 ? 1 : -1 })}
+                >
+                  <option value={1}>+ Soma dias</option>
+                  <option value={-1}>− Desconta dias</option>
+                </select>
+                <select
+                  aria-label="Tipo de dia"
+                  value={component.overtimePercent === null ? "" : String(component.overtimePercent)}
+                  disabled={saving}
+                  onChange={(event) => updateComponent(component.id, { overtimePercent: event.target.value ? Number(event.target.value) : null })}
+                >
+                  {percentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                <div className="benefit-rule-statuses" role="group" aria-label={`Status que contam em ${component.label}`}>
+                  {component.statuses.map((status) => (
+                    <button
+                      type="button"
+                      key={status}
+                      className="is-on"
+                      disabled={saving}
+                      title="Tirar este status"
+                      onClick={() => toggleStatus(component, status)}
+                    >
+                      {statusLabel(status)} <X size={12} />
+                    </button>
+                  ))}
+                  {available.length ? (
+                    <select
+                      aria-label={`Adicionar status em ${component.label}`}
+                      className="benefit-rule-add-status"
+                      value=""
+                      disabled={saving}
+                      onChange={(event) => { if (event.target.value) toggleStatus(component, event.target.value); }}
+                    >
+                      <option value="">+ status</option>
+                      {available.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  ) : null}
+                  {!component.statuses.length ? <em>nenhum: a coluna fica zerada</em> : null}
+                </div>
+                <button type="button" className="icon-button benefit-rule-remove" disabled={saving} aria-label={`Remover ${component.label}`} title="Remover coluna" onClick={() => removeComponent(component.id)}>
                   <Trash2 size={16} />
                 </button>
               </div>
-              <div className="benefit-rule-statuses" role="group" aria-label={`Status que contam em ${component.label}`}>
-                <span>Status do ponto:</span>
-                {statusOptions.map((option) => (
-                  <button
-                    type="button"
-                    key={option.value}
-                    disabled={saving}
-                    className={component.statuses.includes(option.value) ? "is-on" : ""}
-                    aria-pressed={component.statuses.includes(option.value)}
-                    onClick={() => toggleStatus(component, option.value)}
-                  >
-                    {component.statuses.includes(option.value) ? <Check size={13} /> : null} {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {!form.components.length ? <p className="benefit-rule-empty">Nenhuma coluna: todo mundo recebe os dias úteis cheios.</p> : null}
         </div>
         {unusedStatuses.length ? (
@@ -214,7 +239,7 @@ export default function BenefitRuleEditor({
           <h3>Pedido do fornecedor</h3>
           <p>Dados fixos que vão em todas as linhas da planilha “Realizar Pedido”. O CNPJ vem do cadastro da empresa.</p>
         </header>
-        <div className="form-grid">
+        <div className="benefit-rule-order-grid">
           <label className="field">
             Coluna do valor no pedido
             <select value={form.order.providerColumn} disabled={saving} onChange={(event) => updateOrder("providerColumn", event.target.value)}>
