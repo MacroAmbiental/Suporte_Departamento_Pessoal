@@ -18,7 +18,8 @@ const params_1 = require("firebase-functions/params");
 // Antes: https://firestore.googleapis.com/v1/projects/macro-ambiental/databases/(default)/documents/timeRecords/2026-10-21/employeePoints?pageSize=300
 // Agora: https://southamerica-east1-macro-ambiental.cloudfunctions.net/pontoPerformance/timeRecords/2026-10-21/employeePoints?pageSize=300
 //
-// Só GET; só timeRecords e, de employees, só nome e salário.
+// Só GET; timeRecords, lotação (departments/sectors/subsectors/teams) e, de
+// employees, só os campos da lista abaixo.
 const CHAVE = (0, params_1.defineSecret)("PERFORMANCE_CHAVE");
 const PROJETO = "macro-ambiental";
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJETO}/databases/(default)/documents/`;
@@ -30,24 +31,66 @@ function digest(valor) {
 function chaveConfere(recebida, esperada) {
     return recebida !== "" && esperada !== "" && (0, node_crypto_1.timingSafeEqual)(digest(recebida), digest(esperada));
 }
-// Cadastro de funcionários (03/11, autorizado pelo usuário): só nome e
-// salário, para a consulta "BASE SALARIAL". O servidor força esses campos;
-// CPF, telefone, dados de registro etc. nunca saem por aqui.
-const CAMPOS_FUNCIONARIOS = ["name", "salary"];
+// Cadastro de funcionários (autorizado pelo usuário): o servidor força esta
+// lista. 03/11: nome e salário (BASE SALARIAL). 04/11: situação, admissão,
+// cargo, matrícula, vínculo, lotação, experiência e desligamento, usados
+// pela BASE SALARIAL da C&F, equipes-dp.xlsx e planilha de contratos;
+// + líder, empresa, data do pedido de demissão e desligamento cancelado.
+// CPF, RG, PIS, telefone, endereço, banco, família etc. nunca saem por aqui.
+const CAMPOS_FUNCIONARIOS = [
+    "name",
+    "salary",
+    "status",
+    "admissionDate",
+    "role",
+    "position",
+    "registration",
+    "companyId",
+    "groupId",
+    "departmentId",
+    "sectorId",
+    "subsectorId",
+    "teamId",
+    "isTeamLead",
+    "registrationData.company",
+    "registrationData.employeeKind",
+    "registrationData.employmentContractType",
+    "registrationData.employeeCategory",
+    "registrationData.experienceDays",
+    "registrationData.experienceContinued30At",
+    "registrationData.experienceContinued60At",
+    "registrationData.experienceConfirmedAt",
+    "registrationData.scheduledDeactivationDate",
+    "registrationData.deactivationEffectiveDate",
+    "registrationData.deactivationCompletedDate",
+    "registrationData.resignationDate",
+    "registrationData.dismissalCancelledAt",
+];
+// Empresas do grupo (04/11, equipes-dp.xlsx): só nome, razão social e ativo.
+const CAMPOS_EMPRESAS = ["name", "legalName", "active"];
+// Lotação (04/11): documentos inteiros (nome, ativo, líder, centro de custo).
+const COLECOES_LOTACAO = new Set(["departments", "sectors", "subsectors", "teams"]);
 // timeRecords | timeRecords/{data} | timeRecords/{data}/employeePoints | timeRecords/{data}/employeePoints/{id}
-// employees | employees/{id}  (só nome e salário)
+// employees | employees/{id}  (só CAMPOS_FUNCIONARIOS)
+// departments | sectors | subsectors | teams  (e /{id})
+// companies | companies/{id}  (só CAMPOS_EMPRESAS)
 function caminhoPermitido(caminho) {
     const partes = caminho.split("/").filter(Boolean);
     if (!partes.every((parte) => SEGMENTO.test(parte)))
         return false;
-    if (partes[0] === "employees")
+    if (partes[0] === "employees" || partes[0] === "companies" || COLECOES_LOTACAO.has(partes[0]))
         return partes.length <= 2;
     if (partes[0] !== "timeRecords" || partes.length > 4)
         return false;
     return partes.length < 3 || partes[2] === "employeePoints";
 }
 function camposForcados(caminho) {
-    return caminho.split("/").filter(Boolean)[0] === "employees" ? CAMPOS_FUNCIONARIOS : null;
+    const colecao = caminho.split("/").filter(Boolean)[0];
+    if (colecao === "employees")
+        return CAMPOS_FUNCIONARIOS;
+    if (colecao === "companies")
+        return CAMPOS_EMPRESAS;
+    return null;
 }
 const credencial = (0, app_1.applicationDefault)();
 exports.pontoPerformance = (0, https_1.onRequest)({ region: "southamerica-east1", secrets: [CHAVE], cors: false, timeoutSeconds: 120 }, async (req, res) => {
@@ -71,7 +114,7 @@ exports.pontoPerformance = (0, https_1.onRequest)({ region: "southamerica-east1"
         return;
     }
     if (!caminhoPermitido(caminho)) {
-        res.status(403).json({ erro: "Este link só libera o ponto (timeRecords) e nome/salário dos funcionários (employees)." });
+        res.status(403).json({ erro: "Este link só libera o ponto (timeRecords), a lotação (departments, sectors, subsectors, teams, companies) e campos liberados dos funcionários (employees)." });
         return;
     }
     const parametros = new URLSearchParams();

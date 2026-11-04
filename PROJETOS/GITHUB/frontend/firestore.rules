@@ -1,0 +1,29 @@
+rules_version = '2';
+
+// Banco do DP (projeto macro-ambiental) — fechado em 04/11/2026.
+// Antes: allow read, write: if true (aberto para a internet).
+//
+// Só entra quem fez login pelo Suporte ou pelo Oficial: a function entrarDP
+// confere usuário/senha e abre uma sessão do Firebase Auth com uid = id do
+// systemUsers e a marca dp = true. Usuário desativado (active == false) perde
+// o acesso na hora, mesmo com a sessão aberta.
+//
+// NÃO afeta quem usa conta de serviço (Admin SDK ignora as regras): functions
+// do DP (Secullum, rotinas, pontoPerformance), Almoxarifado, RH, Contratos,
+// Qualidade, Equipamentos.
+//
+// Permissão por tela continua sendo conferida na tela (próximo passo).
+// Voltar atrás em emergência: trocar a condição por `true` e publicar.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function usuarioDP() {
+      return request.auth != null
+        && request.auth.token.dp == true
+        && get(/databases/$(database)/documents/systemUsers/$(request.auth.uid)).data.get("active", true) != false;
+    }
+
+    match /{document=**} {
+      allow read, write: if usuarioDP();
+    }
+  }
+}
