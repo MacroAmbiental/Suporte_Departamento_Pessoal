@@ -4,6 +4,7 @@ import { authenticateSystemUser } from "@/services/domainRepository";
 import {
   encerrarSessaoServidor,
   iniciarSessaoServidor,
+  LoginRecusadoServidor,
   observarSessao,
   SERVIDOR_INDISPONIVEL,
   uidSessaoSalva,
@@ -96,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Falha ao autenticar usuário.", error);
       await encerrarSessaoServidor().catch(() => undefined);
+      if (error instanceof LoginRecusadoServidor) return error.message;
       return error instanceof Error && error.message === SERVIDOR_INDISPONIVEL ? SERVIDOR_INDISPONIVEL : false;
     }
   }, []);

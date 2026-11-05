@@ -8,6 +8,9 @@ import { firebaseApp } from "@/services/firebase";
 
 export const SERVIDOR_INDISPONIVEL = "Não foi possível conferir o login no servidor. Verifique a internet e tente de novo.";
 
+// Recusa com mensagem própria para a tela (ex.: bloqueio por tentativas).
+export class LoginRecusadoServidor extends Error {}
+
 // true = sessão aberta; false = usuário/senha recusados pelo servidor.
 // Outros erros (rede, servidor fora) são lançados com SERVIDOR_INDISPONIVEL.
 export async function iniciarSessaoServidor(username: string, password: string): Promise<boolean> {
@@ -22,6 +25,10 @@ export async function iniciarSessaoServidor(username: string, password: string):
   } catch (error) {
     const code = (error as { code?: string })?.code ?? "";
     if (code === "functions/permission-denied" || code === "functions/invalid-argument") return false;
+    // Bloqueio por excesso de tentativas (05/11/2026): mostra a mensagem do servidor.
+    if (code === "functions/resource-exhausted") {
+      throw new LoginRecusadoServidor((error as { message?: string })?.message || "Muitas tentativas de login. Aguarde alguns minutos.");
+    }
     console.error("Falha ao abrir a sessão no servidor.", error);
     throw new Error(SERVIDOR_INDISPONIVEL);
   }
