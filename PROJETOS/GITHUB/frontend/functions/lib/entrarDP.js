@@ -1,11 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.entrarDP = void 0;
+exports.ipDaChamada = ipDaChamada;
+exports.idsContadores = idsContadores;
+exports.conferirBloqueio = conferirBloqueio;
+exports.registrarFalha = registrarFalha;
 const crypto_1 = require("crypto");
 const app_1 = require("firebase-admin/app");
 const auth_1 = require("firebase-admin/auth");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
+const senhaCripto_1 = require("./senhaCripto");
 // Login do DP conferido no servidor (27/10/2026).
 // O login da tela continua conferindo no navegador como sempre; esta função
 // confere de novo aqui e devolve um token do Firebase Auth com uid = id do
@@ -26,23 +31,6 @@ const BLOQUEIO_MS = 15 * 60 * 1000;
 const LIMITE_USUARIO = 5;
 const LIMITE_IP = 30;
 const COLECAO = "loginAttempts";
-// Mesmas regras de services/accessControl.ts (normalizeUsername/hashPassword).
-function normalizeUsername(username) {
-    return username
-        .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
-        .toUpperCase()
-        .replace(/[^A-Z]/g, "")
-        .slice(0, 7);
-}
-function hashPassword(password) {
-    return (0, crypto_1.createHash)("sha256").update(`macro-dp:${password}`, "utf8").digest("hex");
-}
-function iguais(a, b) {
-    const bufferA = Buffer.from(a, "utf8");
-    const bufferB = Buffer.from(b, "utf8");
-    return bufferA.length === bufferB.length && (0, crypto_1.timingSafeEqual)(bufferA, bufferB);
-}
 function ipDaChamada(request) {
     const encaminhado = String(request.rawRequest?.headers?.["x-forwarded-for"] ?? "").split(",")[0].trim();
     return encaminhado || request.rawRequest?.ip || "desconhecido";
@@ -102,7 +90,7 @@ async function registrarFalha(ids, username) {
 }
 exports.entrarDP = (0, https_1.onCall)({ region: "southamerica-east1" }, async (request) => {
     const entrada = (request.data ?? {});
-    const username = normalizeUsername(typeof entrada.username === "string" ? entrada.username : "");
+    const username = (0, senhaCripto_1.normalizeUsername)(typeof entrada.username === "string" ? entrada.username : "");
     const password = typeof entrada.password === "string" ? entrada.password : "";
     if (!username || !password || password.length > 200) {
         throw new https_1.HttpsError("invalid-argument", "Informe usuário e senha.");
@@ -114,17 +102,22 @@ exports.entrarDP = (0, https_1.onCall)({ region: "southamerica-east1" }, async (
         .where("username", "==", username)
         .limit(2)
         .get();
-    const candidato = snapshot.docs.find((doc) => (normalizeUsername(String(doc.get("username") ?? "")) === username && doc.get("active") !== false));
-    const passwordHash = String(candidato?.get("passwordHash") ?? "");
-    const senhaLegada = String(candidato?.get("password") ?? "");
-    const valido = Boolean(candidato) && ((passwordHash !== "" && iguais(passwordHash, hashPassword(password)))
-        || (senhaLegada !== "" && iguais(senhaLegada, password)));
+    const candidato = snapshot.docs.find((doc) => ((0, senhaCripto_1.normalizeUsername)(String(doc.get("username") ?? "")) === username && doc.get("active") !== false));
+    // 05/11/2026 (F3): senha conferida no systemUserSecrets (scrypt); formatos
+    // antigos ainda valem e, ao acertar, já viram scrypt.
+    const segredo = candidato ? await (0, firestore_1.getFirestore)().collection(senhaCripto_1.COLECAO_SEGREDOS).doc(candidato.id).get() : undefined;
+    const conferencia = candidato ? await (0, senhaCripto_1.conferirSenha)(candidato, segredo, password) : { ok: false, atualizar: false };
+    const valido = conferencia.ok;
     if (!candidato || !valido) {
         await registrarFalha(ids, username);
         throw new https_1.HttpsError("permission-denied", "Usuário ou senha inválidos.");
     }
     await (0, firestore_1.getFirestore)().collection(COLECAO).doc(ids.usuario).delete().catch(() => undefined);
-    const token = await (0, auth_1.getAuth)().createCustomToken(candidato.id, { dp: true });
+    if (conferencia.atualizar) {
+        await (0, firestore_1.getFirestore)().collection(senhaCripto_1.COLECAO_SEGREDOS).doc(candidato.id).set(await (0, senhaCripto_1.dadosSegredoNovo)(password), { merge: true })
+            .catch((erro) => console.error("Não foi possível converter a senha para scrypt.", erro));
+    }
+    const token = await (0, auth_1.getAuth)().createCustomToken(candidato.id, { dp: true, verSenhas: (0, senhaCripto_1.podeVerSenhas)(candidato.id) });
     return { token };
 });
 //# sourceMappingURL=entrarDP.js.map

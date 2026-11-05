@@ -4,6 +4,7 @@ exports.gravarAcessosDP = void 0;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
+const senhaCripto_1 = require("./senhaCripto");
 // Gravação de usuários, permissões e chaves de acesso do DP (05/11/2026, F2a).
 // Antes o navegador gravava direto em systemUsers / systemPermissions /
 // accessKeys, e qualquer usuário logado podia se dar isAdmin. Agora o site
@@ -136,13 +137,46 @@ exports.gravarAcessosDP = (0, https_1.onCall)({ region: "southamerica-east1" }, 
             throw new https_1.HttpsError("invalid-argument", "Permissão em formato inválido.");
         }
     }
-    for (let inicio = 0; inicio < mudancas.length; inicio += 450) {
+    const escritas = [];
+    for (const mudanca of mudancas) {
+        if (mudanca.type === "delete") {
+            escritas.push({ ref: db.collection(mudanca.collection).doc(mudanca.id), tipo: "delete" });
+            if (mudanca.collection === "systemUsers")
+                escritas.push({ ref: db.collection(senhaCripto_1.COLECAO_SEGREDOS).doc(mudanca.id), tipo: "delete" });
+            continue;
+        }
+        const { password, passwordHash, ...resto } = mudanca.item;
+        const dados = resto;
+        if (mudanca.collection === "systemUsers") {
+            const senha = typeof password === "string" ? password : "";
+            const hash = typeof passwordHash === "string" ? passwordHash : "";
+            if (senha.length > 200)
+                throw new https_1.HttpsError("invalid-argument", "Senha longa demais.");
+            const segredoRef = db.collection(senhaCripto_1.COLECAO_SEGREDOS).doc(mudanca.item.id);
+            if (senha) {
+                escritas.push({ ref: segredoRef, tipo: "set", dados: { ...(await (0, senhaCripto_1.dadosSegredoNovo)(senha)), legacyHash: firestore_1.FieldValue.delete() } });
+            }
+            else if (hash) {
+                // Só troca se for outra senha (o "desfazer" manda o hash de sempre).
+                const segredo = await segredoRef.get();
+                const atual = String(segredo.get("password") ?? "");
+                const mesma = (atual && (0, senhaCripto_1.hashLegado)(atual) === hash) || segredo.get("legacyHash") === hash;
+                if (!mesma) {
+                    escritas.push({ ref: segredoRef, tipo: "set", dados: { legacyHash: hash, scrypt: firestore_1.FieldValue.delete(), password: firestore_1.FieldValue.delete(), updatedAt: new Date().toISOString() } });
+                }
+            }
+            if (senha || hash)
+                Object.assign(dados, { password: firestore_1.FieldValue.delete(), passwordHash: firestore_1.FieldValue.delete() });
+        }
+        escritas.push({ ref: db.collection(mudanca.collection).doc(mudanca.item.id), tipo: "set", dados });
+    }
+    for (let inicio = 0; inicio < escritas.length; inicio += 450) {
         const lote = db.batch();
-        mudancas.slice(inicio, inicio + 450).forEach((mudanca) => {
-            if (mudanca.type === "set")
-                lote.set(db.collection(mudanca.collection).doc(mudanca.item.id), mudanca.item, { merge: true });
+        escritas.slice(inicio, inicio + 450).forEach((escrita) => {
+            if (escrita.tipo === "set")
+                lote.set(escrita.ref, escrita.dados, { merge: true });
             else
-                lote.delete(db.collection(mudanca.collection).doc(mudanca.id));
+                lote.delete(escrita.ref);
         });
         await lote.commit();
     }

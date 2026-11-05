@@ -1,6 +1,7 @@
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore, type DocumentSnapshot } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, type DocumentSnapshot } from "firebase-admin/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { COLECAO_SEGREDOS, dadosSegredoNovo, hashLegado } from "./senhaCripto";
 
 // Gravação de usuários, permissões e chaves de acesso do DP (05/11/2026, F2a).
 // Antes o navegador gravava direto em systemUsers / systemPermissions /
@@ -134,11 +135,45 @@ export const gravarAcessosDP = onCall({ region: "southamerica-east1" }, async (r
     }
   }
 
-  for (let inicio = 0; inicio < mudancas.length; inicio += 450) {
+  // 05/11/2026 (F3): a senha nunca fica no systemUsers. Se vier no registro
+  // (senha nova em texto, ou passwordHash antigo de um "desfazer"), vai para
+  // o systemUserSecrets e sai do systemUsers.
+  type Escrita = { ref: FirebaseFirestore.DocumentReference; tipo: "set"; dados: Record<string, unknown> } | { ref: FirebaseFirestore.DocumentReference; tipo: "delete" };
+  const escritas: Escrita[] = [];
+  for (const mudanca of mudancas) {
+    if (mudanca.type === "delete") {
+      escritas.push({ ref: db.collection(mudanca.collection).doc(mudanca.id), tipo: "delete" });
+      if (mudanca.collection === "systemUsers") escritas.push({ ref: db.collection(COLECAO_SEGREDOS).doc(mudanca.id), tipo: "delete" });
+      continue;
+    }
+    const { password, passwordHash, ...resto } = mudanca.item;
+    const dados: Record<string, unknown> = resto;
+    if (mudanca.collection === "systemUsers") {
+      const senha = typeof password === "string" ? password : "";
+      const hash = typeof passwordHash === "string" ? passwordHash : "";
+      if (senha.length > 200) throw new HttpsError("invalid-argument", "Senha longa demais.");
+      const segredoRef = db.collection(COLECAO_SEGREDOS).doc(mudanca.item.id);
+      if (senha) {
+        escritas.push({ ref: segredoRef, tipo: "set", dados: { ...(await dadosSegredoNovo(senha)), legacyHash: FieldValue.delete() } });
+      } else if (hash) {
+        // Só troca se for outra senha (o "desfazer" manda o hash de sempre).
+        const segredo = await segredoRef.get();
+        const atual = String(segredo.get("password") ?? "");
+        const mesma = (atual && hashLegado(atual) === hash) || segredo.get("legacyHash") === hash;
+        if (!mesma) {
+          escritas.push({ ref: segredoRef, tipo: "set", dados: { legacyHash: hash, scrypt: FieldValue.delete(), password: FieldValue.delete(), updatedAt: new Date().toISOString() } });
+        }
+      }
+      if (senha || hash) Object.assign(dados, { password: FieldValue.delete(), passwordHash: FieldValue.delete() });
+    }
+    escritas.push({ ref: db.collection(mudanca.collection).doc(mudanca.item.id), tipo: "set", dados });
+  }
+
+  for (let inicio = 0; inicio < escritas.length; inicio += 450) {
     const lote = db.batch();
-    mudancas.slice(inicio, inicio + 450).forEach((mudanca) => {
-      if (mudanca.type === "set") lote.set(db.collection(mudanca.collection).doc(mudanca.item.id), mudanca.item, { merge: true });
-      else lote.delete(db.collection(mudanca.collection).doc(mudanca.id));
+    escritas.slice(inicio, inicio + 450).forEach((escrita) => {
+      if (escrita.tipo === "set") lote.set(escrita.ref, escrita.dados, { merge: true });
+      else lote.delete(escrita.ref);
     });
     await lote.commit();
   }

@@ -64,3 +64,35 @@ export async function encerrarSessaoServidor(): Promise<void> {
   if (!firebaseApp) return;
   await signOut(getAuth(firebaseApp));
 }
+
+// 05/11/2026 (F3): senha só é conferida/mostrada no servidor.
+const chamar = <I, O>(nome: string) => {
+  if (!firebaseApp) throw new Error("Firebase não configurado.");
+  return httpsCallable<I, O>(getFunctions(firebaseApp, "southamerica-east1"), nome);
+};
+
+// Confere a senha de quem está logado (ações protegidas, ex.: exportar com salário).
+export async function conferirSenhaServidor(password: string): Promise<boolean> {
+  try {
+    const { data } = await chamar<{ password: string }, { ok: boolean }>("conferirSenhaDP")({ password });
+    return data.ok === true;
+  } catch (error) {
+    const code = (error as { code?: string })?.code ?? "";
+    if (code === "functions/resource-exhausted") throw new LoginRecusadoServidor((error as Error).message);
+    throw error;
+  }
+}
+
+// Só o login liberado no servidor (marca verSenhas na sessão) pode ver senhas.
+export async function podeVerSenhas(): Promise<boolean> {
+  if (!firebaseApp) return false;
+  const auth = getAuth(firebaseApp);
+  await auth.authStateReady();
+  const token = await auth.currentUser?.getIdTokenResult();
+  return token?.claims.verSenhas === true;
+}
+
+export async function verSenhaServidor(userId: string): Promise<string | null> {
+  const { data } = await chamar<{ userId: string }, { senha: string | null }>("verSenhaDP")({ userId });
+  return data.senha;
+}

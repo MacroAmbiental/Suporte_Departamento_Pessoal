@@ -41,7 +41,9 @@ import ScheduleDeactivationModal from "@/modules/employeeProcesses/components/Sc
 import { isEmployeeTerminated } from "@/modules/employees/utils/employeeStatus";
 import MultiSelect from "../../../common/components/MultiSelect";
 import { employeeStandardDocumentNames } from "@/modules/records/utils/recordsDocuments";
-import { createUsernameFromName, hashPassword, normalizeUsername, systemScreens } from "@/services/accessControl";
+import { createUsernameFromName, normalizeUsername, systemScreens } from "@/services/accessControl";
+import { conferirSenhaServidor } from "@/services/firebaseSession";
+import VerSenhaLogin from "../components/VerSenhaLogin";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import type {
   AppScreen,
@@ -947,6 +949,7 @@ export default function Employees({
   const systemUserByEmployeeId = useMemo(() => new Map(
     data.systemUsers.filter((systemUser) => systemUser.employeeId).map((systemUser) => [systemUser.employeeId as string, systemUser]),
   ), [data.systemUsers]);
+  const editingLogin = editingEmployeeId ? systemUserByEmployeeId.get(editingEmployeeId) : undefined;
 
   const usernameOptions = useMemo(() => data.systemUsers
     .map((systemUser) => ({ value: systemUser.username, label: systemUser.username }))
@@ -1165,19 +1168,17 @@ export default function Employees({
     || filters.search,
   );
 
+  // Senha de quem está logado, conferida no servidor (05/11/2026, F3).
   async function validateCurrentUserPassword(password: string) {
-    const systemUser = data.systemUsers.find((entry) => entry.id === user?.id && entry.active !== false);
-    const typedPasswordHash = password ? await hashPassword(password) : "";
-
-    return Boolean(
-      password
-      && systemUser
-      && (
-        (systemUser.passwordHash && systemUser.passwordHash === typedPasswordHash)
-        || (systemUser.password && systemUser.password === password)
-      ),
-    );
+    if (!password) return false;
+    try {
+      return await conferirSenhaServidor(password);
+    } catch (error) {
+      console.error("Falha ao conferir a senha.", error);
+      return false;
+    }
   }
+
 
   async function exportFilteredEmployeesToExcel(includeSalary: boolean) {
     if (!filteredEmployees.length) {
@@ -1760,7 +1761,7 @@ export default function Employees({
       username: draftPayload?.id && login?.username 
         ? normalizeUsername(login.username) 
         : suggestUsername(draftPayload?.name || ""),
-      password: draftPayload?.id ? login?.password || "" : "",
+      password: "",
       permissionProfileId: draftPayload?.id ? currentPermissionProfileId(login, data.systemPermissions, data.permissionProfiles) : "",
       registrationData: asPromotion ? { ...(draftPayload?.registrationData || {}), employeeKind: "company" } : draftPayload?.registrationData,
     });
@@ -2003,7 +2004,7 @@ export default function Employees({
     const existingUser = data.systemUsers.find((user) => user.employeeId === employee.id);
     const nextPassword = form.password;
 
-    if (!form.username.trim() || !form.permissionProfileId || (!nextPassword && !existingUser?.passwordHash && !existingUser?.password)) {
+    if (!form.username.trim() || !form.permissionProfileId || (!nextPassword && !existingUser)) {
       throw new Error("Para criar login agora, informe username, acesso salvo e senha quando o usuário ainda não tiver uma senha cadastrada.");
     }
 
@@ -2015,7 +2016,6 @@ export default function Employees({
       role: employee.role,
       position: employee.position,
       password: nextPassword || undefined,
-      passwordHash: nextPassword ? undefined : existingUser?.passwordHash,
       permissionProfileId: form.permissionProfileId,
       active: true,
       isAdmin: false,
@@ -3020,7 +3020,8 @@ export default function Employees({
               <div className="form-grid">
                 <label className="check-field is-wide-field"><input type="checkbox" checked={form.createLogin} onChange={(e) => setForm({ ...form, createLogin: e.target.checked })} /> Criar login do funcionário agora</label>
                 <label className="field">Username<input disabled={!form.createLogin} maxLength={7} value={form.username} onChange={(e) => setForm({ ...form, username: normalizeUsername(e.target.value) })} /></label>
-                <label className="field">Senha<input disabled={!form.createLogin} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+                <label className="field">{editingLogin ? "Nova senha" : "Senha"}<input disabled={!form.createLogin} type="password" autoComplete="new-password" placeholder={editingLogin ? "Em branco = mantém a senha atual" : ""} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+                {editingLogin ? <VerSenhaLogin userId={editingLogin.id} /> : null}
                 <label className="field is-wide-field">Acesso salvo<select disabled={!form.createLogin} value={form.permissionProfileId} onChange={(e) => setForm({ ...form, permissionProfileId: e.target.value })}><option value="">Selecione um acesso salvo</option>{permissionProfileOptions.map((profile) => <option value={profile.id} key={profile.id}>{profile.active === false ? `${profile.name} (inativo)` : profile.name}</option>)}</select></label>
                 {!data.permissionProfiles.length ? <p className="muted is-wide-field">Crie um acesso salvo na tela de permissões antes de vincular login a funcionários.</p> : null}
               </div>

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { userHasPermission } from "@/services/accessControl";
-import { authenticateSystemUser } from "@/services/domainRepository";
+import { loadSessionUser } from "@/services/domainRepository";
 import {
   encerrarSessaoServidor,
   iniciarSessaoServidor,
@@ -86,7 +86,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const sessionOpened = await iniciarSessaoServidor(username, password);
       if (!sessionOpened) return false;
 
-      const authenticatedUser = await authenticateSystemUser(username, password);
+      // A senha já foi conferida no servidor; o cadastro vem pelo uid da sessão.
+      const uid = await uidSessaoSalva();
+      const authenticatedUser = uid ? await loadSessionUser(uid) : null;
       if (authenticatedUser) {
         setUser(authenticatedUser);
         return true;

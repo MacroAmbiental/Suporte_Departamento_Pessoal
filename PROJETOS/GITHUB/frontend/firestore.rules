@@ -17,6 +17,8 @@ rules_version = '2';
 // 05/11/2026 (F2c): usuários, permissões e chaves de acesso só são gravados
 // pela function gravarAcessosDP (que confere quem pode mudar o quê); o
 // navegador só lê. loginAttempts (contador do limite de login) nem lê.
+// F3: senhas em systemUserSecrets e registro de "Ver senha" em senhaConsultas
+// também fechados por completo.
 //
 // Voltar atrás em emergência: trocar as condições por `true` e publicar.
 service cloud.firestore {
@@ -31,9 +33,14 @@ service cloud.firestore {
       return colecao in ["systemUsers", "systemPermissions", "accessKeys"];
     }
 
+    // Nem leitura: só as functions (Admin SDK) usam.
+    function colecaoFechada(colecao) {
+      return colecao in ["loginAttempts", "systemUserSecrets", "senhaConsultas"];
+    }
+
     match /{colecao}/{document=**} {
-      allow read: if colecao != "loginAttempts" && usuarioDP();
-      allow write: if colecao != "loginAttempts" && !colecaoSoServidor(colecao) && usuarioDP();
+      allow read: if !colecaoFechada(colecao) && usuarioDP();
+      allow write: if !colecaoFechada(colecao) && !colecaoSoServidor(colecao) && usuarioDP();
     }
   }
 }

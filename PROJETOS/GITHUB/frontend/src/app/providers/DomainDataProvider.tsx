@@ -1130,13 +1130,13 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     const name = employee?.name || payload.name.trim() || username;
     const role = employee?.role || payload.role.trim() || "Usuário";
     const position = employee?.position || payload.position;
-    const passwordHash = payload.password
-      ? await hashPassword(payload.password)
-      : payload.passwordHash || existing?.passwordHash || (existing?.password ? await hashPassword(existing.password) : undefined);
-    const plainPassword = payload.employeeId ? payload.password || existing?.password || "" : existing?.password || "";
+    // 05/11/2026 (F3): a senha vai em texto só nesta gravação; a function
+    // gravarAcessosDP guarda o hash forte no servidor e tira do cadastro.
+    // Login existente sem senha nova mantém a senha atual.
+    const newPassword = payload.password?.trim() ? payload.password : "";
     const permissionProfileId = payload.permissionProfileId ?? existing?.permissionProfileId;
 
-    if (!passwordHash) {
+    if (!existing && !newPassword) {
       throw new Error("Informe uma senha para o usuário do sistema.");
     }
 
@@ -1148,8 +1148,6 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       ...(position ? { position } : {}),
       initials: initialsFromName(name, username),
       ...(payload.employeeId ? { employeeId: payload.employeeId } : {}),
-      passwordHash,
-      ...(plainPassword ? { password: plainPassword } : {}),
       ...(permissionProfileId ? { permissionProfileId } : {}),
       active: payload.active,
       isAdmin: payload.isAdmin,
@@ -1157,7 +1155,14 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       updatedAt: now,
     };
 
-    const saved = await updateCollection<SystemUser>("systemUsers", systemUser);
+    await updateCollection<SystemUser>("systemUsers", newPassword ? { ...systemUser, password: newPassword } : systemUser);
+    // Tira a senha da memória da tela logo depois de gravar.
+    setData((current) => {
+      const next = { ...current, systemUsers: current.systemUsers.map((entry) => (entry.id === systemUser.id ? systemUser : entry)) };
+      dataRef.current = next;
+      return next;
+    });
+    const saved = systemUser;
     registerUndo(existing ? "Usuario editado." : "Usuario criado.", async () => {
       if (existing) {
         await restoreItem("systemUsers", existing);

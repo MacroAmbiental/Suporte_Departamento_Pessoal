@@ -5,7 +5,6 @@ import {
   documentId,
   getDoc,
   getDocs,
-  limit,
   onSnapshot,
   query,
   runTransaction,
@@ -20,9 +19,7 @@ import {
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { firebaseApp, firestore } from "@/services/firebase";
 import {
-  hashPassword,
   initialsFromName,
-  normalizeUsername,
   toAuthenticatedUser,
 } from "@/services/accessControl";
 import {
@@ -337,6 +334,15 @@ export function subscribeDomainSnapshot(
 // quem pode mudar o quê (05/11/2026, F2a).
 const serverOnlyCollections = new Set<CollectionName>(["systemUsers", "systemPermissions", "accessKeys"]);
 
+// A senha vai para o servidor mas nunca fica no cache do navegador.
+function withoutSecrets(mutations: EntityBatchMutation[]): EntityBatchMutation[] {
+  return mutations.map((mutation) => {
+    if (mutation.type !== "set" || mutation.collection !== "systemUsers") return mutation;
+    const { password: _password, passwordHash: _passwordHash, ...item } = mutation.item as Entity & { password?: string; passwordHash?: string };
+    return { ...mutation, item };
+  });
+}
+
 async function commitThroughServer(mutations: EntityBatchMutation[]): Promise<void> {
   if (!mutations.length) return;
   if (!firebaseApp) throw new Error("Firebase não configurado.");
@@ -356,7 +362,7 @@ async function commitThroughServer(mutations: EntityBatchMutation[]): Promise<vo
 export async function saveEntity<T extends Entity>(name: CollectionName, item: T): Promise<void> {
   if (serverOnlyCollections.has(name)) {
     await commitThroughServer([{ type: "set", collection: name, item }]);
-    patchMutationCaches([{ type: "set", collection: name, item }]);
+    patchMutationCaches(withoutSecrets([{ type: "set", collection: name, item }]));
     return;
   }
   const table = getCollection(name);
@@ -397,7 +403,7 @@ export async function commitEntityBatch(allMutations: EntityBatchMutation[]): Pr
   const serverMutations = allMutations.filter((mutation) => serverOnlyCollections.has(mutation.collection));
   if (serverMutations.length) {
     await commitThroughServer(serverMutations);
-    patchMutationCaches(serverMutations);
+    patchMutationCaches(withoutSecrets(serverMutations));
   }
   const mutations = allMutations.filter((mutation) => !serverOnlyCollections.has(mutation.collection));
   if (!mutations.length) return;
@@ -494,15 +500,6 @@ export async function loadDomainSnapshot(names: CollectionName[] = collectionNam
 
 export const firestoreTablePath = (name: CollectionName) => name;
 
-async function findSystemUserByUsername(normalizedUsername: string): Promise<SystemUser | null> {
-  const table = getCollection("systemUsers");
-  if (!table) return null;
-
-  const snapshot = await getDocs(query(table, where("username", "==", normalizedUsername), limit(2)));
-  const candidates = normalizeCollectionSnapshot<SystemUser>(snapshot);
-  return candidates.find((item) => normalizeUsername(item.username) === normalizedUsername && item.active !== false) || null;
-}
-
 async function loadPermissionsForUser(userId: string): Promise<SystemPermission[]> {
   return loadCollection<SystemPermission>("systemPermissions", [where("userId", "==", userId)]);
 }
@@ -534,25 +531,24 @@ export async function loadDocumentsByIds<T extends Entity>(
   return results;
 }
 
-export async function authenticateSystemUser(username: string, password: string): Promise<User | null> {
-  const normalized = normalizeUsername(username);
-  if (!normalized || !password) return null;
-
-  const candidate = await findSystemUserByUsername(normalized);
-  if (!candidate) return null;
-
-  const passwordHash = await hashPassword(password);
-  const hasValidHash = Boolean(candidate.passwordHash && candidate.passwordHash === passwordHash);
-  const hasLegacyPassword = Boolean(candidate.password && candidate.password === password);
-  if (!hasValidHash && !hasLegacyPassword) return null;
+// Usuário da sessão aberta pelo entrarDP (que já conferiu a senha no
+// servidor). Desde 05/11/2026 (F3) o navegador não confere senha: ela nem
+// fica mais no cadastro do login.
+export async function loadSessionUser(uid: string): Promise<User | null> {
+  if (!firestore || !uid) return null;
+  const snapshot = await getDoc(doc(firestore, "systemUsers", uid));
+  if (!snapshot.exists()) return null;
+  const candidate = { id: snapshot.id, ...snapshot.data() } as SystemUser;
+  if (candidate.active === false) return null;
 
   const [permissions, employee] = await Promise.all([
     loadPermissionsForUser(candidate.id),
     loadEmployeeById(candidate.employeeId),
   ]);
 
+  const { password: _password, passwordHash: _passwordHash, ...semSenha } = candidate;
   const profile: SystemUser = {
-    ...candidate,
+    ...semSenha,
     name: employee?.name || candidate.name,
     role: employee?.role || candidate.role,
     position: employee?.position || candidate.position,
