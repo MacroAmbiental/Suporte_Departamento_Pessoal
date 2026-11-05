@@ -17,7 +17,8 @@ import {
   type QuerySnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
-import { firestore } from "@/services/firebase";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { firebaseApp, firestore } from "@/services/firebase";
 import {
   hashPassword,
   initialsFromName,
@@ -331,7 +332,33 @@ export function subscribeDomainSnapshot(
   );
 }
 
+// Usuários, permissões e chaves de acesso não são gravados direto pelo
+// navegador: vão para a function gravarAcessosDP, que confere no servidor
+// quem pode mudar o quê (05/11/2026, F2a).
+const serverOnlyCollections = new Set<CollectionName>(["systemUsers", "systemPermissions", "accessKeys"]);
+
+async function commitThroughServer(mutations: EntityBatchMutation[]): Promise<void> {
+  if (!mutations.length) return;
+  if (!firebaseApp) throw new Error("Firebase não configurado.");
+  const callable = httpsCallable<{ mutations: EntityBatchMutation[] }, { ok: boolean }>(
+    getFunctions(firebaseApp, "southamerica-east1"),
+    "gravarAcessosDP",
+    { timeout: 60000 },
+  );
+  try {
+    await callable({ mutations });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    throw new Error(message && message !== "internal" ? message : "Não foi possível salvar usuários e acessos. Tente de novo.");
+  }
+}
+
 export async function saveEntity<T extends Entity>(name: CollectionName, item: T): Promise<void> {
+  if (serverOnlyCollections.has(name)) {
+    await commitThroughServer([{ type: "set", collection: name, item }]);
+    patchMutationCaches([{ type: "set", collection: name, item }]);
+    return;
+  }
   const table = getCollection(name);
   if (!table) throw new Error(`Firebase/Firestore não configurado para salvar a coleção ${name}.`);
 
@@ -347,6 +374,11 @@ export async function saveEntity<T extends Entity>(name: CollectionName, item: T
 }
 
 export async function deleteEntity(name: CollectionName, id: string): Promise<void> {
+  if (serverOnlyCollections.has(name)) {
+    await commitThroughServer([{ type: "delete", collection: name, id }]);
+    patchMutationCaches([{ type: "delete", collection: name, id }]);
+    return;
+  }
   const table = getCollection(name);
   if (!table) throw new Error(`Firebase/Firestore não configurado para excluir da coleção ${name}.`);
 
@@ -359,7 +391,15 @@ export type EntityBatchMutation =
   | { type: "set"; collection: CollectionName; item: Entity }
   | { type: "delete"; collection: CollectionName; id: string };
 
-export async function commitEntityBatch(mutations: EntityBatchMutation[]): Promise<void> {
+export async function commitEntityBatch(allMutations: EntityBatchMutation[]): Promise<void> {
+  if (!allMutations.length) return;
+  // Acessos primeiro: se o servidor recusar, nada do resto é gravado.
+  const serverMutations = allMutations.filter((mutation) => serverOnlyCollections.has(mutation.collection));
+  if (serverMutations.length) {
+    await commitThroughServer(serverMutations);
+    patchMutationCaches(serverMutations);
+  }
+  const mutations = allMutations.filter((mutation) => !serverOnlyCollections.has(mutation.collection));
   if (!mutations.length) return;
   if (!firestore) throw new Error("Firebase/Firestore não configurado para salvar alterações em lote.");
 

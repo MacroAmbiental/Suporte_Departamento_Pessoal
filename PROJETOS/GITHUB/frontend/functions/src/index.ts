@@ -1284,6 +1284,7 @@ export const consultarFlagsSecullumPostPiloto = onCall(
 );
 
 export { entrarDP } from "./entrarDP";
+export { gravarAcessosDP } from "./acessosDP";
 export { codigoClassificacao, conferirCodigoClassificacao, enviarSolicitacaoClassificacao } from "./classificacao";
 export { pontoPerformance } from "./pontoPerformance";
 
