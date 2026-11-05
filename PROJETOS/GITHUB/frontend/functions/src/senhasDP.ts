@@ -1,5 +1,5 @@
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { onCall, HttpsError, type CallableRequest } from "firebase-functions/v2/https";
 import { conferirBloqueio, idsContadores, ipDaChamada, registrarFalha } from "./entrarDP";
 import { COLECAO_SEGREDOS, conferirSenha, dadosSegredoNovo, normalizeUsername, podeVerSenhas } from "./senhaCripto";
@@ -66,6 +66,31 @@ export const verSenhaDP = onCall({ region: "southamerica-east1" }, async (reques
     em: new Date().toISOString(),
   });
   return { senha: senha || null };
+});
+
+// "Trocar minha senha" (05/11/2026): qualquer login troca a própria senha,
+// confirmando a atual. Erros na senha atual contam no limite do login.
+export const trocarMinhaSenhaDP = onCall({ region: "southamerica-east1" }, async (request) => {
+  const usuario = await usuarioDaSessao(request);
+  const dados = (request.data ?? {}) as { atual?: unknown; nova?: unknown };
+  const atual = typeof dados.atual === "string" ? dados.atual : "";
+  const nova = typeof dados.nova === "string" ? dados.nova : "";
+  if (!atual || atual.length > 200) throw new HttpsError("invalid-argument", "Informe a senha atual.");
+  if (nova.trim().length < 6 || nova.length > 200) throw new HttpsError("invalid-argument", "A senha nova precisa ter pelo menos 6 caracteres.");
+  if (nova === atual) throw new HttpsError("invalid-argument", "A senha nova precisa ser diferente da atual.");
+
+  const username = normalizeUsername(String(usuario.get("username") ?? ""));
+  const ids = idsContadores(username, ipDaChamada(request));
+  await conferirBloqueio(ids);
+
+  const db = getFirestore();
+  const segredo = await db.collection(COLECAO_SEGREDOS).doc(usuario.id).get();
+  if (!(await conferirSenha(usuario, segredo, atual)).ok) {
+    await registrarFalha(ids, username);
+    throw new HttpsError("permission-denied", "A senha atual não confere.");
+  }
+  await db.collection(COLECAO_SEGREDOS).doc(usuario.id).set({ ...(await dadosSegredoNovo(nova)), legacyHash: FieldValue.delete() }, { merge: true });
+  return { ok: true };
 });
 
 // F3b (05/11/2026): a migração (migrarSenhasDP) rodou uma vez em produção

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sincronizarAfastamentoSecullum = exports.listarAfastamentosSecullum = exports.enviarJustificativasSecullum = exports.levantarJustificativasSecullum = exports.pontoPerformance = exports.enviarSolicitacaoClassificacao = exports.conferirCodigoClassificacao = exports.codigoClassificacao = exports.verSenhaDP = exports.conferirSenhaDP = exports.gravarAcessosDP = exports.entrarDP = exports.consultarFlagsSecullumPostPiloto = exports.consultarFlagsSecullumPagina = exports.consultarFlagsSecullum30OutTeste = exports.atualizarFlagsSecullum = exports.atualizarFlagsSecullumTeste = exports.simularAlteracaoFlagsSecullum = exports.diagnosticarAcessoInternoSecullum = exports.conferirFlagsSecullumTeste = exports.prepararAlteracaoNeutroSecullum = exports.enviarBatidaSecullum = exports.obterBatidasSecullum = void 0;
+exports.sincronizarAfastamentoSecullum = exports.listarAfastamentosSecullum = exports.enviarJustificativasSecullum = exports.levantarJustificativasSecullum = exports.pontoPerformance = exports.enviarSolicitacaoClassificacao = exports.conferirCodigoClassificacao = exports.codigoClassificacao = exports.verSenhaDP = exports.trocarMinhaSenhaDP = exports.conferirSenhaDP = exports.gravarAcessosDP = exports.entrarDP = exports.consultarFlagsSecullumPostPiloto = exports.consultarFlagsSecullumPagina = exports.consultarFlagsSecullum30OutTeste = exports.atualizarFlagsSecullum = exports.atualizarFlagsSecullumTeste = exports.simularAlteracaoFlagsSecullum = exports.diagnosticarAcessoInternoSecullum = exports.conferirFlagsSecullumTeste = exports.prepararAlteracaoNeutroSecullum = exports.enviarBatidaSecullum = exports.obterBatidasSecullum = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const permissaoDP_1 = require("./permissaoDP");
@@ -1151,6 +1151,7 @@ var acessosDP_1 = require("./acessosDP");
 Object.defineProperty(exports, "gravarAcessosDP", { enumerable: true, get: function () { return acessosDP_1.gravarAcessosDP; } });
 var senhasDP_1 = require("./senhasDP");
 Object.defineProperty(exports, "conferirSenhaDP", { enumerable: true, get: function () { return senhasDP_1.conferirSenhaDP; } });
+Object.defineProperty(exports, "trocarMinhaSenhaDP", { enumerable: true, get: function () { return senhasDP_1.trocarMinhaSenhaDP; } });
 Object.defineProperty(exports, "verSenhaDP", { enumerable: true, get: function () { return senhasDP_1.verSenhaDP; } });
 var classificacao_1 = require("./classificacao");
 Object.defineProperty(exports, "codigoClassificacao", { enumerable: true, get: function () { return classificacao_1.codigoClassificacao; } });

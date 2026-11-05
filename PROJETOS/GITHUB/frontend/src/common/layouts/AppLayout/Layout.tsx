@@ -10,6 +10,7 @@
   Files,
   Gift,
   LayoutDashboard,
+  KeyRound,
   LogOut,
   Menu,
   Moon,
@@ -37,6 +38,7 @@ import { todayISO } from "@/utils/format";
 import { compareText } from "@/utils/sort";
 import logo from "@/assets/images/logo-empresas.png";
 import NewHiresMenu from "./NewHiresMenu";
+import TrocarSenhaModal from "./TrocarSenhaModal";
 import "./layout.css";
 import { alertsToNotify } from "@/modules/notifications/utils";
 
@@ -332,6 +334,8 @@ export default function Layout() {
     };
   }, [location.pathname]);
 
+  const [trocarSenhaAberto, setTrocarSenhaAberto] = useState(false);
+
   function handleLogout() {
     logout();
     navigate("/", { replace: true });
@@ -465,9 +469,12 @@ export default function Layout() {
             <Moon size={15} aria-hidden="true" />
           </div>
           <div className="brand-status"><span /><strong>{user?.position || user?.role || "Perfil"}</strong></div>
+          <button className="logout-button is-quiet" type="button" onClick={() => setTrocarSenhaAberto(true)}><KeyRound size={17} />Trocar senha</button>
           <button className="logout-button" type="button" onClick={handleLogout}><LogOut size={17} />Sair</button>
         </div>
       </aside>
+
+      {trocarSenhaAberto ? <TrocarSenhaModal onClose={() => setTrocarSenhaAberto(false)} /> : null}
 
       <div className="app-content">
         <header className="topbar">

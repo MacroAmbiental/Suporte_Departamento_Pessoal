@@ -230,6 +230,13 @@
   font-weight: 900;
 }
 
+.logout-button.is-quiet {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+}
+
 .app-content {
   display: flex;
   min-width: 0;

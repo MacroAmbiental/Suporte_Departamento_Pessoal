@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.verSenhaDP = exports.conferirSenhaDP = void 0;
+exports.trocarMinhaSenhaDP = exports.verSenhaDP = exports.conferirSenhaDP = void 0;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
@@ -65,6 +65,31 @@ exports.verSenhaDP = (0, https_1.onCall)({ region: "southamerica-east1" }, async
         em: new Date().toISOString(),
     });
     return { senha: senha || null };
+});
+// "Trocar minha senha" (05/11/2026): qualquer login troca a própria senha,
+// confirmando a atual. Erros na senha atual contam no limite do login.
+exports.trocarMinhaSenhaDP = (0, https_1.onCall)({ region: "southamerica-east1" }, async (request) => {
+    const usuario = await usuarioDaSessao(request);
+    const dados = (request.data ?? {});
+    const atual = typeof dados.atual === "string" ? dados.atual : "";
+    const nova = typeof dados.nova === "string" ? dados.nova : "";
+    if (!atual || atual.length > 200)
+        throw new https_1.HttpsError("invalid-argument", "Informe a senha atual.");
+    if (nova.trim().length < 6 || nova.length > 200)
+        throw new https_1.HttpsError("invalid-argument", "A senha nova precisa ter pelo menos 6 caracteres.");
+    if (nova === atual)
+        throw new https_1.HttpsError("invalid-argument", "A senha nova precisa ser diferente da atual.");
+    const username = (0, senhaCripto_1.normalizeUsername)(String(usuario.get("username") ?? ""));
+    const ids = (0, entrarDP_1.idsContadores)(username, (0, entrarDP_1.ipDaChamada)(request));
+    await (0, entrarDP_1.conferirBloqueio)(ids);
+    const db = (0, firestore_1.getFirestore)();
+    const segredo = await db.collection(senhaCripto_1.COLECAO_SEGREDOS).doc(usuario.id).get();
+    if (!(await (0, senhaCripto_1.conferirSenha)(usuario, segredo, atual)).ok) {
+        await (0, entrarDP_1.registrarFalha)(ids, username);
+        throw new https_1.HttpsError("permission-denied", "A senha atual não confere.");
+    }
+    await db.collection(senhaCripto_1.COLECAO_SEGREDOS).doc(usuario.id).set({ ...(await (0, senhaCripto_1.dadosSegredoNovo)(nova)), legacyHash: firestore_1.FieldValue.delete() }, { merge: true });
+    return { ok: true };
 });
 // F3b (05/11/2026): a migração (migrarSenhasDP) rodou uma vez em produção
 // (27 logins) e foi apagada; está no histórico do git (commit 4d54ac0).

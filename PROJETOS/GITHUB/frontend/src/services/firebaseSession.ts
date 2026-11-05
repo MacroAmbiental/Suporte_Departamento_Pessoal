@@ -96,3 +96,13 @@ export async function verSenhaServidor(userId: string): Promise<string | null> {
   const { data } = await chamar<{ userId: string }, { senha: string | null }>("verSenhaDP")({ userId });
   return data.senha;
 }
+
+// "Trocar minha senha": o servidor confere a atual e grava a nova.
+export async function trocarMinhaSenhaServidor(atual: string, nova: string): Promise<void> {
+  try {
+    await chamar<{ atual: string; nova: string }, { ok: boolean }>("trocarMinhaSenhaDP")({ atual, nova });
+  } catch (error) {
+    const message = (error as Error)?.message || "";
+    throw new Error(message && message !== "internal" ? message : "Não foi possível trocar a senha. Tente de novo.");
+  }
+}
