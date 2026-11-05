@@ -1,4 +1,4 @@
-import { AlertTriangle, ExternalLink, MessageCircle, Phone, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, FileDown, MessageCircle, Phone, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { userHasPermission } from "@/services/accessControl";
 import { formatDate, formatDateTime } from "@/utils/format";
@@ -25,6 +25,7 @@ import {
   type AbsenceStreak,
 } from "@/modules/hrControl/abandonment/abandonmentModel";
 import { useAbandonmentCases, useAbandonmentEvents } from "@/modules/hrControl/abandonment/useAbandonmentCases";
+import { abandonmentEventKindLabels as eventKindLabels, openAbandonmentDossier } from "@/modules/hrControl/abandonment/abandonmentDossier";
 import "./abandonment.css";
 
 type TeamGroupFor = (record: TimeRecord | undefined, employee: Employee | undefined) => { label: string; detail?: string };
@@ -178,6 +179,7 @@ export function AbandonmentBoard({ employees, employeeById, companies, savedDayT
           dismissedOn={dismissedDateByCase.get(selectedCase.id)}
           today={today}
           canEdit={canEdit}
+          userName={user?.name || user?.username || ""}
           onClose={() => setSelectedCaseId(null)}
           addEvent={board.addEvent}
           moveStage={board.moveStage}
@@ -188,17 +190,8 @@ export function AbandonmentBoard({ employees, employeeById, companies, savedDayT
   );
 }
 
-const eventKindLabels: Record<AbandonmentEvent["kind"], string> = {
-  system: "Sistema",
-  contact: "Contato",
-  message: "Mensagem",
-  stage: "Mudança de etapa",
-  note: "Anotação",
-  correction: "Correção",
-  closed: "Encerramento",
-};
 
-function CaseModal({ item, employee, streak, team, dismissedOn, today, canEdit, onClose, addEvent, moveStage, closeCase }: {
+function CaseModal({ item, employee, streak, team, dismissedOn, today, canEdit, userName, onClose, addEvent, moveStage, closeCase }: {
   item: AbandonmentCase;
   employee: Employee | undefined;
   streak: AbsenceStreak | undefined;
@@ -206,6 +199,7 @@ function CaseModal({ item, employee, streak, team, dismissedOn, today, canEdit, 
   dismissedOn: string | undefined;
   today: string;
   canEdit: boolean;
+  userName: string;
   onClose: () => void;
   addEvent: ReturnType<typeof useAbandonmentCases>["addEvent"];
   moveStage: ReturnType<typeof useAbandonmentCases>["moveStage"];
@@ -272,6 +266,21 @@ function CaseModal({ item, employee, streak, team, dismissedOn, today, canEdit, 
         onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
         <button className="hr-card-modal-close" type="button" aria-label="Fechar" onClick={onClose}><X size={20} /></button>
         <h2>{item.employeeName}</h2>
+        <button
+          type="button"
+          className="btn btn-secondary abandonment-pdf-button"
+          disabled={!events.length}
+          title={events.length ? "Relatório com todas as ações registradas" : "Carregando histórico…"}
+          onClick={() => {
+            try {
+              openAbandonmentDossier({ item, employee, events, team, streak, dismissedOn, today, generatedBy: userName });
+            } catch (reason) {
+              setError(reason instanceof Error ? reason.message : String(reason));
+            }
+          }}
+        >
+          <FileDown size={16} /> Exportar PDF
+        </button>
         <p>
           {team} · {item.companyName || "-"} · Etapa: <b>{open ? stageLabel(item.stage)
             : dismissedOn !== undefined ? `Encerrado — desligado em outra tela em ${formatDate(dismissedOn)} (estava em ${stageLabel(item.stage)})`
