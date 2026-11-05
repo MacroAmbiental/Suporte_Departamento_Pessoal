@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.migrarSenhasDP = exports.verSenhaDP = exports.conferirSenhaDP = void 0;
+exports.verSenhaDP = exports.conferirSenhaDP = void 0;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
@@ -66,62 +66,6 @@ exports.verSenhaDP = (0, https_1.onCall)({ region: "southamerica-east1" }, async
     });
     return { senha: senha || null };
 });
-// F3b (05/11/2026): tira password / passwordHash de TODOS os systemUsers e
-// guarda no systemUserSecrets. executar=false só conta (nada é gravado).
-// Só para os logins de DP_VER_SENHAS. Pode rodar de novo sem problema.
-exports.migrarSenhasDP = (0, https_1.onCall)({ region: "southamerica-east1", timeoutSeconds: 300 }, async (request) => {
-    const quem = await usuarioDaSessao(request);
-    if (!(0, senhaCripto_1.podeVerSenhas)(quem.id))
-        throw new https_1.HttpsError("permission-denied", "Seu login não pode rodar a migração de senhas.");
-    const executar = request.data?.executar === true;
-    const db = (0, firestore_1.getFirestore)();
-    const usuarios = await db.collection("systemUsers").get();
-    const segredos = new Map((await db.collection(senhaCripto_1.COLECAO_SEGREDOS).get()).docs.map((doc) => [doc.id, doc]));
-    const contagem = { logins: usuarios.size, comSenhaNoCadastro: 0, comSenhaEmTexto: 0, soHashAntigo: 0, jaTinhamSegredo: 0, ficamSemSenhaParaVer: 0 };
-    const escritas = [];
-    for (const usuario of usuarios.docs) {
-        const texto = String(usuario.get("password") ?? "");
-        const hash = String(usuario.get("passwordHash") ?? "");
-        if (!texto && !hash)
-            continue;
-        contagem.comSenhaNoCadastro += 1;
-        if (texto)
-            contagem.comSenhaEmTexto += 1;
-        else
-            contagem.soHashAntigo += 1;
-        const segredo = segredos.get(usuario.id);
-        const scryptAtual = String(segredo?.get("scrypt") ?? "");
-        if (segredo?.exists && (scryptAtual || segredo.get("legacyHash")))
-            contagem.jaTinhamSegredo += 1;
-        let dadosSegredo = null;
-        if (scryptAtual) {
-            // Já migrado (login novo): só guarda o texto se for a mesma senha.
-            if (texto && !segredo?.get("password") && await (0, senhaCripto_1.conferirScrypt)(texto, scryptAtual))
-                dadosSegredo = { password: texto };
-        }
-        else if (texto) {
-            dadosSegredo = await (0, senhaCripto_1.dadosSegredoNovo)(texto);
-        }
-        else if (!segredo?.get("legacyHash")) {
-            dadosSegredo = { legacyHash: hash, updatedAt: new Date().toISOString() };
-        }
-        const vaiTerTexto = Boolean(texto || segredo?.get("password"));
-        if (!vaiTerTexto)
-            contagem.ficamSemSenhaParaVer += 1;
-        if (dadosSegredo)
-            escritas.push({ ref: db.collection(senhaCripto_1.COLECAO_SEGREDOS).doc(usuario.id), dados: dadosSegredo });
-        escritas.push({ ref: usuario.ref, dados: { password: firestore_1.FieldValue.delete(), passwordHash: firestore_1.FieldValue.delete() } });
-    }
-    if (executar) {
-        // O segredo de cada login é gravado antes da limpeza dele; se cair no
-        // meio, rodar de novo termina o serviço.
-        for (let inicio = 0; inicio < escritas.length; inicio += 400) {
-            const lote = db.batch();
-            escritas.slice(inicio, inicio + 400).forEach(({ ref, dados }) => lote.set(ref, dados, { merge: true }));
-            await lote.commit();
-        }
-        console.log("migrarSenhasDP executada", { por: quem.id, ...contagem });
-    }
-    return { executado: executar, ...contagem };
-});
+// F3b (05/11/2026): a migração (migrarSenhasDP) rodou uma vez em produção
+// (27 logins) e foi apagada; está no histórico do git (commit 4d54ac0).
 //# sourceMappingURL=senhasDP.js.map
