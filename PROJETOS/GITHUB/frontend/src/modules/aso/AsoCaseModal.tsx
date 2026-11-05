@@ -17,6 +17,7 @@ import {
 import { useAsoEvents, type AsoCaseSeed } from "@/modules/aso/useAsoCases";
 import { addDaysISO } from "@/modules/vacation/data/vacationsRepository";
 import { formatDate, formatDateTime, todayISO } from "@/utils/format";
+import type { DocumentAlert } from "@/types/domain";
 
 type Props = {
   seed: AsoCaseSeed;
@@ -24,6 +25,10 @@ type Props = {
   currentAsoUrl?: string;
   currentAsoName?: string;
   canEdit: boolean;
+  // Alerta do ASO em Notificações: as observações são as dele.
+  alert?: DocumentAlert;
+  canEditObservation: boolean;
+  saveObservation: (alert: DocumentAlert, value: string) => Promise<void>;
   onClose: () => void;
   saveGuide: (seed: AsoCaseSeed, file: File) => Promise<void>;
   markGuideSent: (item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, notes: string) => Promise<void>;
@@ -34,8 +39,78 @@ type Props = {
 
 const stageLabel = (stage: string) => asoStages.find((item) => item.id === stage)?.label || stage;
 
+// Observações do alerta do ASO (as mesmas da tela de Notificações). Acompanha
+// a mudança feita lá enquanto o texto daqui não foi mexido.
+function AsoObservation({ alert, canEdit, save }: {
+  alert?: DocumentAlert;
+  canEdit: boolean;
+  save: (alert: DocumentAlert, value: string) => Promise<void>;
+}) {
+  const saved = alert?.description || "";
+  const [value, setValue] = useState(saved);
+  const [baseline, setBaseline] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+
+  if (saved !== baseline) {
+    // Mudou no banco (outra tela/usuário): se não há edição local, mostra o novo.
+    setBaseline(saved);
+    if (value === baseline) setValue(saved);
+  }
+
+  if (!alert) {
+    return (
+      <div className="aso-case-observation">
+        <h3>Observações</h3>
+        <p className="abandonment-muted">Este ASO não tem alerta em Notificações, então não há observações.</p>
+      </div>
+    );
+  }
+
+  const changed = value.trim() !== saved;
+  async function submit() {
+    if (!alert) return;
+    setBusy(true);
+    setStatus("");
+    try {
+      await save(alert, value);
+      setStatus("Observação salva.");
+    } catch (saveError) {
+      setStatus(saveError instanceof Error ? saveError.message : "Não foi possível salvar a observação.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="aso-case-observation">
+      <h3>Observações <small className="abandonment-muted">(as mesmas de Notificações)</small></h3>
+      {canEdit ? (
+        <>
+          <textarea
+            rows={3}
+            value={value}
+            onChange={(event) => { setValue(event.target.value); setStatus(""); }}
+            placeholder="Adicionar observação..."
+            aria-label="Observações do ASO"
+          />
+          <div className="form-actions">
+            {status ? <small className="abandonment-muted">{status}</small> : null}
+            <button className="btn btn-secondary" type="button" disabled={busy || !changed} onClick={() => void submit()}>
+              <Check size={16} /> {busy ? "Salvando..." : "Salvar observação"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className={saved ? undefined : "abandonment-muted"}>{saved || "Sem observações."}</p>
+      )}
+    </div>
+  );
+}
+
 export default function AsoCaseModal({
-  seed, asoCase, currentAsoUrl, currentAsoName, canEdit, onClose, saveGuide, markGuideSent, markExamDone, receiveAso, markSentToSertras,
+  seed, asoCase, currentAsoUrl, currentAsoName, canEdit, alert, canEditObservation, saveObservation,
+  onClose, saveGuide, markGuideSent, markExamDone, receiveAso, markSentToSertras,
 }: Props) {
   const events = useAsoEvents(asoCase?.id || null);
   const stage = asoCase?.stage || "notified";
@@ -93,6 +168,8 @@ export default function AsoCaseModal({
             <button className="btn btn-soft" type="button" onClick={() => openFile(asoCase.guideFileUrl, asoCase.guideFileName)}><Eye size={14} /> Ver guia</button>
           ) : null}
         </div>
+
+        <AsoObservation alert={alert} canEdit={canEditObservation} save={saveObservation} />
 
         {error ? <p className="abandonment-error">{error}</p> : null}
         {!canEdit ? <p className="abandonment-muted">Você pode ver o processo, mas não tem permissão para avançar as etapas.</p> : null}

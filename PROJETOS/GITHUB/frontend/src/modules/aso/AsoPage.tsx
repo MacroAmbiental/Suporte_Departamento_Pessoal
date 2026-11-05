@@ -96,6 +96,25 @@ export default function AsoPage() {
     return byStage;
   }, [cases, companyNameById, data.employeeDocuments, data.employees, documentById, recentlyClosed, search, today]);
 
+  // Observações do ASO = campo "Observações" do alerta em Notificações (mesmo
+  // registro: editar aqui ou lá dá no mesmo). Alerta do ciclo do card: mesmo
+  // documento e mesmo vencimento, o aberto primeiro; antes de receber o ASO
+  // novo, vale também o alerta aberto do documento.
+  function alertForCard(card: BoardCard): DocumentAlert | undefined {
+    const alerts = data.documentAlerts.filter((alert) => alert.documentId === card.documentId);
+    const sameCycle = alerts.filter((alert) => alert.dueDate === card.dueDate);
+    const received = card.asoCase && (card.asoCase.stage === "aso_received" || card.asoCase.stage === "closed");
+    return sameCycle.find((alert) => alert.status !== "completed")
+      || sameCycle.sort((left, right) => (right.updatedAt || "").localeCompare(left.updatedAt || ""))[0]
+      || (received ? undefined : alerts.find((alert) => alert.status !== "completed"));
+  }
+
+  async function saveObservation(alert: DocumentAlert, value: string) {
+    const description = value.trim();
+    if (description === (alert.description || "")) return;
+    await data.upsertDocumentAlert({ ...alert, description, updatedAt: new Date().toISOString() });
+  }
+
   // Etapa 5: o ASO novo entra em Registros no lugar do atual e o alerta é
   // concluído, com o do próximo vencimento criado (mesma regra do "Realizado /
   // concluir" das Notificações).
@@ -267,6 +286,9 @@ export default function AsoPage() {
           currentAsoUrl={selectedCard.document?.fileUrl}
           currentAsoName={selectedCard.document?.name}
           canEdit={canEdit}
+          alert={alertForCard(selectedCard)}
+          canEditObservation={can("notifications", "edit")}
+          saveObservation={saveObservation}
           onClose={() => setSelectedKey("")}
           saveGuide={saveGuide}
           markGuideSent={markGuideSent}

@@ -939,7 +939,7 @@ export function HrControlView(props: HrControlController) {
           <section className="hr-chart-panel hr-wide-chart">
             <header className="hr-chart-header">
               <div>
-                <h2><Users size={18} /> Funcionários com faltas consecutivas</h2>
+                <h2><Users size={18} /> Funcionários com faltas</h2>
                 <span>Monitoramento pelo último ponto salvo da empresa; no absenteísmo, a sequência segue a data final filtrada</span>
               </div>
             </header>

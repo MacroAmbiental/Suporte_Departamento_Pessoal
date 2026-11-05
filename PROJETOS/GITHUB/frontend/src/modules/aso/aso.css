@@ -17,3 +17,10 @@
 .aso-case-step textarea { width: 100%; font: inherit; }
 .aso-stage-line { color: color-mix(in srgb, #36536b var(--ink-keep), #e5e7eb) !important; font-size: 13px; font-weight: 600; }
 .aso-case-files .btn { font-size: 14px; }
+/* Observações (mesmo campo da tela de Notificações). */
+.aso-case-observation { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.aso-case-observation h3 { margin: 0; font-size: 16px; color: var(--text); }
+.aso-case-observation h3 small { font-size: 12px; font-weight: 500; }
+.aso-case-observation p { margin: 0; white-space: pre-wrap; }
+.aso-case-observation textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; resize: vertical; }
+.aso-case-observation .form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }

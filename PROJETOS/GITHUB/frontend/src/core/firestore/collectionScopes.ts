@@ -141,6 +141,8 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "companies",
     "employees",
     "employeeDocuments",
+    // Observações do alerta (mesmas das Notificações) e conclusão do alerta ao receber o ASO.
+    "documentAlerts",
   ],
   classification: [
     "companies",
@@ -207,7 +209,7 @@ const realtimeScopes: Partial<Record<AppScreen, DomainCollectionName[]>> = {
   // Desligamento feito em outra tela tira a pessoa do quadro na hora.
   abandonment: ["employees"],
   // ASO trocado em Registros sai do quadro na hora.
-  aso: ["employeeDocuments"],
+  aso: ["employeeDocuments", "documentAlerts"],
 };
 
 export function collectionsForScreen(screen: AppScreen | null): DomainCollectionName[] {
