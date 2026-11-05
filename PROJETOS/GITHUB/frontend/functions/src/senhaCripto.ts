@@ -45,7 +45,7 @@ export async function gerarScrypt(senha: string): Promise<string> {
   return `scrypt$${N}$${R}$${P}$${sal.toString("base64")}$${chave.toString("base64")}`;
 }
 
-async function conferirScrypt(senha: string, guardado: string): Promise<boolean> {
+export async function conferirScrypt(senha: string, guardado: string): Promise<boolean> {
   const [tipo, n, r, p, sal, chave] = guardado.split("$");
   if (tipo !== "scrypt" || !sal || !chave) return false;
   const esperado = Buffer.from(chave, "base64");

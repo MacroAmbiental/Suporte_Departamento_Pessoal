@@ -5,6 +5,7 @@ exports.normalizeUsername = normalizeUsername;
 exports.hashLegado = hashLegado;
 exports.iguais = iguais;
 exports.gerarScrypt = gerarScrypt;
+exports.conferirScrypt = conferirScrypt;
 exports.conferirSenha = conferirSenha;
 exports.dadosSegredoNovo = dadosSegredoNovo;
 exports.podeVerSenhas = podeVerSenhas;
