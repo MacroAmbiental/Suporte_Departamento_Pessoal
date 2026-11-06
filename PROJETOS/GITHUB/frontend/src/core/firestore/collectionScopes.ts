@@ -217,8 +217,20 @@ export function collectionsForScreen(screen: AppScreen | null): DomainCollection
   return Array.from(new Set(screenScopes[screen]));
 }
 
+/**
+ * 06/11 (custo C2): coleções grandes usadas em quase toda tela ficam sempre em
+ * listener. Leitura única (getDocs) relia a coleção inteira do servidor a cada
+ * F5 / 30 min; o listener com cache persistente retoma em até ~30 min cobrando
+ * só o que mudou, e ainda mostra alteração de outra pessoa sem esperar.
+ */
+const alwaysRealtimeWhenUsed: DomainCollectionName[] = ["employees", "employeeBenefits"];
+
 export function realtimeCollectionsForScreen(screen: AppScreen | null): DomainCollectionName[] {
   if (!screen) return [];
-  return Array.from(new Set(realtimeScopes[screen] || []));
+  const used = new Set(screenScopes[screen]);
+  return Array.from(new Set([
+    ...(realtimeScopes[screen] || []),
+    ...alwaysRealtimeWhenUsed.filter((name) => used.has(name)),
+  ]));
 }
 

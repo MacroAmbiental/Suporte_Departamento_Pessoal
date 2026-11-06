@@ -132,6 +132,10 @@ export async function loadCollection<T extends Entity>(
     return normalizeCollectionSnapshot<T>(snapshot);
   }
 
+  // Listener aberto já está em dia: não precisa reler do servidor.
+  const live = collectionListenerPool.get(name);
+  if (live?.unsubscribe && live.latest) return live.latest as T[];
+
   const cached = readCollectionCache<T>(name);
   if (cached) return cached;
 
