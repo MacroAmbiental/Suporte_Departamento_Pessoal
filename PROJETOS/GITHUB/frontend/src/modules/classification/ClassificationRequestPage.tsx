@@ -4,7 +4,7 @@ import { firebaseApp } from "@/services/firebase";
 import "./classificationRequest.css";
 
 // Página pública (sem login) de "Solicitação de Mudança de Função", no lugar do
-// Google Forms do POP-RH-06. Primeiro o código de 4 números que o RH passa; só
+// Google Forms do POP-RH-06. Primeiro o código de 6 números que o RH passa; só
 // depois aparecem o formulário e a lista de colaboradores.
 
 type Colaborador = { id: string; name: string; team: string; role: string; company: string };
@@ -120,11 +120,11 @@ export default function ClassificationRequestPage() {
           <div className="classification-request-step">
             <label>
               Código de acesso *
-              <input inputMode="numeric" maxLength={4} value={codigo} onChange={(event) => setCodigo(event.target.value.replace(/[^0-9]/g, ""))} placeholder="0000" autoFocus />
+              <input inputMode="numeric" maxLength={6} value={codigo} onChange={(event) => setCodigo(event.target.value.replace(/[^0-9]/g, ""))} placeholder="000000" autoFocus />
             </label>
-            <small>Peça o código de 4 números ao RH. Ele muda a cada 15 minutos.</small>
+            <small>Peça o código de 6 números ao RH. Ele muda a cada 15 minutos.</small>
             {erro ? <p className="classification-request-error">{erro}</p> : null}
-            <button type="button" disabled={busy || codigo.length !== 4} onClick={() => void entrar()}>{busy ? "Conferindo..." : "Continuar"}</button>
+            <button type="button" disabled={busy || codigo.length < 4} onClick={() => void entrar()}>{busy ? "Conferindo..." : "Continuar"}</button>
           </div>
         ) : (
           <div className="classification-request-step">

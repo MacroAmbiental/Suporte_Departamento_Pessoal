@@ -48,7 +48,7 @@ export default function ClassificationCodeBox() {
       <KeyRound size={20} />
       <div>
         <small>Código do link de solicitação</small>
-        {erro ? <span className="classification-code-error">{erro}</span> : <strong>{codigo || "····"}</strong>}
+        {erro ? <span className="classification-code-error">{erro}</span> : <strong>{codigo || "······"}</strong>}
         {codigo && !erro ? <small>muda em {minutos}:{segundos}</small> : null}
       </div>
       <button type="button" className="btn btn-secondary" onClick={() => {

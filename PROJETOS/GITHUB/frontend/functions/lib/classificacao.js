@@ -2,51 +2,99 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.enviarSolicitacaoClassificacao = exports.conferirCodigoClassificacao = exports.codigoClassificacao = exports.CLASSIFICACAO_COLECAO = void 0;
 const node_crypto_1 = require("node:crypto");
+const node_crypto_2 = require("node:crypto");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const permissaoDP_1 = require("./permissaoDP");
+const entrarDP_1 = require("./entrarDP");
 // Link público de solicitação de mudança de função (POP-RH-06), no lugar do
-// Google Forms. Protegido por um código de 4 números que muda sozinho a cada 15
+// Google Forms. Protegido por um código de 6 números que muda sozinho a cada 15
 // minutos (como o código de app de banco): o RH/DP vê o código no sistema e passa
 // para quem vai pedir. Só o servidor calcula e confere o código.
+//
+// 06/11/2026 (segurança item 6): era 4 números com UM contador de erros para
+// todo mundo, lido e gravado sem trava (palpites em paralelo passavam do limite
+// e qualquer um bloqueava o link de todos). Agora: 6 números; contadores em
+// transação; 5 erros por endereço (IP) e 50 erros no geral em 15 min bloqueiam
+// por 15 min. Contadores em loginAttempts (coleção fechada para o navegador).
 const CODIGO_SECRET = (0, params_1.defineSecret)("CLASSIFICACAO_TOKEN_SECRET");
 const JANELA_SEGUNDOS = 15 * 60;
-const MAX_FALHAS = 5;
+const LIMITE_IP = 5;
+const LIMITE_GERAL = 50;
+const JANELA_MS = 15 * 60 * 1000;
 const BLOQUEIO_MS = 15 * 60 * 1000;
+const DIGITOS = 6;
 const REGIAO = "southamerica-east1";
 exports.CLASSIFICACAO_COLECAO = "classificationCases";
-const TENTATIVAS_DOC = "_seguranca/classificacaoTentativas";
+const COLECAO_TENTATIVAS = "loginAttempts";
+const DOC_GERAL = "classif_geral";
 function janelaAtual(agora = Date.now()) {
     return Math.floor(agora / 1000 / JANELA_SEGUNDOS);
 }
 function codigoDaJanela(janela) {
     const hmac = (0, node_crypto_1.createHmac)("sha256", CODIGO_SECRET.value()).update(`classificacao:${janela}`).digest();
-    return String(hmac.readUInt32BE(0) % 10000).padStart(4, "0");
+    return String(hmac.readUInt32BE(0) % 10 ** DIGITOS).padStart(DIGITOS, "0");
 }
 function mesmoCodigo(a, b) {
     return a.length === b.length && (0, node_crypto_1.timingSafeEqual)(Buffer.from(a), Buffer.from(b));
 }
+const MSG_BLOQUEIO = "Muitas tentativas erradas. Aguarde 15 minutos e peça um código novo ao RH.";
+const FORMATO_CODIGO = new RegExp(`^[0-9]{${DIGITOS}}$`);
+function bloqueadoAte(dados) {
+    return dados?.bloqueadoAte?.toMillis?.() ?? 0;
+}
 // Aceita o código atual e o anterior: quem recebeu no fim da janela ainda consegue enviar.
-// Erros contam para um bloqueio de 15 minutos depois de 5 tentativas.
-async function conferirCodigo(codigo) {
+async function conferirCodigo(codigo, request) {
     const db = (0, firestore_1.getFirestore)();
-    const ref = db.doc(TENTATIVAS_DOC);
-    const estado = (await ref.get()).data() || {};
+    const colecao = db.collection(COLECAO_TENTATIVAS);
+    const ipHash = (0, node_crypto_2.createHash)("sha256").update((0, entrarDP_1.ipDaChamada)(request), "utf8").digest("hex").slice(0, 32);
+    const refs = [
+        { ref: colecao.doc(`classif_ip_${ipHash}`), limite: LIMITE_IP, tipo: "classificacao-ip" },
+        { ref: colecao.doc(DOC_GERAL), limite: LIMITE_GERAL, tipo: "classificacao-geral" },
+    ];
     const agora = Date.now();
-    if (Number(estado.bloqueadoAte || 0) > agora) {
-        throw new https_1.HttpsError("resource-exhausted", "Muitas tentativas erradas. Aguarde 15 minutos e peça um código novo ao RH.");
-    }
+    const atuais = await db.getAll(...refs.map(({ ref }) => ref));
+    if (atuais.some((snap) => bloqueadoAte(snap.data()) > agora))
+        throw new https_1.HttpsError("resource-exhausted", MSG_BLOQUEIO);
     const texto = String(codigo ?? "").trim();
     const janela = janelaAtual(agora);
-    const valido = /^\d{4}$/.test(texto) && (mesmoCodigo(texto, codigoDaJanela(janela)) || mesmoCodigo(texto, codigoDaJanela(janela - 1)));
-    if (!valido) {
-        const falhas = Number(estado.falhas || 0) + 1;
-        await ref.set(falhas >= MAX_FALHAS ? { falhas: 0, bloqueadoAte: agora + BLOQUEIO_MS } : { falhas, bloqueadoAte: 0 }, { merge: true });
-        throw new https_1.HttpsError("permission-denied", "Código inválido ou vencido. Peça o código atual ao RH.");
+    const valido = FORMATO_CODIGO.test(texto)
+        && (mesmoCodigo(texto, codigoDaJanela(janela)) || mesmoCodigo(texto, codigoDaJanela(janela - 1)));
+    if (valido) {
+        // Acerto zera só o contador do próprio endereço (o geral segue a janela).
+        if (Number(atuais[0].get("falhas") || 0))
+            await refs[0].ref.set({ falhas: 0 }, { merge: true });
+        return;
     }
-    if (estado.falhas)
-        await ref.set({ falhas: 0, bloqueadoAte: 0 }, { merge: true });
+    // Erro: soma nos dois contadores numa transação (palpites em paralelo não escapam).
+    const bloqueou = await db.runTransaction(async (tx) => {
+        const snaps = await Promise.all(refs.map(({ ref }) => tx.get(ref)));
+        const instante = Date.now();
+        // Já bloqueado (palpite que chegou junto com o que bloqueou): não soma em
+        // nada, senão um único endereço em rajada esgotaria o contador geral.
+        if (snaps.some((snap) => bloqueadoAte(snap.data()) > instante))
+            return true;
+        let algumBloqueio = false;
+        refs.forEach(({ ref, limite, tipo }, index) => {
+            const dados = snaps[index].data();
+            const inicio = dados?.inicio?.toMillis?.() ?? 0;
+            const janelaNova = instante - inicio > JANELA_MS;
+            const falhas = (janelaNova ? 0 : Number(dados?.falhas || 0)) + 1;
+            const bloqueia = falhas >= limite;
+            if (bloqueia)
+                algumBloqueio = true;
+            tx.set(ref, {
+                tipo,
+                falhas: bloqueia ? 0 : falhas,
+                inicio: firestore_1.Timestamp.fromMillis(janelaNova || bloqueia ? instante : inicio),
+                bloqueadoAte: bloqueia ? firestore_1.Timestamp.fromMillis(instante + BLOQUEIO_MS) : null,
+                ultimaFalha: firestore_1.FieldValue.serverTimestamp(),
+            });
+        });
+        return algumBloqueio;
+    });
+    throw new https_1.HttpsError(bloqueou ? "resource-exhausted" : "permission-denied", bloqueou ? MSG_BLOQUEIO : "Código inválido ou vencido. Peça o código atual ao RH.");
 }
 // Lista enxuta de funcionários ativos para o solicitante escolher (só depois do código).
 async function funcionariosAtivos() {
@@ -104,7 +152,7 @@ exports.codigoClassificacao = (0, https_1.onCall)({ region: REGIAO, secrets: [CO
 });
 // Público: confere o código e devolve a lista de funcionários para o formulário.
 exports.conferirCodigoClassificacao = (0, https_1.onCall)({ region: REGIAO, secrets: [CODIGO_SECRET] }, async (request) => {
-    await conferirCodigo(request.data?.codigo);
+    await conferirCodigo(request.data?.codigo, request);
     return { funcionarios: await funcionariosAtivos() };
 });
 const texto = (valor, max = 500) => String(valor ?? "").trim().slice(0, max);
@@ -112,7 +160,7 @@ const lista = (valor, max = 30) => (Array.isArray(valor) ? valor.map((item) => t
 // Público: recebe o pedido (as mesmas perguntas do Google Forms) e abre o caso.
 exports.enviarSolicitacaoClassificacao = (0, https_1.onCall)({ region: REGIAO, secrets: [CODIGO_SECRET] }, async (request) => {
     const dados = (request.data ?? {});
-    await conferirCodigo(dados.codigo);
+    await conferirCodigo(dados.codigo, request);
     const solicitante = texto(dados.solicitante, 120);
     const funcionarioId = texto(dados.funcionarioId, 120);
     const funcaoSolicitada = texto(dados.funcaoSolicitada, 120);
