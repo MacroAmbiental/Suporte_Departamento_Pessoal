@@ -1144,10 +1144,10 @@ export default function Benefits() {
   const assignedEmployees = useMemo(() => (
     benefitCompanyEmployees.filter((employee) => assignedEmployeeIds.has(employee.id))
   ), [assignedEmployeeIds, benefitCompanyEmployees]);
-  // Apuração: todo vinculado, inclusive de outra empresa do grupo e desligados (a tela filtra pelo ponto do mês).
-  const calcEmployees = useMemo(() => data.employees
-    .filter((employee) => assignedEmployeeIds.has(employee.id))
-    .sort((a, b) => a.name.localeCompare(b.name)), [assignedEmployeeIds, data.employees]);
+  // Apuração = exatamente os marcados na aba Funcionários (ativos, de qualquer
+  // empresa do grupo). 06/11: desligado e vínculo antigo invisível não entram mais
+  // (Geisi via gente que não tinha selecionado e demitidos na planilha).
+  const calcEmployees = assignedEmployees;
   const savedCalcRule = useMemo(() => readCalcRule(selectedBenefit), [selectedBenefit]);
   const calcRule = useMemo(() => savedCalcRule || suggestedCalcRule(selectedBenefit), [savedCalcRule, selectedBenefit]);
   const [calcRuleError, setCalcRuleError] = useState("");

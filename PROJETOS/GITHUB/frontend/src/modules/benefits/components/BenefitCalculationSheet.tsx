@@ -120,15 +120,21 @@ export default function BenefitCalculationSheet({
     [departmentNameById, employees],
   );
 
-  // Desligado só entra se trabalhou no mês apurado (pedido do mês em que saiu).
-  const eligibleEmployees = useMemo(() => {
-    const presentIds = new Set(records.filter((record) => record.status === "present").map((record) => record.employeeId));
-    return employees.filter((employee) => employee.status !== "terminated" || presentIds.has(employee.id));
-  }, [employees, records]);
+  // 06/11: a lista vem pronta de Benefits.tsx = os marcados na aba Funcionários
+  // (ativos). Desligado nunca entra. Quem está "SAIU" no último registro do
+  // período continua no pedido, só ganha aviso para o DP conferir o cadastro.
+  const leftInPointIds = useMemo(() => {
+    const last = new Map<string, { date: string; status: string }>();
+    records.forEach((record) => {
+      const current = last.get(record.employeeId);
+      if (!current || record.date > current.date) last.set(record.employeeId, { date: record.date, status: String(record.status || "") });
+    });
+    return new Set([...last].filter(([, item]) => item.status.trim().toLowerCase() === "saiu").map(([id]) => id));
+  }, [records]);
 
   const rows = useMemo(
-    () => calculateBenefitRows({ employees: eligibleEmployees, records, rule, businessDays, settings }),
-    [businessDays, eligibleEmployees, records, rule, settings],
+    () => calculateBenefitRows({ employees, records, rule, businessDays, settings }),
+    [businessDays, employees, records, rule, settings],
   );
 
   const departmentOf = (employee: Employee) => departmentNameById.get(employee.departmentId) || "Sem departamento";
@@ -367,7 +373,7 @@ export default function BenefitCalculationSheet({
                 <td className="is-name">
                   <div className="benefit-sheet-name">
                     <span>{row.employee.name}</span>
-                    {row.employee.status === "terminated" ? <small className="is-terminated">Desligado</small> : null}
+                    {leftInPointIds.has(row.employee.id) ? <small className="is-terminated" title="O último registro do ponto no período está como SAIU, mas o cadastro continua ativo.">Saiu no ponto — conferir cadastro</small> : null}
                   </div>
                 </td>
                 <td>{formatCpf(row.employee.cpf)}</td>
