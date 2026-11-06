@@ -8,6 +8,7 @@ import {
   getDocs,
   getDocsFromCache,
   getDocsFromServer,
+  getCountFromServer,
   onSnapshot,
   query,
   setDoc,
@@ -447,6 +448,75 @@ export async function loadTimeRecordsRange(startDate: string, endDate: string, o
 
   rangeLoadPool.set(key, request);
   return request;
+}
+
+// ---------------------------------------------------------------------------
+// 06/11 (custo C4): leitura conferida para relatórios. Antes cada clique em
+// Exportar (Excel/PDF) relia o período inteiro do servidor (~13–15 mil leituras
+// num mês). Agora confere a versão de cada dia (documento-pai timeRecords/{data}
+// .updatedAt, atualizado em toda gravação, + contagem de registros do dia, que
+// pega exclusão) e só baixa de novo o dia que mudou. Cobre os mesmos dias da
+// leitura por pastas diárias (loadNestedRangeByDayFolders), que é a que roda hoje
+// porque o banco não tem índice de collectionGroup employeePoints.date.
+const VERIFIED_INDEX_KEY = "macro-dp:verified-day-index:v1";
+const verifiedDays = new Map<string, { version: string; records: TimeRecord[] }>();
+
+function readVerifiedIndex(): Record<string, string> {
+  try {
+    return JSON.parse(window.localStorage.getItem(VERIFIED_INDEX_KEY) || "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function saveVerifiedIndex(index: Record<string, string>) {
+  try {
+    const entries = Object.entries(index).sort(([a], [b]) => b.localeCompare(a)).slice(0, 400);
+    window.localStorage.setItem(VERIFIED_INDEX_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // Índice é só otimização.
+  }
+}
+
+export async function loadTimeRecordsRangeVerified(startDate: string, endDate: string): Promise<TimeRecord[]> {
+  const db = firestore;
+  if (!db || !startDate || !endDate || startDate > endDate) return [];
+  if (LEGACY_FALLBACK_ENABLED) return loadTimeRecordsRange(startDate, endDate, { forceRefresh: true });
+
+  const folders = await getDocsFromServer(query(
+    collection(db, TIME_RECORDS_COLLECTION),
+    where(documentId(), ">=", safeIdPart(startDate)),
+    where(documentId(), "<=", safeIdPart(endDate)),
+  ));
+  const days = folders.docs
+    .filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry.id) && entry.id >= startDate && entry.id <= endDate)
+    .map((entry) => ({ date: entry.id, updatedAt: String(entry.data().updatedAt || "") }));
+
+  const counted = await mapWithConcurrency(days, 8, async (day) => {
+    const table = dayRecordsCollection(day.date)!;
+    const count = (await getCountFromServer(table)).data().count;
+    return { ...day, table, count, version: `${day.updatedAt}|${count}` };
+  });
+  const index = readVerifiedIndex();
+  const groups = await mapWithConcurrency(counted, 6, async (day) => {
+    const memory = verifiedDays.get(day.date);
+    if (memory?.version === day.version) return memory.records;
+    let records: TimeRecord[] | null = null;
+    if (index[day.date] === day.version) {
+      try {
+        const cached = await getDocsFromCache(day.table);
+        if (cached.size === day.count) records = normalize(cached);
+      } catch {
+        records = null;
+      }
+    }
+    if (!records) records = normalize(await getDocsFromServer(day.table));
+    verifiedDays.set(day.date, { version: day.version, records });
+    index[day.date] = day.version;
+    return records;
+  });
+  saveVerifiedIndex(index);
+  return mergeLatestRecords(groups.flat());
 }
 
 /**

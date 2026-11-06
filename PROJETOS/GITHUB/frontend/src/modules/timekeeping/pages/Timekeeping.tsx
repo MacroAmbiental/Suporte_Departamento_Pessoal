@@ -50,6 +50,7 @@ import {
   cachedDuplicateTimeRecordIds,
   cachedLegacyTimeRecordIds,
   loadTimeRecordsRange,
+  loadTimeRecordsRangeVerified,
   pickPreferredTimeRecord,
 } from "@/modules/timekeeping/data/timeRecordsRepository";
 import {
@@ -5313,9 +5314,7 @@ export default function Timekeeping() {
     }
 
     const [reportRecords, XLSX] = await Promise.all([
-      loadTimeRecordsRange(reportStartDate, reportEndDate, {
-        forceRefresh: true,
-      }),
+      loadTimeRecordsRangeVerified(reportStartDate, reportEndDate),
       loadXlsxModule(),
     ]);
     const reportRecordMap = new Map(
@@ -5694,11 +5693,7 @@ export default function Timekeeping() {
       return;
     }
 
-    const reportRecords = await loadTimeRecordsRange(
-      reportStartDate,
-      reportEndDate,
-      { forceRefresh: true },
-    );
+    const reportRecords = await loadTimeRecordsRangeVerified(reportStartDate, reportEndDate);
     const reportRecordMap = new Map(
       reportRecords.map((record) => [
         `${record.employeeId}:${record.date}`,
