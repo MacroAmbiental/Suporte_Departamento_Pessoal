@@ -42,5 +42,12 @@ service cloud.firestore {
       allow read: if !colecaoFechada(colecao) && usuarioDP();
       allow write: if !colecaoFechada(colecao) && !colecaoSoServidor(colecao) && usuarioDP();
     }
+
+    // Leitura do ponto por período (collectionGroup "employeePoints": Apuração
+    // de Benefícios, Controle RH, histórico por funcionário). A regra de cima
+    // não vale para collectionGroup porque usa o nome da coleção raiz.
+    match /{caminho=**}/employeePoints/{registro} {
+      allow read: if usuarioDP();
+    }
   }
 }
