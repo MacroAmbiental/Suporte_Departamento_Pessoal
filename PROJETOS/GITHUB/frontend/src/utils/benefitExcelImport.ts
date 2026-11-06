@@ -1,3 +1,4 @@
+import { cabecalhoSessaoDP } from "@/services/firebaseSession";
 import parseExcelFile, { type RowObject } from "@/utils/xlsxImport";
 
 const PYTHON_BACKEND_URL = (import.meta.env.VITE_PYTHON_BACKEND_URL || (import.meta.env.PROD ? "https://documentacao-dp.onrender.com" : "http://127.0.0.1:8000")).replace(/\/$/, "");
@@ -54,6 +55,7 @@ export async function parseBenefitExcelFile(file: File, modelColumns: string[]):
   try {
     const response = await fetch(`${PYTHON_BACKEND_URL}/api/beneficios/importar-excel`, {
       method: "POST",
+      headers: await cabecalhoSessaoDP(),
       body: formData,
     });
     const payload = await response.json().catch(() => ({}));

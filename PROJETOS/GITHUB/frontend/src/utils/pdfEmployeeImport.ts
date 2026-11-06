@@ -1,3 +1,4 @@
+import { cabecalhoSessaoDP } from "@/services/firebaseSession";
 export interface ParsedWorkScheduleDay {
   day: string;
   enabled: boolean;
@@ -1056,6 +1057,7 @@ async function parseEmployeePdfWithPython(file: File): Promise<ParsedEmployeePdf
   const productionBackend = import.meta.env.PROD ? "https://documentacao-dp.onrender.com" : "";
   const envBase = (import.meta.env.VITE_PYTHON_IMPORT_API || import.meta.env.VITE_PYTHON_BACKEND_URL || productionBackend).replace(/\/$/, "");
   const endpoints = envBase ? [`${envBase}/api/importar-registro`, "/api/importar-registro"] : ["/api/importar-registro", "http://127.0.0.1:8000/api/importar-registro"];
+  const headers = await cabecalhoSessaoDP();
 
   for (const endpoint of endpoints) {
     const controller = new AbortController();
@@ -1063,6 +1065,7 @@ async function parseEmployeePdfWithPython(file: File): Promise<ParsedEmployeePdf
     try {
       const response = await fetch(endpoint, {
         method: "POST",
+        headers,
         body: formData,
         signal: controller.signal,
       });

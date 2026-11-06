@@ -36,6 +36,20 @@ export async function iniciarSessaoServidor(username: string, password: string):
   return true;
 }
 
+// 06/11/2026: o backend Python (documentacao-dp.onrender.com) só aceita
+// chamada com o token da sessão do DP no cabeçalho Authorization.
+export async function cabecalhoSessaoDP(): Promise<Record<string, string>> {
+  try {
+    if (!firebaseApp) return {};
+    const auth = getAuth(firebaseApp);
+    await auth.authStateReady();
+    const token = await auth.currentUser?.getIdToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 // Uid da sessão já salva no navegador (espera o Firebase carregar).
 export async function uidSessaoSalva(): Promise<string | null> {
   if (!firebaseApp) return null;
