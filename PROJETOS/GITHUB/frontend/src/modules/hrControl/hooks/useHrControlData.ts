@@ -3,9 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { firestore } from "@/services/firebase";
 import { loadHrPointRange } from "@/modules/hrControl/utils/hrPointCache";
 import { readHrSession, type CachedRange } from "@/modules/hrControl/utils/hrSessionCache";
-import { subscribeTimeRecordsForDay } from "@/modules/timekeeping/data/timeRecordsRepository";
 import type { TimeRecord, TimekeepingDayTable } from "@/types/domain";
-import { isIsoDate } from "@/modules/hrControl/domain/hrControlModel";
 
 export type UseHrControlDataArgs = {
   userId?: string;
@@ -214,25 +212,10 @@ export function useHrControlData({
     };
   }, [activeView, changedPointDatesRef, comparisonRangeKey, comparisonSavedDayTables, comparisonSavedDaysKey, comparisonSavedDaysStatus, comparisonWindow.currentEnd, comparisonWindow.previousStart, dataRevision, invalidRange, monthAnchorDate, monthlyStartDate, userId]);
 
-  const streakDatesKey = "";
-
-  useEffect(() => {
-    if (!savedDayTablesReady || activeView !== "absenceMonitoring") return undefined;
-    const dates = new Set(savedDayTables.map((table) => table.date).filter(isIsoDate));
-    if (!dates.size) {
-      setStreakPointData({ key: "", status: "ready", records: [] });
-      return undefined;
-    }
-
-    const unsubscribers = Array.from(dates).map((date) => subscribeTimeRecordsForDay(date, (nextRecords) => {
-      setStreakPointData({ key: date, status: "ready", records: nextRecords });
-    }, (error) => {
-      console.warn("Não foi possível acompanhar os pontos usados na sequência de faltas.", error);
-      setStreakPointData({ key: date, status: "error", records: [] });
-    }));
-
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-  }, [activeView, savedDayTables, savedDayTablesReady]);
+  // 06/11 (custo C1): aqui havia um listener para CADA dia de ponto salvo ao abrir
+  // o Monitoramento (~100 mil leituras por abertura). O resultado era descartado
+  // (chave = uma data, nunca igual à de useHrControl) e ainda reiniciava o cálculo
+  // certo. A sequência de faltas é carregada só em useHrControl (≤ 11 dias por pessoa).
 
   return {
     records,
