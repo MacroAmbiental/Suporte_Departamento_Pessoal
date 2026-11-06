@@ -1,6 +1,7 @@
-import { collection, doc, getDocs, onSnapshot, orderBy, query, where, writeBatch } from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query, writeBatch } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { firestore } from "@/services/firebase";
+import { cachedAbsenceDay, dayVersionsFrom, ensureAbsenceDays } from "@/modules/hrControl/utils/absenceDayCache";
 import { employeeEffectiveStatusForDate } from "@/modules/timekeeping/hooks/useTimekeepingModel";
 import type { Employee, TimekeepingDayTable, User } from "@/types/domain";
 import {
@@ -26,9 +27,6 @@ function shiftDate(date: string, days: number) {
   return value.toISOString().slice(0, 10);
 }
 
-// Faltas confirmadas e pendentes por dia, guardadas enquanto o app está aberto (sobrevive a remontar a tela).
-const absenceCache = new Map<string, { version: string; employeeIds: string[]; pendingIds: string[] }>();
-
 type AbsencesByEmployee = { confirmed: Map<string, Set<string>>; pending: Map<string, Set<string>> };
 
 function absencesFromCache(dates: string[]): AbsencesByEmployee {
@@ -40,7 +38,7 @@ function absencesFromCache(dates: string[]): AbsencesByEmployee {
     target.set(employeeId, set);
   };
   dates.forEach((date) => {
-    const entry = absenceCache.get(date);
+    const entry = cachedAbsenceDay(date);
     entry?.employeeIds.forEach((employeeId) => add(confirmed, employeeId, date));
     entry?.pendingIds?.forEach((employeeId) => add(pending, employeeId, date));
   });
@@ -70,11 +68,7 @@ export function useAbandonmentCases({ employees, savedDayTables, isUsefulDay, us
     return completeSavedDates(savedDayTables.filter((table) => table.date && table.date >= from && table.date <= today));
   }, [savedDayTables, today]);
   // Versão de cada dia (data de alteração do dia salvo): o cache só busca de novo o dia que mudou.
-  const versionByDate = useMemo(() => {
-    const versions = new Map<string, string>();
-    savedDayTables.forEach((table) => versions.set(table.date, `${versions.get(table.date) || ""}|${table.updatedAt || table.savedAt || ""}`));
-    return versions;
-  }, [savedDayTables]);
+  const versionByDate = useMemo(() => dayVersionsFrom(savedDayTables), [savedDayTables]);
   const datesKey = savedDatesDesc.map((date) => `${date}${versionByDate.get(date) || ""}`).join(",");
 
   // Só as faltas (confirmadas e pendentes) de cada dia completo (consulta pequena por dia, sem carregar o ponto inteiro).
@@ -82,26 +76,8 @@ export function useAbandonmentCases({ employees, savedDayTables, isUsefulDay, us
     if (!firestore || !savedDatesDesc.length) return undefined;
     let active = true;
     setStreakError(false);
-    const missing = savedDatesDesc.filter((date) => {
-      const entry = absenceCache.get(date);
-      return !entry || entry.version !== versionByDate.get(date) || !entry.pendingIds;
-    });
     const publish = () => setAbsentDatesByEmployee(absencesFromCache(savedDatesDesc));
-    if (!missing.length) { publish(); return undefined; }
-    Promise.all(missing.map(async (date) => {
-      const snapshot = await getDocs(query(
-        collection(firestore!, "timeRecords", date, "employeePoints"),
-        where("status", "in", ["absence_confirmed", "absence_pending"]),
-      ));
-      const idsWith = (status: string) => snapshot.docs
-        .filter((entry) => entry.data().status === status)
-        .map((entry) => String(entry.data().employeeId || entry.id));
-      absenceCache.set(date, {
-        version: versionByDate.get(date) || "",
-        employeeIds: idsWith("absence_confirmed"),
-        pendingIds: idsWith("absence_pending"),
-      });
-    }))
+    ensureAbsenceDays(savedDatesDesc, versionByDate)
       .then(() => { if (active) publish(); })
       .catch((error) => {
         console.warn("Não foi possível carregar as faltas para o processo de abandono.", error);

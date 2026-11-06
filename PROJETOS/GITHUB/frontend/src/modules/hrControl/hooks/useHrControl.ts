@@ -12,7 +12,7 @@ import { useDomainData } from "@/hooks/useDomainData";
 import { useAuth } from "@/hooks/useAuth";
 import { cidDetailsFromValue } from "@/modules/timekeeping/data/cidCatalog";
 import { employeeEffectiveStatusForDate } from "@/modules/timekeeping/hooks/useTimekeepingModel";
-import { subscribeTimeRecordsForDay } from "@/modules/timekeeping/data/timeRecordsRepository";
+import { cachedAbsenceDay, dayVersionsFrom, ensureAbsenceDays } from "@/modules/hrControl/utils/absenceDayCache";
 import { employeesWithElevenConfirmedAbsences } from "@/modules/hrControl/utils/absenteeismStreak";
 import { rollingMonthKeys } from "@/modules/hrControl/utils/rollingMonths";
 import { monthComparisonWindow, relativePercentChange, shiftMonthClamped } from "@/modules/hrControl/utils/monthComparison";
@@ -975,27 +975,38 @@ export function useHrControl() {
     Array.from(new Set(Array.from(streakDatesByEmployee.values()).flat())).sort(),
   [streakDatesByEmployee]);
   const streakDatesKey = streakDates.join(",");
+  // 06/11 (custo C3): antes abria listener do ponto INTEIRO de cada data da
+  // sequência (~15 dias × ~380 registros, escutando sem parar). Agora busca só
+  // as faltas de cada dia, com cache por versão do dia salvo (mesmo do Abandono).
+  const streakVersionByDate = useMemo(
+    () => dayVersionsFrom(savedDayTables, annualSavedDayTables),
+    [annualSavedDayTables, savedDayTables],
+  );
+  const streakVersionsKey = streakDates.map((date) => `${date}${streakVersionByDate.get(date) || ""}`).join(",");
   useEffect(() => {
     if (!savedDayTablesReady) return undefined;
-    if (streakPointData.key !== streakDatesKey || streakPointData.status !== "ready") {
-      setStreakPointData({ key: streakDatesKey, status: streakDates.length ? "loading" : "ready", records: [] });
+    if (!streakDates.length) {
+      setStreakPointData({ key: streakDatesKey, status: "ready", records: [] });
+      return undefined;
     }
-    if (!streakDates.length) return undefined;
-    const byDate = new Map<string, TimeRecord[]>();
-    let failed = false;
-    const unsubscribers = streakDates.map((date) => subscribeTimeRecordsForDay(date, (records) => {
-      if (failed) return;
-      byDate.set(date, records);
-      if (byDate.size === streakDates.length) {
-        setStreakPointData({ key: streakDatesKey, status: "ready", records: Array.from(byDate.values()).flat() });
-      }
-    }, (error) => {
-      console.warn("Não foi possível acompanhar os pontos usados na sequência de faltas.", error);
-      failed = true;
-      setStreakPointData({ key: streakDatesKey, status: "error", records: [] });
-    }));
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-  }, [savedDayTablesReady, streakDatesKey, streakDates, streakPointData.key, streakPointData.status]);
+    let active = true;
+    setStreakPointData((current) => current.key === streakDatesKey && current.status === "ready"
+      ? current : { key: streakDatesKey, status: "loading", records: [] });
+    ensureAbsenceDays(streakDates, streakVersionByDate)
+      .then(() => {
+        if (!active) return;
+        const records = streakDates.flatMap((date) => (cachedAbsenceDay(date)?.employeeIds || [])
+          .map((employeeId) => ({ employeeId, date, status: "absence_confirmed" }) as TimeRecord));
+        setStreakPointData({ key: streakDatesKey, status: "ready", records });
+      })
+      .catch((error) => {
+        console.warn("Não foi possível consultar as faltas usadas na sequência de faltas.", error);
+        if (active) setStreakPointData({ key: streakDatesKey, status: "error", records: [] });
+      });
+    return () => { active = false; };
+    // streakVersionsKey resume as datas e as versões de cada dia.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedDayTablesReady, streakVersionsKey]);
   const excludedFromAbsenteeism = useMemo(() => {
     if (!savedDayTablesReady || streakPointData.status !== "ready" || streakPointData.key !== streakDatesKey) return new Set<string>();
     return employeesWithElevenConfirmedAbsences(streakDatesByEmployee, streakPointData.records);
