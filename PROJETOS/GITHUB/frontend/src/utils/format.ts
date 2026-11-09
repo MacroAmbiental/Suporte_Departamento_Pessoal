@@ -133,3 +133,18 @@ export function badgeClass(value: string): string {
   };
   return map[value] ?? "is-neutral";
 }
+
+/** Escapa texto para montar HTML em string (relatórios abertos com document.write). */
+export function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/** formatDate já escapado para HTML (formatDate devolve o texto cru se não for data). */
+export function formatDateHtml(value?: string) {
+  return escapeHtml(formatDate(value));
+}

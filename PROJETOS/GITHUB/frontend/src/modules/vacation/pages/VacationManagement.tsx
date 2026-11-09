@@ -6,7 +6,7 @@ import { useDomainData } from "@/hooks/useDomainData";
 import { useAuth } from "@/hooks/useAuth";
 import VacationReportImport from "@/modules/vacation/components/VacationReportImport";
 import type { Employee } from "@/types/domain";
-import { formatDate, todayISO } from "@/utils/format";
+import { escapeHtml, formatDate, formatDateHtml, todayISO } from "@/utils/format";
 import {
   buildAcquisitionPeriods,
   bucketMeta,
@@ -254,14 +254,14 @@ export default function VacationManagement() {
       )
       .map((v) => {
         const name = empById.get(v.employeeId)?.name || "—";
-        return `<tr><td>${name}</td><td>${v.acquisitionYear || "—"}</td><td>${v.startDate ? formatDate(v.startDate) : "—"}</td><td>${v.endDate ? formatDate(v.endDate) : "—"}</td><td style="text-align:center">${v.days || 0}</td><td style="text-align:center">${v.daysSold || 0}</td><td>${v.motivo || v.notes || ""}</td></tr>`;
+        return `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(v.acquisitionYear || "—")}</td><td>${v.startDate ? formatDateHtml(v.startDate) : "—"}</td><td>${v.endDate ? formatDateHtml(v.endDate) : "—"}</td><td style="text-align:center">${escapeHtml(v.days || 0)}</td><td style="text-align:center">${escapeHtml(v.daysSold || 0)}</td><td>${escapeHtml(v.motivo || v.notes || "")}</td></tr>`;
       })
       .join("");
     const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Programação de Férias — Macro Ambiental</title>
 <style>body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;padding:24px}h1{font-size:16px;margin:0}.muted{color:#64748b;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px;font-size:12px}th,td{border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left}th{background:#f1f5f9}.foot{margin-top:24px;font-size:11px;color:#64748b;border-top:1px solid #cbd5e1;padding-top:8px}</style></head>
 <body><div style="display:flex;justify-content:space-between;align-items:flex-start">
 <div><h1>MACRO AMBIENTAL</h1><div class="muted">PROGRAMAÇÃO DE FÉRIAS</div></div>
-<div class="muted" style="text-align:right">Data base: ${formatDate(today)}<br/>Emissão: ${new Date().toLocaleString("pt-BR")}</div></div>
+<div class="muted" style="text-align:right">Data base: ${formatDateHtml(today)}<br/>Emissão: ${new Date().toLocaleString("pt-BR")}</div></div>
 <table><thead><tr><th>Funcionário</th><th>Período aquisitivo</th><th>Início gozo</th><th>Fim gozo</th><th>Dias</th><th>Vendidos</th><th>Motivo/Obs.</th></tr></thead>
 <tbody>${rowsHtml || '<tr><td colspan="7">Nenhuma férias registrada.</td></tr>'}</tbody></table>
 <div class="foot">Relatório gerado pelo sistema de Gestão da Macro Ambiental.</div></body></html>`;
@@ -708,17 +708,17 @@ function VacationEditorModal({
             .map((v) => `${formatDate(v.soldStartDate!)} a ${formatDate(v.soldEndDate!)}`)
             .join("; ") || (vendidos ? `${vendidos} dias` : "—");
         const direito = period.lost
-          ? `0 — Perdido (art. 133): ${period.lost.reason}; novo período a partir de ${formatDate(period.lost.returnISO)}`
+          ? `0 — Perdido (art. 133): ${escapeHtml(period.lost.reason)}; novo período a partir de ${formatDateHtml(period.lost.returnISO)}`
           : right.lost ? "0 — Direito perdido" : `${right.days} dias`;
         const tdStyle = right.lost ? ' style="color:#b91c1c;font-weight:700"' : "";
-        return `<tr><td>${formatDate(period.startISO)} a ${formatDate(period.endISO)}</td><td>${formatDate(period.limitISO)}</td><td style="text-align:center">${count}</td><td${tdStyle}>${direito}</td><td style="text-align:center">${gozados || 0}</td><td>${vendidasTxt}</td><td style="text-align:center">${pendentes}</td><td>${feriasTxt}</td></tr>`;
+        return `<tr><td>${formatDateHtml(period.startISO)} a ${formatDateHtml(period.endISO)}</td><td>${formatDateHtml(period.limitISO)}</td><td style="text-align:center">${escapeHtml(count)}</td><td${tdStyle}>${direito}</td><td style="text-align:center">${escapeHtml(gozados || 0)}</td><td>${escapeHtml(vendidasTxt)}</td><td style="text-align:center">${escapeHtml(pendentes)}</td><td>${escapeHtml(feriasTxt)}</td></tr>`;
       })
       .join("");
-    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de Férias — ${employee.name}</title>
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de Férias — ${escapeHtml(employee.name)}</title>
 <style>body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;padding:24px}h1{font-size:16px;margin:0}.muted{color:#64748b;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px;font-size:12px}th,td{border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left}th{background:#f1f5f9}.foot{margin-top:24px;font-size:11px;color:#64748b;border-top:1px solid #cbd5e1;padding-top:8px}</style></head>
 <body><div style="display:flex;justify-content:space-between;align-items:flex-start">
-<div><h1>MACRO AMBIENTAL</h1><div class="muted">FICHA DE FÉRIAS — ${employee.name}</div><div class="muted">Admissão: ${employee.admissionDate ? formatDate(employee.admissionDate) : "—"}</div></div>
-<div class="muted" style="text-align:right">Data base: ${formatDate(today)}<br/>Emissão: ${new Date().toLocaleString("pt-BR")}</div></div>
+<div><h1>MACRO AMBIENTAL</h1><div class="muted">FICHA DE FÉRIAS — ${escapeHtml(employee.name)}</div><div class="muted">Admissão: ${employee.admissionDate ? formatDateHtml(employee.admissionDate) : "—"}</div></div>
+<div class="muted" style="text-align:right">Data base: ${formatDateHtml(today)}<br/>Emissão: ${new Date().toLocaleString("pt-BR")}</div></div>
 <table><thead><tr><th>Período aquisitivo</th><th>Limite de gozo</th><th>Faltas</th><th>Dias de direito</th><th>Gozados</th><th>Vendidas (período)</th><th>Pendentes</th><th>Férias lançadas</th></tr></thead>
 <tbody>${rowsHtml || '<tr><td colspan="8">Sem períodos aquisitivos.</td></tr>'}</tbody></table>
 <div class="foot">Dias de direito conforme art. 130 da CLT (faltas injustificadas no período aquisitivo). Pendentes = dias de direito − gozados − vendidos. Relatório gerado pelo sistema de Gestão da Macro Ambiental.</div></body></html>`;
