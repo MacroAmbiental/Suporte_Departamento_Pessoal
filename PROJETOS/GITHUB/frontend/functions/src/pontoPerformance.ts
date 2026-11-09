@@ -1,7 +1,9 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { applicationDefault } from "firebase-admin/app";
+import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
+import { documentosDoDia, paginaDaCopia, pedidoCacheavel, type DocumentoRest } from "./pontoPerformanceCache";
 
 // Link só de leitura do ponto para a planilha Custo x Faturamento da
 // Performance (03/11/2026). Antes a planilha lia o banco do DP direto pela
@@ -93,6 +95,30 @@ export function camposForcados(caminho: string): string[] | null {
 }
 
 const credencial = applicationDefault();
+if (!getApps().length) initializeApp();
+
+async function lerRest(caminho: string, parametros: URLSearchParams) {
+  const { access_token: token } = await credencial.getAccessToken();
+  const url = `${BASE}${caminho.split("/").map(encodeURIComponent).join("/")}${parametros.size ? `?${parametros}` : ""}`;
+  const resposta = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  return { status: resposta.status, corpo: await resposta.text() };
+}
+
+// Todas as páginas do dia, sem máscara (a cópia guarda o documento inteiro).
+async function lerDiaInteiro(caminho: string): Promise<DocumentoRest[]> {
+  const documentos: DocumentoRest[] = [];
+  let pageToken = "";
+  do {
+    const parametros = new URLSearchParams({ pageSize: "300" });
+    if (pageToken) parametros.set("pageToken", pageToken);
+    const { status, corpo } = await lerRest(caminho, parametros);
+    if (status !== 200) throw new Error(`REST ${status}`);
+    const json = JSON.parse(corpo) as { documents?: DocumentoRest[]; nextPageToken?: string };
+    documentos.push(...(json.documents || []));
+    pageToken = json.nextPageToken || "";
+  } while (pageToken);
+  return documentos;
+}
 
 export const pontoPerformance = onRequest(
   { region: "southamerica-east1", secrets: [CHAVE], cors: false, timeoutSeconds: 120 },
@@ -135,12 +161,26 @@ export const pontoPerformance = onRequest(
       for (const campo of forcados) parametros.append("mask.fieldPaths", campo);
     }
 
-    const { access_token: token } = await credencial.getAccessToken();
-    const url = `${BASE}${caminho.split("/").map(encodeURIComponent).join("/")}${parametros.size ? `?${parametros}` : ""}`;
-    const resposta = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    const corpo = await resposta.text();
+    const cacheavel = pedidoCacheavel(caminho, parametros);
+    if (cacheavel) {
+      try {
+        const { documentos, versao, origem } = await documentosDoDia(getFirestore(), cacheavel.data, () => lerDiaInteiro(caminho));
+        console.log("[PONTO_PERFORMANCE]", { caminho, status: 200, pagina: parametros.has("pageToken"), origem });
+        res.status(200).type("application/json").send(JSON.stringify(paginaDaCopia(documentos, parametros, versao)));
+        return;
+      } catch (erro) {
+        // Qualquer falha na cópia: segue o caminho antigo (REST direto).
+        console.error("[PONTO_PERFORMANCE] cópia falhou, usando REST", erro);
+      }
+    }
 
-    console.log("[PONTO_PERFORMANCE]", { caminho, status: resposta.status, pagina: parametros.has("pageToken") });
-    res.status(resposta.status).type("application/json").send(corpo);
+    const { status, corpo } = await lerRest(caminho, parametros);
+    console.log("[PONTO_PERFORMANCE]", {
+      caminho, status, pagina: parametros.has("pageToken"), origem: "rest",
+      // Diagnóstico da cópia (C5): quais parâmetros vieram (sem o token/chave).
+      parametros: [...parametros.entries()].filter(([nome]) => nome !== "pageToken").map(([nome, valor]) => `${nome}=${valor}`).join("&"),
+      tokenRest: parametros.has("pageToken") && !String(parametros.get("pageToken")).startsWith("ppc1."),
+    });
+    res.status(status).type("application/json").send(corpo);
   },
 );

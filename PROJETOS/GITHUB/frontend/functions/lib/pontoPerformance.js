@@ -5,8 +5,10 @@ exports.caminhoPermitido = caminhoPermitido;
 exports.camposForcados = camposForcados;
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
+const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
+const pontoPerformanceCache_1 = require("./pontoPerformanceCache");
 // Link só de leitura do ponto para a planilha Custo x Faturamento da
 // Performance (03/11/2026). Antes a planilha lia o banco do DP direto pela
 // API REST do Firestore, sem login; com o banco fechado ela passa por aqui.
@@ -93,6 +95,31 @@ function camposForcados(caminho) {
     return null;
 }
 const credencial = (0, app_1.applicationDefault)();
+if (!(0, app_1.getApps)().length)
+    (0, app_1.initializeApp)();
+async function lerRest(caminho, parametros) {
+    const { access_token: token } = await credencial.getAccessToken();
+    const url = `${BASE}${caminho.split("/").map(encodeURIComponent).join("/")}${parametros.size ? `?${parametros}` : ""}`;
+    const resposta = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    return { status: resposta.status, corpo: await resposta.text() };
+}
+// Todas as páginas do dia, sem máscara (a cópia guarda o documento inteiro).
+async function lerDiaInteiro(caminho) {
+    const documentos = [];
+    let pageToken = "";
+    do {
+        const parametros = new URLSearchParams({ pageSize: "300" });
+        if (pageToken)
+            parametros.set("pageToken", pageToken);
+        const { status, corpo } = await lerRest(caminho, parametros);
+        if (status !== 200)
+            throw new Error(`REST ${status}`);
+        const json = JSON.parse(corpo);
+        documentos.push(...(json.documents || []));
+        pageToken = json.nextPageToken || "";
+    } while (pageToken);
+    return documentos;
+}
 exports.pontoPerformance = (0, https_1.onRequest)({ region: "southamerica-east1", secrets: [CHAVE], cors: false, timeoutSeconds: 120 }, async (req, res) => {
     if (req.method !== "GET") {
         res.status(405).json({ erro: "Só leitura (GET)." });
@@ -132,11 +159,26 @@ exports.pontoPerformance = (0, https_1.onRequest)({ region: "southamerica-east1"
         for (const campo of forcados)
             parametros.append("mask.fieldPaths", campo);
     }
-    const { access_token: token } = await credencial.getAccessToken();
-    const url = `${BASE}${caminho.split("/").map(encodeURIComponent).join("/")}${parametros.size ? `?${parametros}` : ""}`;
-    const resposta = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    const corpo = await resposta.text();
-    console.log("[PONTO_PERFORMANCE]", { caminho, status: resposta.status, pagina: parametros.has("pageToken") });
-    res.status(resposta.status).type("application/json").send(corpo);
+    const cacheavel = (0, pontoPerformanceCache_1.pedidoCacheavel)(caminho, parametros);
+    if (cacheavel) {
+        try {
+            const { documentos, versao, origem } = await (0, pontoPerformanceCache_1.documentosDoDia)((0, firestore_1.getFirestore)(), cacheavel.data, () => lerDiaInteiro(caminho));
+            console.log("[PONTO_PERFORMANCE]", { caminho, status: 200, pagina: parametros.has("pageToken"), origem });
+            res.status(200).type("application/json").send(JSON.stringify((0, pontoPerformanceCache_1.paginaDaCopia)(documentos, parametros, versao)));
+            return;
+        }
+        catch (erro) {
+            // Qualquer falha na cópia: segue o caminho antigo (REST direto).
+            console.error("[PONTO_PERFORMANCE] cópia falhou, usando REST", erro);
+        }
+    }
+    const { status, corpo } = await lerRest(caminho, parametros);
+    console.log("[PONTO_PERFORMANCE]", {
+        caminho, status, pagina: parametros.has("pageToken"), origem: "rest",
+        // Diagnóstico da cópia (C5): quais parâmetros vieram (sem o token/chave).
+        parametros: [...parametros.entries()].filter(([nome]) => nome !== "pageToken").map(([nome, valor]) => `${nome}=${valor}`).join("&"),
+        tokenRest: parametros.has("pageToken") && !String(parametros.get("pageToken")).startsWith("ppc1."),
+    });
+    res.status(status).type("application/json").send(corpo);
 });
 //# sourceMappingURL=pontoPerformance.js.map

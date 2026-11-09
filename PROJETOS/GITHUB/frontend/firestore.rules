@@ -35,7 +35,7 @@ service cloud.firestore {
 
     // Nem leitura: só as functions (Admin SDK) usam.
     function colecaoFechada(colecao) {
-      return colecao in ["loginAttempts", "systemUserSecrets", "senhaConsultas"];
+      return colecao in ["loginAttempts", "systemUserSecrets", "senhaConsultas", "pontoPerformanceCache"];
     }
 
     match /{colecao}/{document=**} {
