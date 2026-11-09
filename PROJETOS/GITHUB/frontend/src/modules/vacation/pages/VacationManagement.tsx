@@ -32,6 +32,8 @@ import { employeeVacationLeaveData, loadPointLeaveDays, type PointLeaveDays } fr
 import { loadConfirmedAbsencesForEmployee } from "@/modules/timekeeping/data/timeRecordsRepository";
 import { sincronizarAfastamentoSecullum } from "@/modules/afastados/data/afastamentosSecullum";
 import { INICIO_JUSTIFICATIVAS_SECULLUM } from "@/modules/timekeeping/services/secullumTechnicalAuth";
+import { pointSettingsForCompany } from "@/modules/benefits/calculation/benefitCalculation";
+import { vacationStartBlockReason, weeklyRestLabel, weeklyRestWeekdays } from "@/modules/vacation/utils/vacationStartRule";
 
 // Gozo das férias vai para o Secullum como afastamento FÉRIAS (o DP é a fonte da verdade).
 const cpfDigits = (cpf?: string) => {
@@ -554,7 +556,7 @@ function VacationEditorModal({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const { confirmAccessKey } = useDomainData();
+  const { confirmAccessKey, timekeepingColumns } = useDomainData();
   const { user } = useAuth();
   const [sendingId, setSendingId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -606,19 +608,16 @@ function VacationEditorModal({
   const today = todayISO();
   const admission = employee.admissionDate || "";
   const admYear = admission ? new Date(`${admission}T00:00:00`).getFullYear() : 0;
-  const folgaWeekdays = useMemo(() => {
-    const map: Record<string, number> = {
-      domingo: 0, segunda: 1, terça: 2, terca: 2, quarta: 3, quinta: 4, sexta: 5, sábado: 6, sabado: 6,
-    };
-    const set = new Set<number>();
-    (employee.workScheduleDays || []).forEach((d) => {
-      if (!d.enabled) {
-        const wd = map[d.day.trim().toLowerCase()];
-        if (wd !== undefined) set.add(wd);
-      }
-    });
-    return set;
-  }, [employee.workScheduleDays]);
+  // DSR (domingo, ou a folga da escala de quem trabalha no domingo) + feriados do Ponto.
+  const restWeekdays = useMemo(() => weeklyRestWeekdays(employee.workScheduleDays), [employee.workScheduleDays]);
+  // Soma os feriados da configuração geral do Ponto com os da empresa do funcionário.
+  const holidays = useMemo(() => {
+    const columns = timekeepingColumns || [];
+    return [
+      ...pointSettingsForCompany(columns.filter((c) => !c.companyId)).holidays,
+      ...(employee.companyId ? pointSettingsForCompany(columns, employee.companyId).holidays : []),
+    ];
+  }, [timekeepingColumns, employee.companyId]);
   const periods = useMemo(
     () => buildAcquisitionPeriods(employee.admissionDate, today, leave, baseline),
     [employee.admissionDate, leave, today, baseline],
@@ -769,15 +768,11 @@ function VacationEditorModal({
         return;
       }
     }
-    if (start && folgaWeekdays.size > 0) {
-      const s = new Date(`${start}T00:00:00`);
-      for (const offset of [1, 2]) {
-        const d = new Date(s);
-        d.setDate(d.getDate() + offset);
-        if (folgaWeekdays.has(d.getDay())) {
-          setError("Pela CLT (art. 134, §3º), as férias não podem iniciar nos 2 dias que antecedem a folga/repouso semanal do funcionário. Escolha outra data de início.");
-          return;
-        }
+    if (start) {
+      const blockReason = vacationStartBlockReason(start, restWeekdays, holidays);
+      if (blockReason) {
+        setError(blockReason);
+        return;
       }
     }
     if (rightLost) {
@@ -964,11 +959,9 @@ function VacationEditorModal({
             <p style={{ fontSize: 13, color: "var(--text)", margin: "8px 0 0" }}>
               Dias gozados: <strong>{days || "—"}</strong>
             </p>
-            {folgaWeekdays.size > 0 ? (
-              <p style={{ fontSize: 12, color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)", margin: "6px 0 0" }} data-testid="vacation-clt-hint">
-                CLT art. 134, §3º: as férias não podem iniciar nos 2 dias que antecedem a folga/repouso semanal do funcionário.
-              </p>
-            ) : null}
+            <p style={{ fontSize: 12, color: "color-mix(in srgb, #b45309 var(--ink-keep), #e5e7eb)", margin: "6px 0 0" }} data-testid="vacation-clt-hint">
+              CLT art. 134, §3º: as férias não podem iniciar nos 2 dias que antecedem feriado ou o repouso semanal ({weeklyRestLabel(restWeekdays)}).
+            </p>
 
             {selectedPeriodRow ? (
               <div data-testid="vacation-alloc-summary" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "var(--surface-muted)", border: "1px solid var(--border)", fontSize: 13, color: "var(--text)" }}>

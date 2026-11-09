@@ -183,6 +183,7 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "accessKeys",
   ],
   vacation: [
+    "timekeepingColumns",
     "companies",
     "companyGroups",
     "companyGroupCompanies",
