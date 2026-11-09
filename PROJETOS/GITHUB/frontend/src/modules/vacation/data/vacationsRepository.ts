@@ -25,7 +25,8 @@ export interface Vacation {
   motivo?: string;
   notes?: string;
   /** "lancado" = o gozo está no Secullum como FÉRIAS; "sem-cpf" = fora do Secullum; "" = só no DP. */
-  secullum?: "lancado" | "sem-cpf" | "";
+  // "manual": lançado à mão no Secullum pelo DP (recontratado: a API grava no cadastro demitido).
+  secullum?: "lancado" | "manual" | "sem-cpf" | "";
   createdAt: string;
   updatedAt: string;
 }

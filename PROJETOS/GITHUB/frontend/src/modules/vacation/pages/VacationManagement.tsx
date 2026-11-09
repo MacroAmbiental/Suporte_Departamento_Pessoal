@@ -569,6 +569,9 @@ function VacationEditorModal({
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Recontratado: a API do Secullum grava pelo CPF no cadastro demitido. O DP lança à
+  // mão no cadastro ativo e registra aqui sem chamar o Secullum (caso Heliel, 09/11/2026).
+  const [manualOffer, setManualOffer] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
   const days = daysBetweenInclusive(start, end);
@@ -584,6 +587,7 @@ function VacationEditorModal({
     setMotivo("");
     setNotes("");
     setError("");
+    setManualOffer(false);
   }
 
   function launchForPeriod(year: number) {
@@ -732,7 +736,8 @@ function VacationEditorModal({
     w.print();
   }
 
-  async function handleSave() {
+  async function handleSave(skipSecullum = false) {
+    setManualOffer(false);
     const hasGozo = Boolean(start || end);
     const hasVenda = Boolean(soldStart || soldEnd);
     if (!hasGozo && !hasVenda && !motivo.trim()) {
@@ -811,7 +816,10 @@ function VacationEditorModal({
       const cpf = cpfDigits(employee.cpf);
       const hasGozo = goesToSecullum({ startDate: start, endDate: end, days });
       let secullum: Vacation["secullum"] = cpf ? "" : "sem-cpf";
-      if (cpf) {
+      if (cpf && (skipSecullum || existing?.secullum === "manual")) {
+        // Lançado à mão no Secullum: o sistema não envia nem altera nada lá.
+        secullum = hasGozo ? "manual" : "";
+      } else if (cpf) {
         const wasSent = existing?.secullum === "lancado" && existing.startDate && existing.endDate;
         if (wasSent && !hasGozo) {
           await sincronizarAfastamentoSecullum(user?.id, { acao: "apagar", cpf, inicio: existing.startDate, fim: existing.endDate, justificativa: "FÉRIAS" });
@@ -844,11 +852,17 @@ function VacationEditorModal({
         secullum,
       });
       const wasEditing = Boolean(editingId);
+      const manualChanged = existing?.secullum === "manual" && (existing.startDate !== start || existing.endDate !== end);
       resetForm();
       await onSaved();
-      window.alert(wasEditing ? "Alterações salvas com sucesso!" : "Férias registradas com sucesso!");
+      window.alert(
+        (wasEditing ? "Alterações salvas com sucesso!" : "Férias registradas com sucesso!") +
+        (manualChanged ? " Estas férias foram lançadas à mão no Secullum: ajuste lá também, no cadastro ativo." : ""),
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao salvar as férias.");
+      const message = e instanceof Error ? e.message : "Falha ao salvar as férias.";
+      setError(message);
+      setManualOffer(/outro cadastro (deste|do) CPF|outro cadastro do Secullum|mais de um cadastro ativo/i.test(message));
     } finally {
       setBusy(false);
     }
@@ -866,6 +880,9 @@ function VacationEditorModal({
       }
       await deleteVacation(id);
       await onSaved();
+      if (vacation?.secullum === "manual") {
+        window.alert("Férias excluídas do sistema. Elas foram lançadas à mão no Secullum: exclua lá também, no cadastro ativo.");
+      }
     } catch (e) {
       setError(`Não foi possível excluir: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -1006,6 +1023,17 @@ function VacationEditorModal({
             </label>
 
             {error ? <div style={{ color: "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)", fontSize: 13, marginTop: 10 }}>{error}</div> : null}
+            {manualOffer ? (
+              <div data-testid="vacation-manual-offer" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "var(--surface-muted)", border: "1px solid var(--border)", fontSize: 13, color: "var(--text)" }}>
+                <div>
+                  Recontratado: lance as férias direto no Secullum, no cadastro <strong>ativo</strong>, com as mesmas datas
+                  {start && end ? ` (${formatDate(start)} a ${formatDate(end)})` : ""}. Depois registre aqui sem enviar ao Secullum.
+                </div>
+                <button className="btn btn-secondary" type="button" data-testid="vacation-save-manual" style={{ marginTop: 8 }} onClick={() => void handleSave(true)} disabled={busy}>
+                  Já lancei no Secullum — registrar só no sistema
+                </button>
+              </div>
+            ) : null}
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 16 }}>
               <div>
@@ -1134,13 +1162,13 @@ function VacationEditorModal({
                       : ""}
                     {v.notes ? ` · ${v.notes}` : ""}
                     {goesToSecullum(v) ? (
-                      <span className={`vacation-sync ${v.secullum === "lancado" ? "is-ok" : "is-pending"}`}>
-                        {v.secullum === "lancado" ? "No Secullum" : v.secullum === "sem-cpf" ? "Sem CPF" : "Só no DP"}
+                      <span className={`vacation-sync ${v.secullum === "lancado" || v.secullum === "manual" ? "is-ok" : "is-pending"}`}>
+                        {v.secullum === "lancado" ? "No Secullum" : v.secullum === "manual" ? "No Secullum (lançado à mão)" : v.secullum === "sem-cpf" ? "Sem CPF" : "Só no DP"}
                       </span>
                     ) : null}
                   </span>
                   <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    {v.secullum !== "lancado" && goesToSecullum(v) && cpfDigits(employee.cpf) ? (
+                    {v.secullum !== "lancado" && v.secullum !== "manual" && goesToSecullum(v) && cpfDigits(employee.cpf) ? (
                       <button className="btn btn-secondary vacation-send-btn" type="button" onClick={() => void sendToSecullum(v)} disabled={busy || Boolean(sendingId)}>
                         {sendingId === v.id ? "Enviando..." : "Enviar ao Secullum"}
                       </button>
