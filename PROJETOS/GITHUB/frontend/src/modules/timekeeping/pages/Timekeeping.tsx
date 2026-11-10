@@ -4049,6 +4049,7 @@ export default function Timekeeping() {
       const pendencias = resultados.flatMap((r) => [
         ...(r.erro ? [`${nome(r.cpf)}: recusado (${r.erro})`] : []),
         ...(r.semRegistro ? [`${nome(r.cpf)}: não encontrado no cartão ponto do Secullum nesse dia`] : []),
+        ...(r.outroCadastro ? [`${nome(r.cpf)}: recontratado (mais de um cadastro no Secullum) — lance a justificativa à mão no cadastro ativo`] : []),
         ...r.conflitos.map((c) => `${nome(r.cpf)}: ${c.grupo}ª metade já tem "${c.valor}" no Secullum, não foi alterada`),
         ...(r.conferido === false ? [`${nome(r.cpf)}: enviado, mas não apareceu na conferência`] : []),
       ]);
@@ -4210,6 +4211,7 @@ export default function Timekeeping() {
           const nome = nomePorCpf.get(r.cpf) || r.cpf;
           return [
             ...(r.semRegistro ? [`${nome}: não encontrado no cartão ponto do Secullum nesse dia`] : []),
+            ...(r.outroCadastro ? [`${nome}: recontratado (mais de um cadastro no Secullum) — lance a justificativa à mão no cadastro ativo`] : []),
             ...r.conflitos.map((c) => `${nome}: ${c.grupo}ª metade já tem "${c.valor}" no Secullum, não foi alterada`),
             ...(r.conferido === false ? [`${nome}: enviado, mas não apareceu na conferência`] : []),
           ];

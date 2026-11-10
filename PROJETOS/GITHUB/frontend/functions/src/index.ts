@@ -938,9 +938,21 @@ export const atualizarFlagsSecullum = onCall(
     if (!Array.isArray(funcionarios)) {
       throw new HttpsError("failed-precondition", "Lista de funcionários inválida.");
     }
-    const vinculados = funcionarios.filter((f) => onlyDigits(f.Cpf) === cpf);
+    const cadastros = funcionarios.filter((f) => onlyDigits(f.Cpf) === cpf);
+    // Recontratado tem mais de um cadastro com o mesmo CPF (o antigo fica em
+    // "Funcionários Demitidos"). Aqui a gravação é por Id (/Batidas/{id}), então
+    // dá para mirar só o cadastro ativo com segurança (caso Jefferson, 10/11/2026).
+    const vinculados = cadastros.length > 1
+      ? cadastros.filter((f) => !pickField(f, ["Demissao", "DataDemissao"]))
+      : cadastros;
     if (vinculados.length !== 1 || !Number.isSafeInteger(Number(vinculados[0].Id))) {
-      throw new HttpsError("failed-precondition", "CPF não corresponde a um único funcionário no Secullum.");
+      console.warn("[FLAGS_SECULLUM] cadastro não identificado", {
+        cpf: `***${cpf.slice(-3)}`, cadastros: cadastros.length, ativos: vinculados.length,
+      });
+      throw new HttpsError("failed-precondition",
+        cadastros.length === 0 ? "Funcionário não encontrado no Secullum pelo CPF." :
+          vinculados.length > 1 ? "Este CPF tem mais de um cadastro ativo no Secullum. Lance direto no Secullum, no cadastro certo." :
+            "CPF não corresponde a um único funcionário ativo no Secullum.");
     }
     const funcionarioId = Number(vinculados[0].Id);
     const base = "https://pontoweb.secullum.com.br";
@@ -1388,6 +1400,8 @@ type ResultadoJustificativa = {
   jaEstavam: number[];
   conflitos: Array<{ grupo: number; valor: string }>;
   semRegistro?: boolean;
+  /** Recontratado: CPF com mais de um cadastro no Secullum; não enviado. */
+  outroCadastro?: boolean;
   erro?: string;
   conferido: boolean | null;
 };
@@ -1424,7 +1438,12 @@ export const enviarJustificativasSecullum = onCall(
     const token = await getToken();
     const funcs = await apiGet<Func[]>("/IntegracaoExterna/Funcionarios", token, {});
     const idPorCpf = new Map<string, unknown>();
-    (funcs || []).forEach((f) => idPorCpf.set(onlyDigits(f.Cpf), f.Id));
+    const cadastrosPorCpf = new Map<string, number>();
+    (funcs || []).forEach((f) => {
+      const c = onlyDigits(f.Cpf);
+      idPorCpf.set(c, f.Id);
+      cadastrosPorCpf.set(c, (cadastrosPorCpf.get(c) || 0) + 1);
+    });
     const lerDia = async () => {
       const batidas = await apiGet<Batida[]>("/IntegracaoExterna/Batidas", token, { dataInicio: data, dataFim: data });
       const porFuncionario = new Map<unknown, Batida>();
@@ -1469,6 +1488,12 @@ export const enviarJustificativasSecullum = onCall(
       const grupos = justificativa ? [...new Set(item.grupos || [])].filter((g) => g === 1 || g === 2) : [];
       if (cpf.length !== 11 || (!grupos.length && !anterior)) {
         resultado.erro = "Dados inválidos para o Secullum.";
+        continue;
+      }
+      // Recontratado: a API de justificativa grava por CPF e pode cair no
+      // cadastro demitido (caso Jefferson). Não envia; o DP lança à mão.
+      if ((cadastrosPorCpf.get(cpf) || 0) > 1) {
+        resultado.outroCadastro = true;
         continue;
       }
       const batida = antes.get(idPorCpf.get(cpf));

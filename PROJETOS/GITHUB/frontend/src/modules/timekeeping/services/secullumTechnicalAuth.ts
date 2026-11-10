@@ -86,6 +86,7 @@ export type ResultadoJustificativaSecullum = {
     jaEstavam: number[];
     conflitos: Array<{ grupo: number; valor: string }>;
     semRegistro?: boolean;
+    outroCadastro?: boolean;
     erro?: string;
     conferido: boolean | null;
 };
