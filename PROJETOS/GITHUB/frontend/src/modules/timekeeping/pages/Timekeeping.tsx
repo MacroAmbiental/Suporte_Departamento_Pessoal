@@ -2132,6 +2132,7 @@ export default function Timekeeping() {
     setFilters,
     filteredEmployees: employees,
     employeesBeforeTeamFilters,
+    employeesForDate,
     dayTeamByEmployee,
     employeeOptions,
     cpfOptions,
@@ -5285,6 +5286,24 @@ export default function Timekeeping() {
     );
   }
 
+  // Cada dia do relatório tem a sua própria lista: quem estava ativo naquela
+  // data (ou tem ponto salvo nela). O dia aberto na tela usa a lista da tela,
+  // para manter rascunhos e substituições do Secullum.
+  function buildReportEmployeesByDate(dates: string[], reportRecords: TimeRecord[]) {
+    const recordsByDate = new Map<string, TimeRecord[]>();
+    reportRecords.forEach((record) => {
+      const list = recordsByDate.get(record.date);
+      if (list) list.push(record);
+      else recordsByDate.set(record.date, [record]);
+    });
+    return new Map(
+      dates.map((date) => [
+        date,
+        date === filters.date ? employees : employeesForDate(date, recordsByDate.get(date) || []),
+      ]),
+    );
+  }
+
   async function exportReport() {
     if (reportFormat === "pdf") {
       await exportPdfReport();
@@ -5302,10 +5321,6 @@ export default function Timekeeping() {
 
     const dates = dateRange(reportStartDate, reportEndDate);
     if (!dates.length) return;
-    if (!employees.length) {
-      window.alert("Nenhum funcionário encontrado para os filtros atuais.");
-      return;
-    }
 
     const selectedColumns = reportColumnsForSelection();
     if (!selectedColumns.length) {
@@ -5325,6 +5340,11 @@ export default function Timekeeping() {
     );
     const displayReportRecordForDate = (employee: Employee, date: string) =>
       reportDisplayRecordForDate(employee, date, reportRecordMap);
+    const reportEmployeesByDate = buildReportEmployeesByDate(dates, reportRecords);
+    if (!Array.from(reportEmployeesByDate.values()).some((list) => list.length)) {
+      window.alert("Nenhum funcionário encontrado para os filtros atuais.");
+      return;
+    }
 
     const workbook = XLSX.utils.book_new();
     const emittedAt = new Date();
@@ -5533,7 +5553,7 @@ export default function Timekeeping() {
       const worksheet: XLSXTypes.WorkSheet = {};
       const rowsByDate = dates.map((date) => ({
         date,
-        employees: sortEmployeesForDate(employees, date),
+        employees: sortEmployeesForDate(reportEmployeesByDate.get(date) || [], date),
       }));
       const totalRows = rowsByDate.reduce((sum, group) => sum + group.employees.length, 0);
       const headerRow = 5;
@@ -5594,10 +5614,10 @@ export default function Timekeeping() {
       });
 
       let row = firstDataRow;
-      rowsByDate.forEach(({ date, employees: employeesForDate }, dateIndex) => {
+      rowsByDate.forEach(({ date, employees: dayEmployees }, dateIndex) => {
         // Zebrado por dia, para separar visualmente um dia do outro.
         const rowFill = dateIndex % 2 === 0 ? "FFFFFF" : stripeBg;
-        employeesForDate.forEach((employee) => {
+        dayEmployees.forEach((employee) => {
           const record = displayReportRecordForDate(employee, date);
           worksheet["!rows"]![row] = { hpt: 17 };
           setDateCell(worksheet, row, 0, date, buildBodyStyle("center", rowFill));
@@ -5682,10 +5702,6 @@ export default function Timekeeping() {
 
     const dates = dateRange(reportStartDate, reportEndDate);
     if (!dates.length) return;
-    if (!employees.length) {
-      window.alert("Nenhum funcionário encontrado para os filtros atuais.");
-      return;
-    }
 
     const selectedColumns = reportColumnsForSelection();
     if (!selectedColumns.length) {
@@ -5694,6 +5710,11 @@ export default function Timekeeping() {
     }
 
     const reportRecords = await loadTimeRecordsRangeVerified(reportStartDate, reportEndDate);
+    const reportEmployeesByDate = buildReportEmployeesByDate(dates, reportRecords);
+    if (!Array.from(reportEmployeesByDate.values()).some((list) => list.length)) {
+      window.alert("Nenhum funcionário encontrado para os filtros atuais.");
+      return;
+    }
     const reportRecordMap = new Map(
       reportRecords.map((record) => [
         `${record.employeeId}:${record.date}`,
@@ -5710,7 +5731,7 @@ export default function Timekeeping() {
 
     const sections = dates
       .map((date) => {
-        const rows = sortEmployeesForDate(employees, date)
+        const rows = sortEmployeesForDate(reportEmployeesByDate.get(date) || [], date)
           .map((employee) => {
             const record = reportDisplayRecordForDate(
               employee,

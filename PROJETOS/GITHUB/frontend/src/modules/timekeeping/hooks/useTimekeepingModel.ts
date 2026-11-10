@@ -1,5 +1,5 @@
 import { timekeepingTeamStructure } from "@/modules/timekeeping/utils/teamStructure";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useDomainData } from "@/hooks/useDomainData";
 import { useAuth } from "@/hooks/useAuth";
 import { todayISO } from "@/utils/format";
@@ -225,6 +225,44 @@ export function useTimekeepingModel() {
     (!filterSets.dayTeams.size || filterSets.dayTeams.has(dayTeamByEmployee.get(employee.id) ?? employeeTeamId(employee))),
   ), [employeesBeforeTeamFilters, data.timeRecords, filters.date, filterSets.realTeams, filterSets.dayTeams, employeeTeamId, dayTeamByEmployee]);
 
+  // Relatório por período: a lista da tela vale só para filters.date, então
+  // quem foi desligado (ou admitido) depois de um dia do período sumia do
+  // relatório inteiro. Aqui cada dia é avaliado com o status/vínculo daquela
+  // data e os pontos salvos naquele dia, aplicando os mesmos filtros da tela.
+  const employeesForDate = useCallback((date: string, recordsOfDate: TimeRecord[]) => {
+    const recordByEmployeeId = new Map<string, TimeRecord>();
+    recordsOfDate.forEach((record) => {
+      if (record.date !== date) return;
+      if (!recordByEmployeeId.has(record.employeeId)) recordByEmployeeId.set(record.employeeId, record);
+    });
+    const employeesById = new Map(data.employees.map((employee) => [employee.id, employee]));
+    recordByEmployeeId.forEach((record, employeeId) => {
+      if (!employeesById.has(employeeId)) employeesById.set(employeeId, historicalEmployeeFromTimeRecord(record));
+    });
+
+    return Array.from(employeesById.values()).filter((employee) => {
+      const recordForDate = recordByEmployeeId.get(employee.id);
+      const hasRecord = Boolean(recordForDate);
+      const effectiveStatus = employeeEffectiveStatusForDate(employee, date);
+      const belongsToDate = effectiveStatus !== "terminated" || hasRecord;
+      const admittedForDate = !employee.admissionDate || employee.admissionDate <= date || hasRecord;
+      return (
+        belongsToDate
+        && admittedForDate
+        && (!filterSets.companies.size || filterSets.companies.has(recordForDate?.companyId || employee.companyId))
+        && (!filterSets.departments.size || filterSets.departments.has(recordForDate?.departmentId || employee.departmentId))
+        && (!filterSets.sectors.size || filterSets.sectors.has(recordForDate?.sectorId || employee.sectorId))
+        && (!filterSets.statuses.size || filterSets.statuses.has(effectiveStatus))
+        && (!filterSets.terminationModes.size || filterSets.terminationModes.has(employeeProcessModalityLabel(employee, date)))
+        && (!filterSets.employees.size || filterSets.employees.has(employee.id))
+        && (!filterSets.cpfs.size || filterSets.cpfs.has(employee.cpf?.trim() || ""))
+        && (!filterSets.search || employee.name.toLowerCase().includes(filterSets.search))
+        && (!filterSets.realTeams.size || filterSets.realTeams.has(recordForDate?.realTeamId || employeeTeamId(employee)))
+        && (!filterSets.dayTeams.size || filterSets.dayTeams.has(recordForDate?.dayTeamId ?? employeeTeamId(employee)))
+      );
+    });
+  }, [data.employees, filterSets, employeeTeamId]);
+
   const employeeOptions = useMemo(
     () => sortOptions(employeesForTimekeeping.map((item) => ({ value: item.id, label: item.name }))),
     [employeesForTimekeeping],
@@ -244,6 +282,7 @@ export function useTimekeepingModel() {
     filteredRecords,
     filteredEmployees,
     employeesBeforeTeamFilters,
+    employeesForDate,
     dayTeamByEmployee,
     employeeOptions,
     cpfOptions,
