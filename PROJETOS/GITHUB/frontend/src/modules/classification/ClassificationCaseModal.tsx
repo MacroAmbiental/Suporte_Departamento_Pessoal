@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Check, FileText, Upload, X } from "lucide-react";
+import { ArrowRight, Check, FileText, Save, Upload, X } from "lucide-react";
 import { loadAbsencesAndCertificatesForEmployee } from "@/modules/timekeeping/data/timeRecordsRepository";
 import { openOpinionDocument } from "./classificationOpinionDocument";
 import ModalPortal from "@/modules/shared/ModalPortal";
@@ -60,9 +60,10 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
   const [decisionAt, setDecisionAt] = useState(item.decisionAt || today);
   const [newRole, setNewRole] = useState(item.newRole || item.request.funcaoSolicitada);
   const [newPosition, setNewPosition] = useState(item.newPosition || item.request.funcaoSolicitada);
-  const [newSalary, setNewSalary] = useState(item.newSalary ? String(item.newSalary) : item.opinion?.targetRoleSalary || "");
+  const [newSalary, setNewSalary] = useState(item.newSalary ? formatSalaryInput(item.newSalary) : item.opinion?.targetRoleSalary || "");
   const [effectiveDate, setEffectiveDate] = useState(item.effectiveDate || today);
   const [termFile, setTermFile] = useState<File | null>(null);
+  const [savedAt, setSavedAt] = useState("");
   const [supervisorAt, setSupervisorAt] = useState(item.supervisorInformedAt || today);
   const [supervisorChannel, setSupervisorChannel] = useState(item.supervisorChannel || "WhatsApp");
   const [cardSentAt, setCardSentAt] = useState(item.cardSentAt || today);
@@ -72,11 +73,25 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
     if (item.stage === "survey") return { survey };
     if (item.stage === "opinion") return { opinion };
     if (item.stage === "board") return { boardSentAt };
-    if (item.stage === "decision") return decision ? { decision: decision as "approved" | "rejected", decisionBy, decisionAt } : {};
+    if (item.stage === "decision") {
+      if (!decision) return {};
+      const base = { decision: decision as "approved" | "rejected", decisionBy, decisionAt };
+      // Aprovado e ainda não efetivado: a proposta (função, cargo, salário, data)
+      // fica salva no processo para o DP efetivar depois. O cadastro não muda aqui.
+      if (decision !== "approved" || item.effectedAt) return base;
+      const salary = parseMoney(newSalary);
+      return {
+        ...base,
+        newRole: newRole.trim(),
+        newPosition: newPosition.trim(),
+        ...(newSalary.trim() && Number.isFinite(salary) ? { newSalary: salary } : {}),
+        effectiveDate,
+      };
+    }
     if (item.stage === "supervisor") return { supervisorInformedAt: supervisorAt, supervisorChannel };
     if (item.stage === "card") return { cardSentAt };
     return {};
-  }, [item.stage, survey, opinion, boardSentAt, decision, decisionBy, decisionAt, supervisorAt, supervisorChannel, cardSentAt]);
+  }, [item.stage, item.effectedAt, survey, opinion, boardSentAt, decision, decisionBy, decisionAt, newRole, newPosition, newSalary, effectiveDate, supervisorAt, supervisorChannel, cardSentAt]);
   const missing = missingRequirements({ ...item, ...draft });
   const target = nextStage({ ...item, ...draft });
   const [attendanceError, setAttendanceError] = useState("");
@@ -216,37 +231,69 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
         {item.stage === "decision" ? (
           <div className="classification-step">
             <h3>Decisão da diretoria</h3>
-            <div className="classification-signal" role="group" aria-label="Decisão">
-              <button type="button" disabled={!editable || Boolean(item.effectedAt)} className={`classification-signal-option is-green${decision === "approved" ? " is-selected" : ""}`} onClick={() => setDecision("approved")}>Aprovado</button>
-              <button type="button" disabled={!editable || Boolean(item.effectedAt)} className={`classification-signal-option is-red${decision === "rejected" ? " is-selected" : ""}`} onClick={() => setDecision("rejected")}>Reprovado</button>
-            </div>
-            <div className="classification-row">
-              {field("Decidido por", <input disabled={!editable} value={decisionBy} onChange={(event) => setDecisionBy(event.target.value)} />)}
-              {field("Em", <input type="date" disabled={!editable} max={today} value={decisionAt} onChange={(event) => setDecisionAt(event.target.value)} />)}
-            </div>
+
+            <section className="classification-part">
+              <header className="classification-part-header">
+                <span className="classification-part-number">1</span>
+                <div>
+                  <strong>Decisão e proposta</strong>
+                  <small>RH registra e salva. O cadastro do funcionário não muda aqui.</small>
+                </div>
+              </header>
+              <div className="classification-signal" role="group" aria-label="Decisão">
+                <button type="button" disabled={!editable || Boolean(item.effectedAt)} className={`classification-signal-option is-green${decision === "approved" ? " is-selected" : ""}`} onClick={() => setDecision("approved")}>Aprovado</button>
+                <button type="button" disabled={!editable || Boolean(item.effectedAt)} className={`classification-signal-option is-red${decision === "rejected" ? " is-selected" : ""}`} onClick={() => setDecision("rejected")}>Reprovado</button>
+              </div>
+              <div className="classification-row">
+                {field("Decidido por", <input disabled={!editable} value={decisionBy} onChange={(event) => setDecisionBy(event.target.value)} />)}
+                {field("Em", <input type="date" disabled={!editable} max={today} value={decisionAt} onChange={(event) => setDecisionAt(event.target.value)} />)}
+              </div>
+              {decision === "approved" && !item.effectedAt ? (
+                <div className="classification-row">
+                  {field("Nova função", <input disabled={!editable} value={newRole} onChange={(event) => setNewRole(event.target.value)} />)}
+                  {field("Novo cargo", <input disabled={!editable} value={newPosition} onChange={(event) => setNewPosition(event.target.value)} />)}
+                  {field("Novo salário (R$)", <>
+                    <input disabled={!editable} value={newSalary} onChange={(event) => setNewSalary(event.target.value)} />
+                    <SalaryTableHint functionNames={[newPosition, newRole]} currentValue={parseMoney(newSalary)} disabled={!editable} onUse={(value) => setNewSalary(formatSalaryInput(value))} />
+                  </>)}
+                  {field("Vale a partir de", <input type="date" disabled={!editable} value={effectiveDate} onChange={(event) => setEffectiveDate(event.target.value)} />)}
+                </div>
+              ) : null}
+              {editable && !item.effectedAt ? (
+                <div className="classification-part-footer">
+                  <small className="muted">{savedAt ? `Salvo às ${savedAt}.` : "Pode salvar e voltar depois."}</small>
+                  <button className="btn btn-secondary" type="button" disabled={busy || !decision} onClick={() => run(async () => {
+                    await save(item, draft);
+                    setSavedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
+                  }, false)}>
+                    <Save size={16} /> {decision === "approved" ? "Salvar decisão e proposta" : "Salvar decisão"}
+                  </button>
+                </div>
+              ) : null}
+            </section>
+
             {decision === "approved" ? (
-              <div className="classification-block">
-                <strong>Mudança no cadastro (DP)</strong>
+              <section className={`classification-part${item.effectedAt ? " is-done" : " is-pending"}`}>
+                <header className="classification-part-header">
+                  <span className="classification-part-number">{item.effectedAt ? <Check size={14} /> : "2"}</span>
+                  <div>
+                    <strong>Efetivação no cadastro (DP)</strong>
+                    <small>{item.effectedAt ? "Cadastro atualizado." : "Fica em aberto até o DP efetivar. Só depois o processo segue para o retorno ao supervisor."}</small>
+                  </div>
+                </header>
                 {item.effectedAt ? (
-                  <p className="muted">Efetivado em {formatDateTime(item.effectedAt)}: {[item.newRole, item.newPosition].filter(Boolean).join(" / ")} · {formatMoney(item.newSalary)} a partir de {formatDate(item.effectiveDate || "")}.</p>
+                  <p className="classification-part-result">Efetivado em {formatDateTime(item.effectedAt)}: {[item.newRole, item.newPosition].filter(Boolean).join(" / ")} · {formatMoney(item.newSalary)} a partir de {formatDate(item.effectiveDate || "")}.</p>
                 ) : (
                   <>
-                    <div className="classification-row">
-                      {field("Nova função", <input disabled={!editable} value={newRole} onChange={(event) => setNewRole(event.target.value)} />)}
-                      {field("Novo cargo", <input disabled={!editable} value={newPosition} onChange={(event) => setNewPosition(event.target.value)} />)}
-                      {field("Novo salário (R$)", <>
-                        <input disabled={!editable} value={newSalary} onChange={(event) => setNewSalary(event.target.value)} />
-                        <SalaryTableHint functionNames={[newPosition, newRole]} currentValue={parseMoney(newSalary)} disabled={!editable} onUse={(value) => setNewSalary(formatSalaryInput(value))} />
-                      </>)}
-                      {field("Vale a partir de", <input type="date" disabled={!editable} value={effectiveDate} onChange={(event) => setEffectiveDate(event.target.value)} />)}
-                    </div>
+                    {effectiveDate > today ? <p className="classification-part-note">Vale a partir de {formatDate(effectiveDate)}: o DP só consegue efetivar a partir desse dia.</p> : null}
                     <label className="document-file-field">
                       <input type="file" accept=".pdf,image/*" disabled={!editable} onChange={(event) => setTermFile(event.target.files?.[0] || null)} />
                       <span><Upload size={16} /> {termFile?.name || "Termo/aditivo assinado (opcional, até 10 MB)"}</span>
                     </label>
                     {editable ? (
-                      <div className="form-actions">
-                        <button className="btn btn-primary" type="button" disabled={busy || !newRole.trim() || !Number.isFinite(parseMoney(newSalary)) || !newSalary.trim()} onClick={() => run(async () => {
+                      <div className="classification-part-footer">
+                        <small className="muted">Troca função, cargo e salário na ficha e registra na trajetória.</small>
+                        <button className="btn btn-primary" type="button" disabled={busy || effectiveDate > today || !newRole.trim() || !Number.isFinite(parseMoney(newSalary)) || !newSalary.trim()} onClick={() => run(async () => {
                           await save(item, draft);
                           await effect(item, { newRole: newRole.trim(), newPosition: newPosition.trim(), newSalary: parseMoney(newSalary), effectiveDate, termFile });
                         }, false)}>
@@ -256,7 +303,7 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
                     ) : null}
                   </>
                 )}
-              </div>
+              </section>
             ) : null}
           </div>
         ) : null}
@@ -290,7 +337,7 @@ export default function ClassificationCaseModal({ item, employee, promotions, te
           <div className="classification-actions">
             {missing.length ? <p className="classification-missing">Falta para avançar: {missing.join(" · ")}</p> : null}
             <div className="form-actions">
-              {Object.keys(draft).length ? <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => run(() => save(item, draft), false)}>Salvar</button> : null}
+              {item.stage !== "decision" && Object.keys(draft).length ? <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => run(() => save(item, draft), false)}>Salvar</button> : null}
               <button className="btn btn-primary" type="button" disabled={busy || missing.length > 0} onClick={() => run(() => advance(item, target, `${stageLabel(item.stage)} concluída.`, draft))}>
                 {target === "closed" ? "Concluir processo" : <>Avançar para {stageLabel(target)} <ArrowRight size={16} /></>}
               </button>

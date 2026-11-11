@@ -149,7 +149,7 @@ export function missingRequirements(item: ClassificationCase): string[] {
   if (item.stage === "board" && !item.boardSentAt) missing.push("Data de envio à diretoria");
   if (item.stage === "decision") {
     if (!item.decision) missing.push("Decisão da diretoria");
-    if (item.decision === "approved" && !item.effectedAt) missing.push("Efetivar a mudança no cadastro");
+    if (item.decision === "approved" && !item.effectedAt) missing.push("DP efetivar a mudança no cadastro");
   }
   if (item.stage === "supervisor" && !item.supervisorInformedAt) missing.push("Data em que o supervisor foi informado");
   if (item.stage === "card" && !item.cardSentAt) missing.push("Data de envio do card ao colaborador");

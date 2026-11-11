@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BadgeCheck } from "lucide-react";
+import { BadgeCheck, Clock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useDomainData } from "@/hooks/useDomainData";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
@@ -135,6 +135,9 @@ export default function ClassificationPage() {
                       : <em>{item.decision === "approved" ? "Aprovado" : "Reprovado"} em {days} dia(s)</em>}
                     {item.opinion?.signal ? <span className={`classification-signal-dot is-${item.opinion.signal}`}>{signalLabels[item.opinion.signal]}</span> : null}
                     {item.effectedAt ? <span className="classification-effected"><BadgeCheck size={13} /> Cadastro atualizado</span> : null}
+                    {item.status === "open" && item.decision === "approved" && !item.effectedAt
+                      ? <span className="classification-awaiting-dp"><Clock size={13} /> Aguardando DP efetivar{item.effectiveDate ? ` · vale a partir de ${formatDate(item.effectiveDate)}` : ""}</span>
+                      : null}
                   </article>
                 );
               })}

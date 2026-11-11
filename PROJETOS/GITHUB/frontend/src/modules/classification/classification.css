@@ -57,3 +57,17 @@
 .classification-attendance { width: 100%; max-width: 420px; border-collapse: collapse; }
 .classification-attendance th, .classification-attendance td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; }
 .classification-document-button { justify-self: start; }
+/* Etapa 5: parte 1 (RH: decisão + proposta) e parte 2 (DP: efetivar). */
+.classification-part { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.classification-part.is-pending { border-left: 4px solid color-mix(in srgb, #d99a00 var(--ink-keep), #fcd34d); }
+.classification-part.is-done { border-left: 4px solid color-mix(in srgb, #11704a var(--ink-keep), #6ee7b7); }
+.classification-part-header { display: flex; align-items: flex-start; gap: 10px; }
+.classification-part-header > div { display: grid; gap: 2px; }
+.classification-part-header small { color: var(--text-muted); }
+.classification-part-number { display: inline-grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 999px; background: color-mix(in srgb, #142e4c var(--ink-keep), #e5e7eb); color: var(--surface); font-size: 13px; font-weight: 800; }
+.classification-part.is-done .classification-part-number { background: color-mix(in srgb, #11704a var(--ink-keep), #6ee7b7); }
+.classification-part-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.classification-part-footer small { margin-right: auto; }
+.classification-part-note { margin: 0; color: color-mix(in srgb, #8a5a00 var(--ink-keep), #fcd34d); font-weight: 600; }
+.classification-part-result { margin: 0; color: color-mix(in srgb, #11704a var(--ink-keep), #e5e7eb); font-weight: 600; }
+.classification-awaiting-dp { display: inline-flex; align-items: center; gap: 4px; color: color-mix(in srgb, #9a5b00 var(--ink-keep), #fcd34d) !important; font-weight: 700; }
