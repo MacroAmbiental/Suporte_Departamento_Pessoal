@@ -20,6 +20,9 @@ const screenSlugs: Record<AppScreen, string> = {
   aso: "processo-aso",
   classification: "processo-classificacao",
   toolbox: "caixa-ferramentas",
+  employeeProcesses: "processos-funcionario",
+  dismissed: "demitidos",
+  salaryTable: "tabela-salarial",
 };
 
 function base64UrlEncode(value: string) {
@@ -53,4 +56,16 @@ export function screenFromSecureToken(token?: string): AppScreen | null {
   } catch {
     return null;
   }
+}
+
+// Abas de Funcionários com permissão própria: o endereço é a tela de Funcionários + ?tab=.
+export const employeeTabOf: Partial<Record<AppScreen, string>> = {
+  employeeProcesses: "processos",
+  dismissed: "demitidos",
+  salaryTable: "tabela-salarial",
+};
+
+export function screenHref(screen: AppScreen) {
+  const tab = employeeTabOf[screen];
+  return tab ? `${securePath("employees")}?tab=${tab}` : securePath(screen);
 }

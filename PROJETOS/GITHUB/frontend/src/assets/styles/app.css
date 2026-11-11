@@ -1719,6 +1719,16 @@ button:disabled:hover {
   opacity: 0.72;
 }
 
+/* Grade agrupada como o menu (11/11/2026). */
+.permission-filter { width: min(100%, 320px); margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+.permission-group-row th { padding-top: 14px; background: var(--surface-muted); text-align: left !important; }
+.permission-group-row th > span { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: color-mix(in srgb, #155a8d var(--ink-keep), #e5e7eb); }
+.permission-group-toggle { margin-left: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.permission-screen-cell { display: grid; gap: 2px; }
+.permission-screen-cell small { max-width: 380px; color: var(--text-muted); font-size: 12px; line-height: 1.3; }
+.permission-na { color: var(--text-muted); opacity: .5; }
+.permission-check.is-implied { border-style: dashed; opacity: .8; }
+
 .permissions-simple-layout {
   grid-template-columns: 320px minmax(0, 1fr);
 }
@@ -1787,6 +1797,63 @@ button:disabled:hover {
 .permission-viewer-empty strong {
   color: var(--text);
   font-size: 18px;
+}
+
+/* Aba Perfis (11/11/2026): editor numa página só, níveis por tela. */
+.permission-tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); }
+.permission-tabs button { padding: 9px 16px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--text-muted); font: inherit; font-weight: 700; cursor: pointer; }
+.permission-tabs button.is-active { border-bottom-color: #099164; color: var(--text); }
+.permission-users .panel-header .btn { min-height: 32px; padding: 4px 10px; }
+.profile-list-search { display: block; width: calc(100% - 28px); margin: 10px 14px 4px; }
+.permission-access-card.is-inactive { opacity: .6; }
+.permission-message { margin: 0 22px 4px; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, #e7f8f1 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #07825b var(--ink-keep), #e5e7eb); font-weight: 600; }
+.permission-message.is-error { background: color-mix(in srgb, #fdecec var(--tint-keep), var(--surface)); color: color-mix(in srgb, #b42318 var(--ink-keep), #fca5a5); }
+.profile-editor { display: grid; gap: 18px; padding: 16px 22px 22px; }
+.profile-editor-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
+.profile-section { display: grid; gap: 10px; }
+.profile-section > header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+.profile-section > header h3 { margin: 0; font-size: 15px; color: var(--text); }
+.profile-section > header small { flex: 1 1 100%; color: var(--text-muted); }
+.profile-section > header .permission-filter { margin: 0; }
+.profile-target-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.profile-target-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid color-mix(in srgb, #bfdbfe var(--tint-line), var(--surface)); border-radius: 999px; background: color-mix(in srgb, #eff6ff var(--tint-keep), var(--surface)); color: color-mix(in srgb, #1e3a8a var(--ink-keep), #e5e7eb); font-size: 13px; font-weight: 600; }
+.profile-target-chip button { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.profile-target-add { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px dashed var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer; }
+.profile-target-picker { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.profile-target-picker-row { display: flex; gap: 8px; align-items: center; }
+.profile-target-picker-row select { padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+.profile-target-search { display: flex; flex: 1; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-muted); }
+.profile-target-search input { flex: 1; min-width: 0; padding: 7px 0; border: 0; background: transparent; font: inherit; color: var(--text); outline: none; }
+.profile-target-results { display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow: auto; }
+.profile-target-results button { padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.profile-target-results button:hover { border-color: #099164; }
+.profile-warning { margin: 0; color: color-mix(in srgb, #b45309 var(--ink-keep), #fcd34d); font-weight: 600; font-size: 13px; }
+.profile-preview { font-size: 13px; color: var(--text-muted); }
+.profile-preview strong { color: var(--text); }
+.profile-link { margin-left: 8px; padding: 0; border: 0; background: none; color: #0b5a9d; font: inherit; text-decoration: underline; cursor: pointer; }
+.profile-people { columns: 3 220px; margin: 8px 0 0; padding-left: 18px; }
+.profile-people em { color: #07825b; font-style: normal; }
+.profile-level-group { display: grid; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.profile-level-group-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--surface-muted); }
+.profile-level-group-title > span:first-child { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: color-mix(in srgb, #155a8d var(--ink-keep), #e5e7eb); }
+.profile-level-group-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--text-muted); font-size: 12px; }
+.profile-level-group-actions button { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.profile-level-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.profile-level-name { display: grid; gap: 2px; min-width: 200px; flex: 1 1 260px; }
+.profile-level-name small { color: var(--text-muted); font-size: 12px; line-height: 1.3; }
+.profile-level-name .profile-custom { color: color-mix(in srgb, #b45309 var(--ink-keep), #fcd34d); }
+.profile-level-options { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.profile-level-option { min-width: 82px; padding: 6px 10px; border: 0; border-left: 1px solid var(--border); background: var(--surface); color: var(--text-muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.profile-level-option:first-child { border-left: 0; }
+.profile-level-option:disabled { cursor: not-allowed; opacity: .45; }
+.profile-level-option.is-selected.is-none { background: color-mix(in srgb, #f1f5f9 var(--tint-keep), var(--surface)); color: var(--text); }
+.profile-level-option.is-selected.is-view { background: color-mix(in srgb, #e0f2fe var(--tint-keep), var(--surface)); color: color-mix(in srgb, #075985 var(--ink-keep), #e5e7eb); }
+.profile-level-option.is-selected.is-edit { background: color-mix(in srgb, #e7f8f1 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #07825b var(--ink-keep), #e5e7eb); }
+.profile-level-option.is-selected.is-full { background: color-mix(in srgb, #099164 var(--ink-keep), #065f46); color: #fff; }
+@media (max-width: 760px) {
+  .profile-editor-fields { grid-template-columns: 1fr; }
+  .profile-level-options { width: 100%; }
+  .profile-level-option { flex: 1; min-width: 0; }
 }
 
 .permission-wizard {
@@ -7593,10 +7660,43 @@ button:disabled:hover {
 .vacation-import-done { margin: 0; color: color-mix(in srgb, #11704a var(--ink-keep), #e5e7eb); font-weight: 700; }
 .vacation-import-missing { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
 .vacation-import-missing input { flex: 1 1 260px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 12px; }
-.vacation-baseline-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, #bfdbfe var(--tint-line), var(--surface)); border-radius: 8px; background: var(--surface-muted); color: color-mix(in srgb, #1e3a8a var(--ink-keep), #e5e7eb); font-size: 13px; }
+.vacation-admission-conflict { display: grid; gap: 4px; margin: -6px 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, #fcd34d var(--tint-line), var(--surface)); border-left: 4px solid color-mix(in srgb, #d97706 var(--ink-keep), #fcd34d); border-radius: 8px; background: color-mix(in srgb, #fffbeb var(--tint-keep), var(--surface)); color: color-mix(in srgb, #78350f var(--ink-keep), #e5e7eb); font-size: 13px; }
+.vacation-admission-blocked { font-size: 11px; font-weight: 700; color: color-mix(in srgb, #b45309 var(--ink-keep), #fcd34d); cursor: help; }
+.vacation-baseline-note {display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, #bfdbfe var(--tint-line), var(--surface)); border-radius: 8px; background: var(--surface-muted); color: color-mix(in srgb, #1e3a8a var(--ink-keep), #e5e7eb); font-size: 13px; }
 
 /* Férias: situação do gozo no Secullum (VacationManagement). */
 .vacation-sync { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; }
 .vacation-sync.is-ok { background: color-mix(in srgb, #e3f0fb var(--tint-keep), var(--surface)); color: color-mix(in srgb, #155a8d var(--ink-keep), #e5e7eb); }
 .vacation-sync.is-pending { background: color-mix(in srgb, #fff4e0 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #9a5b00 var(--ink-keep), #e5e7eb); }
 .vacation-send-btn { padding: 4px 10px; font-size: 12px; }
+
+/* Aba Pessoas (11/11/2026). */
+.people-search { margin: 10px 14px 4px; }
+.people-only-different { display: flex; align-items: center; gap: 6px; margin: 6px 14px; color: color-mix(in srgb, #8a5a00 var(--ink-keep), #fcd34d); font-size: 13px; font-weight: 600; }
+.people-list { display: grid; gap: 4px; padding: 8px 10px 14px; max-height: 70vh; overflow: auto; }
+.people-item { position: relative; display: grid; gap: 2px; padding: 8px 30px 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.people-item:hover { background: var(--surface-muted); }
+.people-item.is-selected { border-color: #099164; background: color-mix(in srgb, #e7f8f1 var(--tint-keep), var(--surface)); }
+.people-item.is-inactive { opacity: .6; }
+.people-item small { color: var(--text-muted); }
+.people-warning { position: absolute; top: 10px; right: 10px; color: #d97706; }
+.people-profile-chip { display: grid; gap: 1px; padding: 6px 12px; border: 1px solid color-mix(in srgb, #bfdbfe var(--tint-line), var(--surface)); border-radius: 10px; background: color-mix(in srgb, #eff6ff var(--tint-keep), var(--surface)); color: color-mix(in srgb, #1e3a8a var(--ink-keep), #e5e7eb); font: inherit; text-align: left; cursor: pointer; }
+.people-profile-chip small { color: var(--text-muted); font-size: 12px; }
+.people-show-none { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 13px; }
+.people-row.is-different { background: color-mix(in srgb, #fff8e6 var(--tint-keep), var(--surface)); }
+.people-level { min-width: 110px; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; text-align: center; background: var(--surface-muted); color: var(--text-muted); }
+.people-level.is-view { background: color-mix(in srgb, #e0f2fe var(--tint-keep), var(--surface)); color: color-mix(in srgb, #075985 var(--ink-keep), #e5e7eb); }
+.people-level.is-edit { background: color-mix(in srgb, #e7f8f1 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #07825b var(--ink-keep), #e5e7eb); }
+.people-level.is-full { background: color-mix(in srgb, #099164 var(--ink-keep), #065f46); color: #fff; }
+.people-level.is-custom { background: color-mix(in srgb, #fff8e6 var(--tint-keep), var(--surface)); color: color-mix(in srgb, #8a5a00 var(--ink-keep), #fcd34d); }
+
+/* Aba Por tela (11/11/2026). */
+.screen-list-group { display: grid; gap: 2px; margin-bottom: 8px; }
+.screen-list-group-title { padding: 4px 10px; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: color-mix(in srgb, #155a8d var(--ink-keep), #e5e7eb); }
+.screen-tab-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.screen-tab-filters .profile-target-search { flex: 1 1 260px; }
+.screen-tab-admins { margin: 0; font-size: 13px; }
+.screen-person-row { width: 100%; border: 0; border-top: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.screen-person-row:hover { background: var(--surface-muted); }
+.screen-person-row.is-different { background: color-mix(in srgb, #fff8e6 var(--tint-keep), var(--surface)); }
+.profile-level-group-title small { font-size: 12px; }

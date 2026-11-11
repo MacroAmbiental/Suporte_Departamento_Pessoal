@@ -36,7 +36,10 @@ export type AppScreen =
   | "vacation"
   | "aso"
   | "classification"
-  | "toolbox";
+  | "toolbox"
+  | "employeeProcesses"
+  | "dismissed"
+  | "salaryTable";
 export type PermissionAction = "view" | "create" | "edit" | "delete" | "manage";
 
 export type AuditAction = "create" | "edit" | "delete" | "deactivate" | "bulk";

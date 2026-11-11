@@ -48,7 +48,7 @@ export default function EmployeeProcesses() {
   useEffect(() => { const timer = window.setInterval(() => setToday(todayISO()), 60000); return () => window.clearInterval(timer); }, []);
   const enrollmentPending = useRef(new Set<string>());
   useEffect(() => {
-    if (loading || !can("employees", "edit")) return;
+    if (loading || !can("employeeProcesses", "edit")) return;
     for (const employee of employees) {
       if (!isInExperience(employee, today) || employee.registrationData?.processStartedAt || employee.registrationData?.experienceConfirmedAt || enrollmentPending.current.has(employee.id)) continue;
       enrollmentPending.current.add(employee.id);
@@ -60,7 +60,7 @@ export default function EmployeeProcesses() {
   const [archiveError, setArchiveError] = useState("");
   const [archiveRetry, setArchiveRetry] = useState(0);
   useEffect(() => {
-    if (loading || !can("employees", "edit") || archiving.current) return;
+    if (loading || !can("employeeProcesses", "edit") || archiving.current) return;
     const archived = new Set(data.employeeProcessHistory.map((item) => item.id));
     const pending = employees.filter((employee) => processCompletion(employee, today) && !archived.has(historyId(employee)));
     if (!pending.length) return;
@@ -106,7 +106,7 @@ export default function EmployeeProcesses() {
   // desligado na data do fim do processo (o mesmo que a rotina da madrugada faz,
   // que só pega fins a partir de 21/10/2026).
   async function effectuateDismissal(employee: Employee, end: string) {
-    if (!can("employees", "edit") || effectuating) return;
+    if (!can("employeeProcesses", "edit") || effectuating) return;
     if (!window.confirm(`Efetivar o desligamento de ${employee.name} em ${formatDate(end)}?
 
 O funcionário passa para Demitidos.`)) return;
@@ -133,7 +133,7 @@ O funcionário passa para Demitidos.`)) return;
     finally { setEffectuating(null); }
   }
   async function saveNotes(employee: Employee) {
-    if (!can("employees", "edit") || savingNotes || drafts[employee.id] === undefined) return;
+    if (!can("employeeProcesses", "edit") || savingNotes || drafts[employee.id] === undefined) return;
     const current = data.employees.find((item) => item.id === employee.id);
     if (!current || current.registrationData?.dismissalApprovedAt) return;
     const value = drafts[employee.id];
@@ -147,7 +147,7 @@ O funcionário passa para Demitidos.`)) return;
   }
 
   async function handleModelDocumentUpload(event: React.ChangeEvent<HTMLInputElement>, modelModality: string) {
-    if (!event.target.files?.length || modelUploading || !can("employees", "edit")) return;
+    if (!event.target.files?.length || modelUploading || !can("employeeProcesses", "edit")) return;
     setModelUploading(true);
     const files = Array.from(event.target.files);
     event.target.value = "";
@@ -184,7 +184,7 @@ O funcionário passa para Demitidos.`)) return;
   function notesEditor(employee: Employee, compact = false) {
     const saved = employee.registrationData?.processNotes || "";
     const value = drafts[employee.id] ?? saved;
-    const editable = can("employees", "edit") && !employee.registrationData?.dismissalApprovedAt;
+    const editable = can("employeeProcesses", "edit") && !employee.registrationData?.dismissalApprovedAt;
     return <div className={`process-notes${compact ? " is-compact" : ""}`} onDoubleClick={(event) => event.stopPropagation()}>
       <textarea aria-label={`Observações de ${employee.name}`} placeholder={compact ? "Observação..." : "Escreva as observações do processo..."} value={value} readOnly={!editable} onChange={(event) => setDrafts((previous) => ({ ...previous, [employee.id]: event.target.value }))} rows={compact ? 1 : 3} />
       {editable && value !== saved && <button className="btn btn-secondary" type="button" disabled={Boolean(savingNotes)} onClick={() => void saveNotes(employee)}>{savingNotes === employee.id ? "Salvando..." : "Salvar observações"}</button>}
@@ -285,7 +285,7 @@ O funcionário passa para Demitidos.`)) return;
                 <td className="employee-process-company">{process.company}</td>
                 {isDismissals ? <>
                   <td><span className={`badge ${process.modality === "Aviso prévio" ? "badge-warning" : "badge-danger"}`}>{process.modality}</span></td>
-                  <td><div className="process-status-cell"><span className={`badge ${process.status === overdueProcessStatus ? "badge-warning" : "badge-info"}`}>{process.status}</span>{process.status === overdueProcessStatus && process.end && can("employees", "edit") ? <button type="button" className="btn btn-primary process-effectuate-button" disabled={Boolean(effectuating)} onClick={() => void effectuateDismissal(process.employee, process.end)}>{effectuating === process.employee.id ? "Efetivando..." : "Efetivar desligamento"}</button> : null}</div></td>
+                  <td><div className="process-status-cell"><span className={`badge ${process.status === overdueProcessStatus ? "badge-warning" : "badge-info"}`}>{process.status}</span>{process.status === overdueProcessStatus && process.end && can("employeeProcesses", "edit") ? <button type="button" className="btn btn-primary process-effectuate-button" disabled={Boolean(effectuating)} onClick={() => void effectuateDismissal(process.employee, process.end)}>{effectuating === process.employee.id ? "Efetivando..." : "Efetivar desligamento"}</button> : null}</div></td>
                   <td className="employee-process-period">{process.enteredAt ? formatDate(process.enteredAt.slice(0, 10)) : "—"}<small className="muted">até {process.end ? formatDate(process.end) : "—"}</small></td>
                   <td className="experience-action-cell"><TerminationSettlementAlert employee={process.employee} today={today} /></td>
                   <td>{[process.employee.registrationData?.dismissalVariant, process.employee.registrationData?.dismissalInitiative].filter(Boolean).join(" · ") || process.employee.registrationData?.dismissalType || "—"}</td>
@@ -305,7 +305,7 @@ O funcionário passa para Demitidos.`)) return;
       </div>
       {archiveError && <p role="alert">{archiveError} <button type="button" className="btn btn-secondary" onClick={() => setArchiveRetry((value) => value + 1)}>Tentar novamente</button></p>}
       <ProcessHistoryCard />
-      {modelDocsOpen && <ProcessModelsModal documents={modelDocuments} busy={modelUploading} editable={can("employees", "edit")} error={attachmentError} onClose={() => setModelDocsOpen(false)} onUpload={(event, modality) => void handleModelDocumentUpload(event, modality)} onOpen={(document) => void openEmployeeDocumentFile(document.fileUrl, document.name).catch(() => setAttachmentError("Falha ao abrir o modelo."))} />}
+      {modelDocsOpen && <ProcessModelsModal documents={modelDocuments} busy={modelUploading} editable={can("employeeProcesses", "edit")} error={attachmentError} onClose={() => setModelDocsOpen(false)} onUpload={(event, modality) => void handleModelDocumentUpload(event, modality)} onOpen={(document) => void openEmployeeDocumentFile(document.fileUrl, document.name).catch(() => setAttachmentError("Falha ao abrir o modelo."))} />}
 
       {selected && <ProcessDrawer name={selected.employee.name} onClose={() => setSelectedId(null)}>
         <dl className="process-details-grid">

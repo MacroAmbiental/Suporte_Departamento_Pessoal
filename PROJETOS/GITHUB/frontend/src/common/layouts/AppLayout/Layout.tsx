@@ -32,7 +32,7 @@ import { useDomainData } from "@/hooks/useDomainData";
 import { useTheme } from "@/hooks/useTheme";
 import { useNewVersionCheck } from "@/hooks/useNewVersionCheck";
 import { screenFromPathname } from "@/core/routing/currentScreen";
-import { securePath } from "@/services/secureRoutes";
+import { employeeTabOf, screenHref, securePath } from "@/services/secureRoutes";
 import type { AppScreen } from "@/types/domain";
 import { todayISO } from "@/utils/format";
 import { compareText } from "@/utils/sort";
@@ -59,10 +59,10 @@ const navItems: {
     { to: "/app/timekeeping", label: "Controle de ponto", icon: Clock, screen: "timekeeping", subpage: "controle-ponto" },
     { to: "/app/ferias", label: "Férias", icon: Plane, screen: "vacation", subpage: "ferias" },
     { to: "/app/afastados", label: "Afastados", icon: CalendarClock, screen: "afastados", subpage: "afastados" },
-    { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employees", subpage: "processos" },
+    { to: "/app/employees?tab=processos", label: "Processo de Funcionário", icon: CalendarClock, screen: "employeeProcesses", subpage: "processos" },
     { to: "/app/benefits", label: "Benefícios", icon: Gift, screen: "benefits", subpage: "beneficios" },
-    { to: "/app/employees?tab=demitidos", label: "Demitidos", icon: X, screen: "employees", subpage: "demitidos" },
-    { to: "/app/employees?tab=tabela-salarial", label: "Tabela Salarial", icon: Wallet, screen: "employees", subpage: "tabela-salarial" },
+    { to: "/app/employees?tab=demitidos", label: "Demitidos", icon: X, screen: "dismissed", subpage: "demitidos" },
+    { to: "/app/employees?tab=tabela-salarial", label: "Tabela Salarial", icon: Wallet, screen: "salaryTable", subpage: "tabela-salarial" },
     { to: "/app/processo-abandono", label: "Processo de Abandono", icon: UserX, screen: "abandonment", subpage: "processo-abandono" },
     { to: "/app/processo-classificacao", label: "Processo de Classificação", icon: TrendingUp, screen: "classification", subpage: "processo-classificacao" },
     { to: "/app/hr-control", label: "Controle RH", icon: ChartColumn, screen: "hrControl" },
@@ -230,9 +230,9 @@ export default function Layout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const today = todayISO();
   const activeAlerts = alertsToNotify(domain.documentAlerts, domain.employeeDocuments, domain.employees, today).length;
-  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "afastados", "benefits", "timekeeping", "abandonment", "classification"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && (can("notifications", "view") || can("aso", "view")))), [can]);
+  const visibleNavItems = useMemo(() => navItems.filter((item) => can(item.screen, "view") || (item.screen === "employees" && !item.subpage && (["vacation", "afastados", "benefits", "timekeeping", "abandonment", "classification", "employeeProcesses", "dismissed", "salaryTable"] as AppScreen[]).some((screen) => can(screen, "view"))) || (item.screen === "records" && !item.subpage && (can("notifications", "view") || can("aso", "view")))), [can]);
   const currentScreen = useMemo(() => screenFromPathname(location.pathname), [location.pathname]);
-  const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "afastados", "benefits", "timekeeping", "abandonment", "classification"].includes(item.screen)), [visibleNavItems]);
+  const employeeSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && ["employees", "vacation", "afastados", "benefits", "timekeeping", "abandonment", "classification", "employeeProcesses", "dismissed", "salaryTable"].includes(item.screen)), [visibleNavItems]);
   const recordSubItems = useMemo(() => visibleNavItems.filter((item) => item.subpage && (item.screen === "notifications" || item.screen === "aso")), [visibleNavItems]);
   const employeeTab = new URLSearchParams(location.search).get("tab");
   const isEmployeeProcessActive = currentScreen === "employees" && employeeTab === "processos";
@@ -384,7 +384,7 @@ export default function Layout() {
                     onBlurCapture={() => setGroupOpen(false)}
                   >
                     <NavLink
-                      to={securePath(parentScreen)}
+                      to={screenHref(parentScreen)}
                       end={item.end}
                       className={() => ["sidebar-parent", isGroupActive ? "is-active" : ""].filter(Boolean).join(" ")}
                       onClick={(event) => {
@@ -405,10 +405,11 @@ export default function Layout() {
                         <div className="sidebar-submenu-inner">
                           {subItems.map((subItem) => {
                             const SubIcon = subItem.icon;
-                            const isSubItemActive = currentScreen === subItem.screen && (subItem.screen !== "employees" || employeeTab === subItem.subpage);
+                            const subItemTab = employeeTabOf[subItem.screen];
+                            const isSubItemActive = subItemTab ? currentScreen === "employees" && employeeTab === subItemTab : currentScreen === subItem.screen;
                             return <NavLink
                             key={subItem.to}
-                            to={`${securePath(subItem.screen)}${subItem.screen === "employees" ? `?tab=${subItem.subpage}` : ""}`}
+                            to={screenHref(subItem.screen)}
                             className={() => ["sidebar-subpage", isSubItemActive ? "is-active" : ""].filter(Boolean).join(" ")}
                             onClick={(event) => {
                               if (!canNavigateAway()) {

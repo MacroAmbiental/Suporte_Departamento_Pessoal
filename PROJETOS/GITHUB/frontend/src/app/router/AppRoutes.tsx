@@ -8,11 +8,17 @@ import NotFound from "@/pages/NotFound";
 import { screenFromSecureToken, securePath } from "@/services/secureRoutes";
 import type { AppScreen } from "@/types/domain";
 
+const EmployeesPage = lazy(() => import("@/modules/employees/pages/EmployeesPage"));
+
 const screenComponents: Record<AppScreen, LazyExoticComponent<ComponentType>> = {
+  // Abas de Funcionários com permissão própria: o endereço normal é Funcionários + ?tab=.
+  employeeProcesses: EmployeesPage,
+  dismissed: EmployeesPage,
+  salaryTable: EmployeesPage,
   dashboard: lazy(() => import("@/modules/dashboard/pages/Dashboard")),
   companies: lazy(() => import("@/modules/companies/pages/CompaniesPage")),
   records: lazy(() => import("@/modules/records/pages/Records")),
-  employees: lazy(() => import("@/modules/employees/pages/EmployeesPage")),
+  employees: EmployeesPage,
   benefits: lazy(() => import("@/modules/benefits/pages/BenefitsPage")),
   timekeeping: lazy(() => import("@/modules/timekeeping/pages/TimekeepingPage")),
   afastados: lazy(() => import("@/modules/afastados/pages/AfastadosPage")),

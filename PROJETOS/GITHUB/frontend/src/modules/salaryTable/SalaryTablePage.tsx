@@ -16,7 +16,7 @@ const normalize = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, 
 export default function SalaryTablePage() {
   const data = useDomainData();
   const { user, can } = useAuth();
-  const canEdit = can("employees", "edit");
+  const canEdit = can("salaryTable", "edit");
   const [unlocked, setUnlocked] = useState(false);
   const [checking, setChecking] = useState(false);
   const askedOnOpen = useRef(false);

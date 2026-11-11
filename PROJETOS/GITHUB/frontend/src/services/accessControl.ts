@@ -8,24 +8,74 @@ export const permissionActions: { key: PermissionAction; label: string }[] = [
   { key: "manage", label: "Gerenciar" },
 ];
 
-export const systemScreens: { key: AppScreen; label: string; path: string }[] = [
-  { key: "dashboard", label: "Painel", path: "/app" },
-  { key: "companies", label: "Empresas", path: "/app/companies" },
-  { key: "records", label: "Registros", path: "/app/records" },
-  { key: "employees", label: "Funcionários", path: "/app/employees" },
-  { key: "benefits", label: "Benefícios", path: "/app/benefits" },
-  { key: "timekeeping", label: "Controle de ponto", path: "/app/timekeeping" },
-  { key: "vacation", label: "Férias", path: "/app/ferias" },
-  { key: "aso", label: "Processo de ASO", path: "/app/processo-aso" },
-  { key: "classification", label: "Processo de Classificação", path: "/app/processo-classificacao" },
-  { key: "afastados", label: "Afastados", path: "/app/afastados" },
-  { key: "hrControl", label: "Controle RH", path: "/app/hr-control" },
-  { key: "abandonment", label: "Processo de Abandono", path: "/app/processo-abandono" },
-  { key: "notifications", label: "Notificações", path: "/app/notifications" },
-  { key: "toolbox", label: "Caixa de ferramentas", path: "/app/caixa-ferramentas" },
-  { key: "monitoring", label: "Monitoramento", path: "/app/monitoring" },
-  { key: "permissions", label: "Permissões do sistema", path: "/app/permissions" },
+export type ScreenGroup = "Geral" | "Registros" | "Funcionários" | "Administração";
+
+export type SystemScreen = {
+  key: AppScreen;
+  label: string;
+  path: string;
+  group: ScreenGroup;
+  // Ações que a tela realmente confere. As outras não aparecem na grade.
+  actions: PermissionAction[];
+  // O que as ações liberam nessa tela (aparece embaixo do nome na grade).
+  hint?: string;
+};
+
+const ALL: PermissionAction[] = ["view", "create", "edit", "delete", "manage"];
+const VIEW_EDIT: PermissionAction[] = ["view", "edit"];
+const VIEW: PermissionAction[] = ["view"];
+
+// Lista única das telas, na ordem e nos grupos do menu (11/11/2026). Menu, rotas e a
+// grade de permissões leem daqui.
+export const systemScreens: SystemScreen[] = [
+  { key: "dashboard", label: "Painel", path: "/app", group: "Geral", actions: VIEW },
+  { key: "companies", label: "Empresas", path: "/app/companies", group: "Geral", actions: ALL, hint: "Empresas, estrutura (departamentos, setores, equipes) e lideranças." },
+  { key: "records", label: "Registros", path: "/app/records", group: "Registros", actions: ALL, hint: "Documentos dos funcionários. Editar também libera os Documentos padrão por função." },
+  { key: "notifications", label: "Notificações", path: "/app/notifications", group: "Registros", actions: ALL, hint: "Alertas de vencimento. Também vale para os alertas criados em Registros, ASO e Férias." },
+  { key: "aso", label: "Processo de ASO", path: "/app/processo-aso", group: "Registros", actions: VIEW_EDIT, hint: "Editar = mover cartões e registrar o processo." },
+  { key: "employees", label: "Funcionários", path: "/app/employees", group: "Funcionários", actions: ALL, hint: "Cadastro, diaristas e contratos. Gerenciar libera exportar salários." },
+  { key: "timekeeping", label: "Controle de ponto", path: "/app/timekeeping", group: "Funcionários", actions: ALL },
+  { key: "vacation", label: "Férias", path: "/app/ferias", group: "Funcionários", actions: VIEW_EDIT, hint: "Editar = lançar, fracionar e vender férias e importar o relatório da contabilidade." },
+  { key: "afastados", label: "Afastados", path: "/app/afastados", group: "Funcionários", actions: VIEW_EDIT, hint: "Editar = lançar e alterar afastamentos." },
+  { key: "employeeProcesses", label: "Processo de Funcionário", path: "/app/employees?tab=processos", group: "Funcionários", actions: VIEW_EDIT, hint: "Editar = experiência, aviso prévio e efetivar desligamento." },
+  { key: "benefits", label: "Benefícios", path: "/app/benefits", group: "Funcionários", actions: ALL },
+  { key: "dismissed", label: "Demitidos", path: "/app/employees?tab=demitidos", group: "Funcionários", actions: VIEW, hint: "Lista de desligados (alterações seguem a permissão de Funcionários)." },
+  { key: "salaryTable", label: "Tabela Salarial", path: "/app/employees?tab=tabela-salarial", group: "Funcionários", actions: VIEW_EDIT, hint: "Editar = alterar faixas e valores." },
+  { key: "abandonment", label: "Processo de Abandono", path: "/app/processo-abandono", group: "Funcionários", actions: VIEW_EDIT, hint: "Editar = mover cartões e registrar o processo." },
+  { key: "classification", label: "Processo de Classificação", path: "/app/processo-classificacao", group: "Funcionários", actions: VIEW_EDIT, hint: "Editar = registrar etapas e efetivar a mudança no cadastro." },
+  { key: "hrControl", label: "Controle RH", path: "/app/hr-control", group: "Administração", actions: VIEW, hint: "Também abre para quem vê o Controle de ponto." },
+  { key: "toolbox", label: "Caixa de ferramentas", path: "/app/caixa-ferramentas", group: "Administração", actions: VIEW },
+  { key: "monitoring", label: "Monitoramento", path: "/app/monitoring", group: "Administração", actions: VIEW },
+  { key: "permissions", label: "Permissões do sistema", path: "/app/permissions", group: "Administração", actions: ALL, hint: "Gerenciar = aplicar perfis às pessoas." },
 ];
+
+export const screenGroups: ScreenGroup[] = ["Geral", "Registros", "Funcionários", "Administração"];
+
+// Abas de Funcionários que ganharam linha própria em 11/11/2026. Perfil ou usuário
+// que ainda não tem a linha herda a permissão de Funcionários (ninguém perde acesso).
+export const inheritedScreens: Partial<Record<AppScreen, AppScreen>> = {
+  employeeProcesses: "employees",
+  dismissed: "employees",
+  salaryTable: "employees",
+};
+
+type Matrix = Partial<Record<AppScreen, PermissionAction[]>>;
+
+export function withInheritedScreens<T extends Matrix>(matrix: T | undefined): T {
+  const next = { ...(matrix || {}) } as Matrix;
+  (Object.entries(inheritedScreens) as Array<[AppScreen, AppScreen]>).forEach(([screen, from]) => {
+    if (next[screen] === undefined && next[from]) next[screen] = [...(next[from] || [])];
+  });
+  return next as T;
+}
+
+// Ações gravadas de um usuário numa tela (com a herança das abas novas).
+export function storedScreenActions(permissions: Array<Pick<SystemPermission, "screen" | "actions">>, screen: AppScreen): PermissionAction[] | undefined {
+  const own = permissions.find((entry) => entry.screen === screen);
+  if (own) return own.actions || [];
+  const from = inheritedScreens[screen];
+  return from ? permissions.find((entry) => entry.screen === from)?.actions : undefined;
+}
 
 export const collectionScreenMap: Record<string, AppScreen> = {
   companies: "companies",
@@ -158,10 +208,8 @@ export function userHasPermission(
   if (user.isAdmin) return true;
   if (!Array.isArray(user.permissions)) return false;
 
-  const permission = user.permissions.find((entry) => entry.screen === screen);
-  if (permission && Array.isArray(permission.actions)) {
-    if (permission.actions.includes("manage") || permission.actions.includes(action)) return true;
-  }
+  const actions = storedScreenActions(user.permissions, screen);
+  if (Array.isArray(actions) && (actions.includes("manage") || actions.includes(action))) return true;
 
   if (screen === "hrControl") {
     const timekeepingPermission = user.permissions.find((entry) => entry.screen === "timekeeping");

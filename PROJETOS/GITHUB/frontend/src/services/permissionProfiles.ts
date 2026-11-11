@@ -1,4 +1,5 @@
 import type { AppScreen, Employee, PermissionAction, PermissionProfile, PermissionProfileTarget, SystemUser } from "@/types/domain";
+import { withInheritedScreens } from "@/services/accessControl";
 
 // Regra única de "acessos salvos" (perfis) para a tela de Permissões e o cadastro
 // de funcionários. A permissão de cada pessoa é a SOMA de todos os acessos ativos
@@ -52,7 +53,7 @@ export function profilesForUser(
 export function unionMatrix(profiles: PermissionProfile[]): PermissionMatrixPartial {
   const result: PermissionMatrixPartial = {};
   profiles.forEach((profile) => {
-    Object.entries(profile.permissions || {}).forEach(([screen, actions]) => {
+    Object.entries(withInheritedScreens(profile.permissions)).forEach(([screen, actions]) => {
       const merged = new Set([...(result[screen as AppScreen] || []), ...(actions || [])]);
       result[screen as AppScreen] = Array.from(merged);
     });

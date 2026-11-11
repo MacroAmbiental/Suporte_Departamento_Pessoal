@@ -6,7 +6,8 @@ export type DomainCollectionName = keyof DomainSnapshot;
  * Coleções carregadas apenas quando a tela correspondente está aberta.
  * Coleções grandes não ficam com listener em tempo real por padrão.
  */
-const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
+type EmployeeTabScreen = "employeeProcesses" | "dismissed" | "salaryTable";
+const baseScopes: Record<Exclude<AppScreen, EmployeeTabScreen>, DomainCollectionName[]> = {
   dashboard: ["customModules"],
   companies: [
     "companies",
@@ -193,6 +194,14 @@ const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
     "teams",
     "employees",
   ],
+};
+
+// Abas de Funcionários com permissão própria carregam o mesmo que Funcionários.
+const screenScopes: Record<AppScreen, DomainCollectionName[]> = {
+  ...baseScopes,
+  employeeProcesses: baseScopes.employees,
+  dismissed: baseScopes.employees,
+  salaryTable: baseScopes.employees,
 };
 
 /**

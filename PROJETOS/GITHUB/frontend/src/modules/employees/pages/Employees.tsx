@@ -41,7 +41,7 @@ import ScheduleDeactivationModal from "@/modules/employeeProcesses/components/Sc
 import { isEmployeeTerminated } from "@/modules/employees/utils/employeeStatus";
 import MultiSelect from "../../../common/components/MultiSelect";
 import { employeeStandardDocumentNames } from "@/modules/records/utils/recordsDocuments";
-import { createUsernameFromName, normalizeUsername, systemScreens } from "@/services/accessControl";
+import { createUsernameFromName, normalizeUsername, storedScreenActions, systemScreens, withInheritedScreens } from "@/services/accessControl";
 import { conferirSenhaServidor } from "@/services/firebaseSession";
 import VerSenhaLogin from "../components/VerSenhaLogin";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
@@ -455,9 +455,10 @@ function normalizedPermissionActions(actions: PermissionAction[] | undefined) {
 }
 
 function permissionsMatchProfile(userPermissions: SystemPermission[], profile: PermissionProfile) {
+  const expected = withInheritedScreens(profile.permissions);
   return systemScreens.every((screen) => (
-    normalizedPermissionActions(userPermissions.find((permission) => permission.screen === screen.key)?.actions)
-    === normalizedPermissionActions(profile.permissions[screen.key as AppScreen])
+    normalizedPermissionActions(storedScreenActions(userPermissions, screen.key))
+    === normalizedPermissionActions(expected[screen.key as AppScreen])
   ));
 }
 
