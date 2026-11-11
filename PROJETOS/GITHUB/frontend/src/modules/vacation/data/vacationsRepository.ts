@@ -130,6 +130,8 @@ export interface VacationBaseline {
   reportCompany: string;
   reportCode: string;
   reportName: string;
+  // Admissão que o relatório traz (só nas importações a partir de 11/11/2026).
+  reportAdmissionISO?: string;
   periods: Array<{ startISO: string; endISO: string; daysRight: number; daysTaken: number; daysRemaining: number; limitISO: string; absences: number }>;
   importedAt: string;
   importedBy: string;

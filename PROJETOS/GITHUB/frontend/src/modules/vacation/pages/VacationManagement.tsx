@@ -611,7 +611,17 @@ function VacationEditorModal({
 
   const today = todayISO();
   const admission = employee.admissionDate || "";
-  const admYear = admission ? new Date(`${admission}T00:00:00`).getFullYear() : 0;
+  // Relatório da contabilidade x cadastro: se a admissão não bate (ou o relatório traz
+  // período antes da admissão do cadastro), avisa em vez de oferecer lançamento que
+  // a validação abaixo vai recusar. Ex.: Nicolas, relatório 01/08/2022 x cadastro 01/07/2026.
+  const reportFirstStart = baseline?.periods.length ? [...baseline.periods].map((item) => item.startISO).sort()[0] : "";
+  const admissionConflict = Boolean(baseline && admission && (
+    baseline.reportAdmissionISO ? baseline.reportAdmissionISO !== admission : reportFirstStart < admission
+  ));
+  // Com relatório, as férias seguem a contabilidade: a admissão do cadastro pode ser
+  // outra (ex.: data de quando era prestador, que o DP mantém por causa do Ponto).
+  const ruleAdmission = baseline ? baseline.reportAdmissionISO || reportFirstStart || admission : admission;
+  const ruleYear = ruleAdmission ? new Date(`${ruleAdmission}T00:00:00`).getFullYear() : 0;
   // DSR (domingo, ou a folga da escala de quem trabalha no domingo) + feriados do Ponto.
   const restWeekdays = useMemo(() => weeklyRestWeekdays(employee.workScheduleDays), [employee.workScheduleDays]);
   // Soma os feriados da configuração geral do Ponto com os da empresa do funcionário.
@@ -752,16 +762,16 @@ function VacationEditorModal({
       setError("O fim do período vendido não pode ser antes do início.");
       return;
     }
-    if (admission) {
-      if (acqYear && Number(acqYear) < admYear) {
-        setError(`Não é possível lançar/vender férias de anos anteriores à admissão (${admYear}).`);
+    if (ruleAdmission) {
+      if (acqYear && Number(acqYear) < ruleYear) {
+        setError(`Não é possível lançar/vender férias de anos anteriores à admissão (${ruleYear}${baseline ? ", conforme o relatório da contabilidade" : ""}).`);
         return;
       }
-      if (start && start < admission) {
+      if (start && start < ruleAdmission) {
         setError("O início das férias não pode ser anterior à data de admissão.");
         return;
       }
-      if (soldStart && soldStart < admission) {
+      if (soldStart && soldStart < ruleAdmission) {
         setError("O período vendido não pode ser anterior à data de admissão.");
         return;
       }
@@ -946,6 +956,17 @@ function VacationEditorModal({
             </button>
           </div>
         ) : null}
+        {baseline && admissionConflict ? (
+          <div className="vacation-admission-conflict" role="alert">
+            <strong>Admissão no cadastro diferente da contabilidade — as férias seguem o relatório</strong>
+            <span>
+              Cadastro: {formatDate(admission)} · Relatório: {baseline.reportAdmissionISO ? formatDate(baseline.reportAdmissionISO) : `primeiro período começa em ${formatDate(reportFirstStart)}`}.
+            </span>
+            <span>
+              Se o relatório estiver ligado à pessoa errada, use "Remover dados do relatório".
+            </span>
+          </div>
+        ) : null}
 
         {showForm ? (
           <>
@@ -1110,6 +1131,8 @@ function VacationEditorModal({
                           <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>Não vencido</span>
                         ) : right.lost ? (
                           <span style={{ fontSize: 11, color: "color-mix(in srgb, #b91c1c var(--ink-keep), #e5e7eb)", fontWeight: 700 }}>Direito perdido</span>
+                        ) : pendentes > 0 && ruleYear && period.year < ruleYear ? (
+                          <span className="vacation-admission-blocked" title={`Período anterior à admissão (${formatDate(ruleAdmission)}). Confira a admissão.`}>Conferir admissão</span>
                         ) : pendentes > 0 ? (
                           <span style={{ display: "inline-flex", gap: 6 }}>
                             {periodVacations.length > 0 ? (

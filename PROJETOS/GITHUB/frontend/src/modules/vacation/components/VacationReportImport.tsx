@@ -108,6 +108,7 @@ export default function VacationReportImport({ employees, companies, onClose, on
             reportCompany: report.companyName,
             reportCode: row.code,
             reportName: row.name,
+            reportAdmissionISO: row.admissionISO,
             periods: row.periods,
             importedAt: now,
             importedBy: user?.name || user?.username || "",
