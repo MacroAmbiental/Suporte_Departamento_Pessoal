@@ -8,6 +8,7 @@ const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
+const equipesAtuais_1 = require("./equipesAtuais");
 const pontoPerformanceCache_1 = require("./pontoPerformanceCache");
 // Link só de leitura do ponto para a planilha Custo x Faturamento da
 // Performance (03/11/2026). Antes a planilha lia o banco do DP direto pela
@@ -19,6 +20,10 @@ const pontoPerformanceCache_1 = require("./pontoPerformanceCache");
 //
 // Antes: https://firestore.googleapis.com/v1/projects/macro-ambiental/databases/(default)/documents/timeRecords/2026-10-21/employeePoints?pageSize=300
 // Agora: https://southamerica-east1-macro-ambiental.cloudfunctions.net/pontoPerformance/timeRecords/2026-10-21/employeePoints?pageSize=300
+//
+// 11/11: /equipesAtuais devolve [{id, matricula, nome, status, equipeId, equipe,
+// equipeCadastroAntigo}] com a equipe ATUAL (estrutura do grupo, igual ao ponto).
+// O teamId de employees é o campo antigo e não acompanha troca/renomeação.
 //
 // Só GET; timeRecords, lotação (departments/sectors/subsectors/teams) e, de
 // employees, só os campos da lista abaixo.
@@ -140,8 +145,14 @@ exports.pontoPerformance = (0, https_1.onRequest)({ region: "southamerica-east1"
         res.status(400).json({ erro: "Caminho inválido." });
         return;
     }
+    if (caminho === "equipesAtuais") {
+        const lista = await (0, equipesAtuais_1.equipesAtuais)((0, firestore_1.getFirestore)());
+        console.log("[PONTO_PERFORMANCE]", { caminho, status: 200, quantidade: lista.length });
+        res.status(200).json(lista);
+        return;
+    }
     if (!caminhoPermitido(caminho)) {
-        res.status(403).json({ erro: "Este link só libera o ponto (timeRecords), a lotação (departments, sectors, subsectors, teams, companies) e campos liberados dos funcionários (employees)." });
+        res.status(403).json({ erro: "Este link só libera o ponto (timeRecords), a lotação (departments, sectors, subsectors, teams, companies) e campos liberados dos funcionários (employees) e a equipe atual (equipesAtuais)." });
         return;
     }
     const parametros = new URLSearchParams();

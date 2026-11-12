@@ -3,6 +3,7 @@ import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
+import { equipesAtuais } from "./equipesAtuais";
 import { documentosDoDia, paginaDaCopia, pedidoCacheavel, type DocumentoRest } from "./pontoPerformanceCache";
 
 // Link só de leitura do ponto para a planilha Custo x Faturamento da
@@ -15,6 +16,10 @@ import { documentosDoDia, paginaDaCopia, pedidoCacheavel, type DocumentoRest } f
 //
 // Antes: https://firestore.googleapis.com/v1/projects/macro-ambiental/databases/(default)/documents/timeRecords/2026-10-21/employeePoints?pageSize=300
 // Agora: https://southamerica-east1-macro-ambiental.cloudfunctions.net/pontoPerformance/timeRecords/2026-10-21/employeePoints?pageSize=300
+//
+// 11/11: /equipesAtuais devolve [{id, matricula, nome, status, equipeId, equipe,
+// equipeCadastroAntigo}] com a equipe ATUAL (estrutura do grupo, igual ao ponto).
+// O teamId de employees é o campo antigo e não acompanha troca/renomeação.
 //
 // Só GET; timeRecords, lotação (departments/sectors/subsectors/teams) e, de
 // employees, só os campos da lista abaixo.
@@ -143,8 +148,14 @@ export const pontoPerformance = onRequest(
       res.status(400).json({ erro: "Caminho inválido." });
       return;
     }
+    if (caminho === "equipesAtuais") {
+      const lista = await equipesAtuais(getFirestore());
+      console.log("[PONTO_PERFORMANCE]", { caminho, status: 200, quantidade: lista.length });
+      res.status(200).json(lista);
+      return;
+    }
     if (!caminhoPermitido(caminho)) {
-      res.status(403).json({ erro: "Este link só libera o ponto (timeRecords), a lotação (departments, sectors, subsectors, teams, companies) e campos liberados dos funcionários (employees)." });
+      res.status(403).json({ erro: "Este link só libera o ponto (timeRecords), a lotação (departments, sectors, subsectors, teams, companies) e campos liberados dos funcionários (employees) e a equipe atual (equipesAtuais)." });
       return;
     }
 
