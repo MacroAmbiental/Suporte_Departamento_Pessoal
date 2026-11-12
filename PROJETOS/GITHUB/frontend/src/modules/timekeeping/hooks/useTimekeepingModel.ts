@@ -215,6 +215,19 @@ export function useTimekeepingModel() {
     );
   }), [employeesForTimekeeping, data.timeRecords, recordEmployeeIdsForSelectedDate, filterSets, filters.date]);
 
+  // "Salvar dia do mês" grava o DIA INTEIRO, sem os filtros da tela (12/11/2026): antes usava a lista filtrada e quem
+  // estava fora do filtro (empresa, departamento, busca...) ficava sem registro gravado — a tela mostrava a linha
+  // montada na hora (ex.: DSR), mas o banco não tinha (caso 03–04/10: 45 pessoas sumiram do Medições).
+  const employeesForWholeDay = useMemo(() => employeesForTimekeeping.filter((employee) => {
+    const effectiveStatus = employeeEffectiveStatusForDate(employee, filters.date);
+    const belongsToSelectedDate = effectiveStatus !== "terminated" || recordEmployeeIdsForSelectedDate.has(employee.id);
+    const admittedForSelectedDate = !employee.admissionDate
+      || !filters.date
+      || employee.admissionDate <= filters.date
+      || recordEmployeeIdsForSelectedDate.has(employee.id);
+    return belongsToSelectedDate && admittedForSelectedDate;
+  }), [employeesForTimekeeping, recordEmployeeIdsForSelectedDate, filters.date]);
+
   const dayTeamByEmployee = useMemo(() => new Map(data.timeRecords
     .filter(record => record.date === filters.date)
     .map(record => [record.employeeId, record.dayTeamId])), [data.timeRecords, filters.date]);
@@ -282,6 +295,7 @@ export function useTimekeepingModel() {
     filteredRecords,
     filteredEmployees,
     employeesBeforeTeamFilters,
+    employeesForWholeDay,
     employeesForDate,
     dayTeamByEmployee,
     employeeOptions,

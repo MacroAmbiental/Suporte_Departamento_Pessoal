@@ -2132,6 +2132,7 @@ export default function Timekeeping() {
     setFilters,
     filteredEmployees: employees,
     employeesBeforeTeamFilters,
+    employeesForWholeDay,
     employeesForDate,
     dayTeamByEmployee,
     employeeOptions,
@@ -2250,9 +2251,10 @@ export default function Timekeeping() {
   const [noBreakTeamScheduleEmployeeIds, setNoBreakTeamScheduleEmployeeIds] =
     useState<Set<string>>(() => new Set());
 
+  // dia inteiro, sem os filtros da tela (12/11/2026): ver employeesForWholeDay em useTimekeepingModel
   const employeesForDaySave = useMemo(
     () =>
-      employees.filter((employee) => {
+      employeesForWholeDay.filter((employee) => {
         if (employeeEffectiveStatusForDate(employee, filters.date) !== "terminated")
           return true;
         return data.timeRecords.some(
@@ -2260,7 +2262,7 @@ export default function Timekeeping() {
             record.employeeId === employee.id && record.date === filters.date,
         );
       }),
-    [employees, data.timeRecords, filters.date],
+    [employeesForWholeDay, data.timeRecords, filters.date],
   );
 
   useEffect(() => {
