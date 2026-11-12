@@ -623,10 +623,13 @@ export default function Employees({
   const data = useDomainData();
   const employeeSource = useMemo(() => {
     if (showTerminatedOnly) {
-      // Demitidos incluem: coleção dismissedEmployees + todos com status="terminated" na employees
+      // Demitidos incluem: coleção dismissedEmployees + todos com status="terminated" na employees.
+      // A mesma pessoa costuma estar nas duas (mesmo id) → mostra uma vez só, preferindo a versão da employees.
+      const terminated = data.employees.filter((employee) => isEmployeeTerminated(employee));
+      const terminatedIds = new Set(terminated.map((employee) => employee.id));
       return [
-        ...data.dismissedEmployees,
-        ...data.employees.filter((employee) => isEmployeeTerminated(employee))
+        ...terminated,
+        ...data.dismissedEmployees.filter((employee) => !terminatedIds.has(employee.id)),
       ];
     }
     // A tela de Funcionários deve exibir ativos e inativos.
