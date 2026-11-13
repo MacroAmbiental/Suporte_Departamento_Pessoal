@@ -24,3 +24,14 @@
 .aso-case-observation p { margin: 0; white-space: pre-wrap; }
 .aso-case-observation textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; resize: vertical; }
 .aso-case-observation .form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+/* Equipe real no cartão e aviso da 2ª guia no topo da coluna. */
+.aso-card-team { font-size: 13px; color: var(--text-muted, #5b6b7a) !important; }
+.aso-column-alert { display: block; margin: 4px 0 6px; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, #eda100 18%, transparent); color: color-mix(in srgb, #7a5200 var(--ink-keep), #fcd98a) !important; }
+/* Adicionar funcionário à mão. */
+.aso-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.aso-add-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface, #fff); }
+.aso-add-search input { flex: 1; min-width: 0; border: 0; padding: 8px 0; font: inherit; background: transparent; color: var(--text); outline: none; }
+.aso-add-results { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 280px; overflow-y: auto; }
+.aso-add-results button { display: grid; gap: 2px; width: 100%; padding: 8px 10px; text-align: left; border: 1px solid var(--border); border-radius: 8px; background: var(--surface, #fff); color: var(--text); cursor: pointer; font: inherit; }
+.aso-add-results button:hover { border-color: #0b9369; }
+.aso-add-results small { color: var(--text-muted, #5b6b7a); }

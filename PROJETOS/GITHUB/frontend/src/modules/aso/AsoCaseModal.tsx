@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, Copy, Eye, Upload, X } from "lucide-react";
 import ModalPortal from "@/modules/shared/ModalPortal";
 import { openEmployeeDocumentFile } from "@/services/documentStorage";
@@ -6,6 +6,11 @@ import {
   ASO_CLINIC_DAYS,
   asoChannelLabels,
   asoGuideMessage,
+  asoManualReasonLabels,
+  asoSecondGuideMessage,
+  firstGuideDate,
+  secondGuideDue,
+  secondGuideDueDate,
   asoRecipientLabels,
   asoStages,
   clinicLate,
@@ -21,6 +26,8 @@ import type { DocumentAlert } from "@/types/domain";
 
 type Props = {
   seed: AsoCaseSeed;
+  // Equipe atual (estrutura de grupos, igual ao Controle de ponto).
+  teamName?: string;
   asoCase?: AsoCase;
   currentAsoUrl?: string;
   currentAsoName?: string;
@@ -31,7 +38,9 @@ type Props = {
   saveObservation: (alert: DocumentAlert, value: string) => Promise<void>;
   onClose: () => void;
   saveGuide: (seed: AsoCaseSeed, file: File) => Promise<void>;
-  markGuideSent: (item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, notes: string) => Promise<void>;
+  cancelManualCase: (item: AsoCase, notes: string) => Promise<void>;
+  markGuideSent: (item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, sentDate: string, notes: string) => Promise<void>;
+  markSecondGuideSent: (item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, sentDate: string, notes: string) => Promise<void>;
   markExamDone: (item: AsoCase, examDate: string, notes: string) => Promise<void>;
   receiveAso: (item: AsoCase, file: File, newDueDate: string) => Promise<void>;
   markSentToSertras: (item: AsoCase, sentDate: string, notes: string) => Promise<void>;
@@ -108,19 +117,78 @@ function AsoObservation({ alert, canEdit, save }: {
   );
 }
 
+// Encaminhar a guia (1ª ou 2ª): para quem, por onde, quando e a mensagem pronta.
+function GuideSendStep({ title, intro, initialMessage, initialRecipient, initialChannel, busy, buttonLabel, onSend, onError }: {
+  title: string;
+  intro?: ReactNode;
+  initialMessage: string;
+  initialRecipient?: AsoGuideRecipient;
+  initialChannel?: AsoChannel;
+  busy: boolean;
+  buttonLabel: string;
+  onSend: (to: AsoGuideRecipient, channel: AsoChannel, sentDate: string) => void;
+  onError: (message: string) => void;
+}) {
+  const [recipient, setRecipient] = useState<AsoGuideRecipient>(initialRecipient || "supervisor");
+  const [channel, setChannel] = useState<AsoChannel>(initialChannel || "whatsapp");
+  const [sentDate, setSentDate] = useState(todayISO());
+  const [message, setMessage] = useState(initialMessage);
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="aso-case-step">
+      <h3>{title}</h3>
+      {intro}
+      <div className="aso-case-row">
+        <label className="field">
+          Para
+          <select value={recipient} onChange={(event) => setRecipient(event.target.value as AsoGuideRecipient)}>
+            {Object.entries(asoRecipientLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          Por onde
+          <select value={channel} onChange={(event) => setChannel(event.target.value as AsoChannel)}>
+            {Object.entries(asoChannelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          Data do envio
+          <input type="date" value={sentDate} max={todayISO()} onChange={(event) => setSentDate(event.target.value)} />
+        </label>
+      </div>
+      <label className="field">
+        Mensagem pronta (pode editar antes de copiar)
+        <textarea rows={4} value={message} onChange={(event) => { setMessage(event.target.value); setCopied(false); }} />
+      </label>
+      <div className="form-actions">
+        <button
+          className="btn btn-secondary"
+          type="button"
+          onClick={() => {
+            navigator.clipboard.writeText(message).then(() => setCopied(true)).catch(() => onError("Não foi possível copiar. Selecione o texto e copie manualmente."));
+          }}
+        >
+          <Copy size={16} /> {copied ? "Copiada!" : "Copiar mensagem"}
+        </button>
+        <button className="btn btn-primary" type="button" disabled={busy || !sentDate} onClick={() => onSend(recipient, channel, sentDate)}>
+          <Check size={16} /> {busy ? "Salvando..." : buttonLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AsoCaseModal({
-  seed, asoCase, currentAsoUrl, currentAsoName, canEdit, alert, canEditObservation, saveObservation,
-  onClose, saveGuide, markGuideSent, markExamDone, receiveAso, markSentToSertras,
+  seed, teamName, asoCase, currentAsoUrl, currentAsoName, canEdit, alert, canEditObservation, saveObservation,
+  onClose, saveGuide, cancelManualCase, markGuideSent, markSecondGuideSent, markExamDone, receiveAso, markSentToSertras,
 }: Props) {
   const events = useAsoEvents(asoCase?.id || null);
   const stage = asoCase?.stage || "notified";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
   const [guideFile, setGuideFile] = useState<File | null>(null);
-  const [recipient, setRecipient] = useState<AsoGuideRecipient>("supervisor");
-  const [channel, setChannel] = useState<AsoChannel>("whatsapp");
-  const [message, setMessage] = useState(() => asoGuideMessage(seed.employeeName, formatDate(seed.dueDate)));
+  const today = todayISO();
   const [examDate, setExamDate] = useState(todayISO());
   const [notes, setNotes] = useState("");
   const [newAsoFile, setNewAsoFile] = useState<File | null>(null);
@@ -153,7 +221,9 @@ export default function AsoCaseModal({
         <div className="modal-header">
           <div>
             <h2 id="aso-case-title">{seed.employeeName}</h2>
-            <p className="panel-subtitle">{seed.companyName} · ASO vence em {formatDate(seed.dueDate)} · Etapa: {stageLabel(stage)}</p>
+            <p className="panel-subtitle">
+              {seed.companyName} · Equipe: {teamName || "sem equipe"} · {seed.dueDate ? `ASO vence em ${formatDate(seed.dueDate)}` : "Sem ASO em Registros"} · Etapa: {stageLabel(stage)}
+            </p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Fechar">
             <X size={18} />
@@ -168,6 +238,26 @@ export default function AsoCaseModal({
             <button className="btn btn-soft" type="button" onClick={() => openFile(asoCase.guideFileUrl, asoCase.guideFileName)}><Eye size={14} /> Ver guia</button>
           ) : null}
         </div>
+
+        {asoCase?.origin === "manual" ? (
+          <div className="aso-case-step">
+            <h3>Adicionado manualmente · {asoManualReasonLabels[asoCase.manualReason || "other"]}</h3>
+            {asoCase.manualNotes ? <p className="abandonment-muted">{asoCase.manualNotes}</p> : null}
+            <small className="abandonment-muted">Por {asoCase.openedBy?.name || "-"} em {formatDateTime(asoCase.openedAt)}.</small>
+            {canEdit && stage === "notified" ? (
+              <div className="form-actions">
+                <button
+                  className="btn btn-soft"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => run(() => cancelManualCase(asoCase, "Removido do processo (adicionado por engano)."))}
+                >
+                  <X size={16} /> Remover do processo
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <AsoObservation alert={alert} canEdit={canEditObservation} save={saveObservation} />
 
@@ -190,54 +280,50 @@ export default function AsoCaseModal({
         ) : null}
 
         {canEdit && asoCase && stage === "guide_issued" ? (
-          <div className="aso-case-step">
-            <h3>Encaminhar a guia</h3>
-            <div className="aso-case-row">
-              <label className="field">
-                Para
-                <select value={recipient} onChange={(event) => setRecipient(event.target.value as AsoGuideRecipient)}>
-                  {Object.entries(asoRecipientLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label className="field">
-                Por onde
-                <select value={channel} onChange={(event) => setChannel(event.target.value as AsoChannel)}>
-                  {Object.entries(asoChannelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-            </div>
-            <label className="field">
-              Mensagem pronta (pode editar antes de copiar)
-              <textarea rows={4} value={message} onChange={(event) => { setMessage(event.target.value); setCopied(false); }} />
-            </label>
-            <div className="form-actions">
-              <button
-                className="btn btn-secondary"
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(message).then(() => setCopied(true)).catch(() => setError("Não foi possível copiar. Selecione o texto e copie manualmente."));
-                }}
-              >
-                <Copy size={16} /> {copied ? "Copiada!" : "Copiar mensagem"}
-              </button>
-              <button
-                className="btn btn-primary"
-                type="button"
-                disabled={busy}
-                onClick={() => run(() => markGuideSent(asoCase, recipient, channel, `Guia encaminhada ao ${asoRecipientLabels[recipient].toLowerCase()} por ${asoChannelLabels[channel]}.`))}
-              >
-                <Check size={16} /> {busy ? "Salvando..." : "Marcar como encaminhada"}
-              </button>
-            </div>
-          </div>
+          <GuideSendStep
+            title="Encaminhar a 1ª guia"
+            initialMessage={asoGuideMessage(seed.employeeName, formatDate(seed.dueDate))}
+            busy={busy}
+            buttonLabel="Marcar 1ª guia encaminhada"
+            onError={setError}
+            onSend={(to, via, sentDate) => run(() => markGuideSent(asoCase, to, via, sentDate,
+              `1ª guia encaminhada ao ${asoRecipientLabels[to].toLowerCase()} por ${asoChannelLabels[via]} em ${formatDate(sentDate)}.`))}
+          />
         ) : null}
 
         {canEdit && asoCase && stage === "guide_sent" ? (
+          <GuideSendStep
+            title="Encaminhar a 2ª guia"
+            intro={(
+              <p className={secondGuideDue(asoCase, today) ? "aso-overdue-text" : "abandonment-muted"}>
+                1ª guia encaminhada ao {asoRecipientLabels[asoCase.guideSentTo || "supervisor"].toLowerCase()} por {asoChannelLabels[asoCase.guideSentChannel || "whatsapp"]} em {formatDate(firstGuideDate(asoCase))}.
+                {" "}{secondGuideDue(asoCase, today)
+                  ? `O prazo da 2ª guia era ${formatDate(secondGuideDueDate(asoCase))}: encaminhe a 2ª guia.`
+                  : `A 2ª guia deve ser encaminhada em ${formatDate(secondGuideDueDate(asoCase))}, se o exame ainda não tiver sido feito.`}
+              </p>
+            )}
+            initialMessage={asoSecondGuideMessage(seed.employeeName, formatDate(seed.dueDate))}
+            initialRecipient={asoCase.guideSentTo}
+            initialChannel={asoCase.guideSentChannel}
+            busy={busy}
+            buttonLabel="Marcar 2ª guia encaminhada"
+            onError={setError}
+            onSend={(to, via, sentDate) => run(() => markSecondGuideSent(asoCase, to, via, sentDate,
+              `2ª guia encaminhada ao ${asoRecipientLabels[to].toLowerCase()} por ${asoChannelLabels[via]} em ${formatDate(sentDate)}.`))}
+          />
+        ) : null}
+
+        {canEdit && asoCase && (stage === "guide_sent" || stage === "guide_resent") ? (
           <div className="aso-case-step">
             <h3>Exame feito</h3>
-            <p className="abandonment-muted">
-              Guia encaminhada ao {asoRecipientLabels[asoCase.guideSentTo || "supervisor"].toLowerCase()} por {asoChannelLabels[asoCase.guideSentChannel || "whatsapp"]}.
-            </p>
+            {stage === "guide_resent" ? (
+              <p className="abandonment-muted">
+                2ª guia encaminhada ao {asoRecipientLabels[asoCase.secondGuideSentTo || "supervisor"].toLowerCase()} por {asoChannelLabels[asoCase.secondGuideSentChannel || "whatsapp"]}
+                {asoCase.secondGuideSentAt ? ` em ${formatDate(asoCase.secondGuideSentAt)}` : ""}.
+              </p>
+            ) : (
+              <p className="abandonment-muted">Se o funcionário já fez o exame, marque aqui mesmo sem a 2ª guia.</p>
+            )}
             <div className="aso-case-row">
               <label className="field">
                 Data do exame

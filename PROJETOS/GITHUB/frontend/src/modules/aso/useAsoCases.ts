@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { collection, doc, onSnapshot, orderBy, query, where, writeBatch } from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query, updateDoc, where, writeBatch } from "firebase/firestore";
 import { firestore } from "@/services/firebase";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import {
@@ -10,6 +10,7 @@ import {
   type AsoChannel,
   type AsoEvent,
   type AsoGuideRecipient,
+  type AsoManualReason,
   type AsoPerson,
   type AsoStage,
 } from "@/modules/aso/asoModel";
@@ -73,17 +74,46 @@ export function useAsoCases(user: CurrentUser) {
     await batch.commit();
   }, [person]);
 
-  // Etapa 1 → 2: o caso nasce aqui, com a guia anexada.
-  const saveGuide = useCallback(async (seed: AsoCaseSeed, file: File) => {
+  // Etapa 1 → 2: o caso automático nasce aqui, com a guia anexada; o manual já
+  // existe (foi gravado ao adicionar) e só avança.
+  const saveGuide = useCallback(async (seed: AsoCaseSeed, file: File, existing?: AsoCase) => {
     if (!firestore) throw new Error("Banco de dados não configurado.");
     if (file.size > ASO_MAX_FILE_BYTES) throw new Error("A guia passa de 10 MB. Envie um arquivo menor.");
     const guideFileUrl = await uploadEmployeeDocumentFile(seed.employeeId, file);
+    const patch = { stage: "guide_issued" as const, guideFileUrl, guideFileName: file.name };
+    if (existing) {
+      await moveStage(existing.id, existing.stage, patch, `Guia anexada: ${file.name}`);
+      return;
+    }
     const caseId = doc(collection(firestore, ASO_CASES_COLLECTION)).id;
-    await moveStage(caseId, "notified", { stage: "guide_issued", guideFileUrl, guideFileName: file.name }, `Guia anexada: ${file.name}`, seed);
+    await moveStage(caseId, "notified", patch, `Guia anexada: ${file.name}`, seed);
   }, [moveStage]);
 
-  const markGuideSent = useCallback((item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, notes: string) => (
-    moveStage(item.id, item.stage, { stage: "guide_sent", guideSentTo: to, guideSentChannel: channel }, notes)
+  // Caso manual: entra em "Avisado" já gravado, com o motivo.
+  const addManualCase = useCallback(async (seed: AsoCaseSeed, reason: AsoManualReason, reasonLabel: string, notes: string) => {
+    if (!firestore) throw new Error("Banco de dados não configurado.");
+    const caseId = doc(collection(firestore, ASO_CASES_COLLECTION)).id;
+    const manualNotes = notes.trim();
+    await moveStage(caseId, "notified", { stage: "notified", origin: "manual", manualReason: reason, manualNotes },
+      `Adicionado manualmente: ${reasonLabel}.${manualNotes ? ` ${manualNotes}` : ""}`, seed);
+  }, [moveStage]);
+
+  // Caso manual adicionado por engano: sai do quadro (fica no banco como cancelado).
+  const cancelManualCase = useCallback((item: AsoCase, notes: string) => (
+    moveStage(item.id, item.stage, {
+      stage: item.stage, status: "cancelled", cancelledAt: new Date().toISOString(), cancelledBy: person,
+    }, notes)
+  ), [moveStage, person]);
+
+  const markGuideSent = useCallback((item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, sentDate: string, notes: string) => (
+    moveStage(item.id, item.stage, { stage: "guide_sent", guideSentTo: to, guideSentChannel: channel, guideSentAt: sentDate }, notes)
+  ), [moveStage]);
+
+  // 2ª guia: prazo de 4 dias depois da 1ª.
+  const markSecondGuideSent = useCallback((item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, sentDate: string, notes: string) => (
+    moveStage(item.id, item.stage, {
+      stage: "guide_resent", secondGuideSentTo: to, secondGuideSentChannel: channel, secondGuideSentAt: sentDate,
+    }, notes)
   ), [moveStage]);
 
   const markExamDone = useCallback((item: AsoCase, examDate: string, notes: string) => (
@@ -101,7 +131,13 @@ export function useAsoCases(user: CurrentUser) {
     }, notes)
   ), [moveStage, person]);
 
-  return { cases, recentlyClosed, ready, loadError, saveGuide, markGuideSent, markExamDone, markAsoReceived, markSentToSertras };
+  // Caso manual sem ASO em Registros: guarda o documento criado ao receber o ASO novo.
+  const linkCaseDocument = useCallback(async (item: AsoCase, documentId: string) => {
+    if (!firestore) throw new Error("Banco de dados não configurado.");
+    await updateDoc(doc(firestore, ASO_CASES_COLLECTION, item.id), { documentId, updatedAt: new Date().toISOString() });
+  }, []);
+
+  return { cases, recentlyClosed, ready, loadError, saveGuide, addManualCase, cancelManualCase, linkCaseDocument, markGuideSent, markSecondGuideSent, markExamDone, markAsoReceived, markSentToSertras };
 }
 
 export function useAsoEvents(caseId: string | null) {

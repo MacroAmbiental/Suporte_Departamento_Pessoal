@@ -9,13 +9,16 @@ export const ASO_CASES_COLLECTION = "asoCases";
 export const ASO_LEAD_DAYS = 30;
 // Prazo da clínica para entregar o ASO depois do exame.
 export const ASO_CLINIC_DAYS = 3;
+// Prazo para encaminhar a 2ª guia depois da 1ª (pedido do DP, 13/11/2026).
+export const ASO_SECOND_GUIDE_DAYS = 4;
 
-export type AsoStage = "notified" | "guide_issued" | "guide_sent" | "exam_done" | "aso_received" | "closed";
+export type AsoStage = "notified" | "guide_issued" | "guide_sent" | "guide_resent" | "exam_done" | "aso_received" | "closed";
 
 export const asoStages: Array<{ id: AsoStage; label: string; hint: string }> = [
   { id: "notified", label: "Avisado", hint: "ASO vence em até 30 dias" },
   { id: "guide_issued", label: "Guia emitida", hint: "Guia do exame anexada" },
-  { id: "guide_sent", label: "Guia encaminhada", hint: "Enviada ao encarregado ou funcionário" },
+  { id: "guide_sent", label: "1ª Guia encaminhada", hint: `2ª guia até ${ASO_SECOND_GUIDE_DAYS} dias depois` },
+  { id: "guide_resent", label: "2ª Guia encaminhada", hint: "Aguardando o exame" },
   { id: "exam_done", label: "Exame feito", hint: `Clínica entrega em até ${ASO_CLINIC_DAYS} dias` },
   { id: "aso_received", label: "ASO recebido", hint: "Falta enviar à SERTRAS" },
   { id: "closed", label: "Enviado à SERTRAS", hint: "Processo encerrado" },
@@ -33,7 +36,13 @@ export type AsoCase = {
   documentId: string;
   dueDate: string;
   stage: AsoStage;
-  status: "open" | "closed";
+  status: "open" | "closed" | "cancelled";
+  // Caso aberto à mão pelo DP (correção, mudança de função...). Sem o campo = automático.
+  origin?: "auto" | "manual";
+  manualReason?: AsoManualReason;
+  manualNotes?: string;
+  cancelledAt?: string;
+  cancelledBy?: AsoPerson;
   openedAt: string;
   openedBy: AsoPerson;
   stageChangedAt: string;
@@ -44,6 +53,12 @@ export type AsoCase = {
   // Etapa 3: para quem e por onde a guia foi.
   guideSentTo?: AsoGuideRecipient;
   guideSentChannel?: AsoChannel;
+  // Dia em que a 1ª guia foi encaminhada (casos antigos: stageChangedAt).
+  guideSentAt?: string;
+  // 2ª guia: para quem, por onde e quando.
+  secondGuideSentTo?: AsoGuideRecipient;
+  secondGuideSentChannel?: AsoChannel;
+  secondGuideSentAt?: string;
   // Etapa 4: dia em que o funcionário fez o exame.
   examDate?: string;
   // Etapa 5: ASO novo anexado em Registros e o vencimento dele.
@@ -56,6 +71,14 @@ export type AsoCase = {
 };
 
 export const ASO_EVENTS_SUBCOLLECTION = "events";
+
+// Motivo do caso manual (pedido do DP, 13/11/2026).
+export type AsoManualReason = "function_change" | "correction" | "other";
+export const asoManualReasonLabels: Record<AsoManualReason, string> = {
+  function_change: "Mudança de função",
+  correction: "Correção",
+  other: "Outro",
+};
 
 export type AsoGuideRecipient = "supervisor" | "employee";
 export const asoRecipientLabels: Record<AsoGuideRecipient, string> = {
@@ -85,6 +108,11 @@ export const ASO_MAX_FILE_BYTES = 10 * 1024 * 1024;
 export function asoGuideMessage(employeeName: string, dueDateLabel: string) {
   return `Olá! Segue a guia para o exame periódico (ASO) de ${employeeName}. `
     + `O ASO atual vence em ${dueDateLabel}. Por favor, faça o exame até essa data e avise o DP assim que for realizado.`;
+}
+
+export function asoSecondGuideMessage(employeeName: string, dueDateLabel: string) {
+  return `Olá! Reenviando a guia do exame periódico (ASO) de ${employeeName}, que ainda não foi feito. `
+    + `O ASO atual vence em ${dueDateLabel}. Por favor, faça o exame o quanto antes e avise o DP assim que for realizado.`;
 }
 
 // Quem aparece na coluna "Avisado" antes de existir o caso gravado.
@@ -153,6 +181,29 @@ export function defaultNewAsoDueDate(examDate: string) {
 // Clínica passou do prazo de entregar o ASO depois do exame.
 export function clinicLate(asoCase: Pick<AsoCase, "stage" | "examDate">, today: string) {
   return asoCase.stage === "exam_done" && Boolean(asoCase.examDate) && addDaysISO(asoCase.examDate!, ASO_CLINIC_DAYS) < today;
+}
+
+// Dia (AAAA-MM-DD) em que a 1ª guia foi encaminhada.
+export function firstGuideDate(asoCase: Pick<AsoCase, "guideSentAt" | "stageChangedAt">) {
+  if (asoCase.guideSentAt) return asoCase.guideSentAt;
+  if (!asoCase.stageChangedAt) return "";
+  // stageChangedAt é horário UTC: converte para o dia local.
+  const moment = new Date(asoCase.stageChangedAt);
+  if (Number.isNaN(moment.getTime())) return asoCase.stageChangedAt.slice(0, 10);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${moment.getFullYear()}-${pad(moment.getMonth() + 1)}-${pad(moment.getDate())}`;
+}
+
+// Prazo da 2ª guia: 4 dias depois da 1ª.
+export function secondGuideDueDate(asoCase: Pick<AsoCase, "guideSentAt" | "stageChangedAt">) {
+  const sent = firstGuideDate(asoCase);
+  return sent ? addDaysISO(sent, ASO_SECOND_GUIDE_DAYS) : "";
+}
+
+// Chegou o dia de encaminhar a 2ª guia (só enquanto o caso está na 1ª).
+export function secondGuideDue(asoCase: Pick<AsoCase, "stage" | "guideSentAt" | "stageChangedAt">, today: string) {
+  const due = secondGuideDueDate(asoCase);
+  return asoCase.stage === "guide_sent" && Boolean(due) && due <= today;
 }
 
 export function daysBetween(fromISO: string, toISO: string) {
