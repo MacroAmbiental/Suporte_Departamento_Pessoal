@@ -228,6 +228,7 @@ export default function BenefitCalculationSheet({
       await exportBenefitOrder({
         fileName: `${benefit.name} ${month}${periodPart === "first_half" ? " 1a quinzena" : periodPart === "second_half" ? " 2a quinzena" : ""}${suffix}.xlsx`,
         company: data.companies.find((company) => company.id === benefit.companyId),
+        companies: data.companies,
         layout: { ...rule.order, departmentLabel: exportForm.departmentLabel },
         creditDate: exportForm.creditDate,
         rows: exportRows,

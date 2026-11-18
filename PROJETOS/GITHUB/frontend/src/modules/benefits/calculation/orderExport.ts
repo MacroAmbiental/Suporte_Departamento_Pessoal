@@ -25,6 +25,8 @@ const orderHeaders = [
   "Nome da unidade de entrega",
   "Data de crédito",
   ...providerColumns,
+  // Fora do layout do fornecedor: fica no fim pra não deslocar as colunas que ele importa.
+  "Empresa",
 ];
 
 export type OrderExportRow = { employee: Employee; value: number };
@@ -42,11 +44,13 @@ const text = (value: string) => ({ t: "s", v: value });
 export async function exportBenefitOrder(params: {
   fileName: string;
   company?: Company;
+  companies?: Company[];
   layout: BenefitOrderLayout;
   creditDate: string;
   rows: OrderExportRow[];
 }) {
-  const { fileName, company, layout, creditDate, rows } = params;
+  const { fileName, company, companies = [], layout, creditDate, rows } = params;
+  const companyNameById = new Map(companies.map((item) => [item.id, item.name || item.legalName || ""]));
   const XLSX = await import("xlsx-js-style");
   const valueColumnIndex = orderHeaders.indexOf(layout.providerColumn || "Alimentação");
 
@@ -86,6 +90,7 @@ export async function exportBenefitOrder(params: {
         text(layout.deliveryUnitName),
         excelDate(creditDate),
         ...providerColumns.map(() => ""),
+        text(companyNameById.get(employee.companyId) || ""),
       ];
       line[valueColumnIndex] = { t: "n", v: value, z: "#,##0.00" };
       return line;
