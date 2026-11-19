@@ -2209,13 +2209,27 @@ export default function Employees({
     // que a Estrutura da Empresa não consegue preencher (unidade sem vínculo
     // com o cadastro antigo, ex. "Administrativo") mantém o valor que já
     // estava — antes, editar só o telefone apagava departamento/setor antigos.
-    const previous = editingEmployeeId && !structureTouchedRef.current
-      ? data.employees.find((employee) => employee.id === editingEmployeeId)
-      : undefined;
-    const legacyOrPrevious = (type: CompanyGroupUnitType, unitId: string) => (
-      sourceIdForGroupUnit(selectedFormGroup, type, unitId, companyId)
-      || (previous && previous.companyId === companyId ? employeeSourceId(previous, type) : "")
-    );
+    // 19/11/2026 (2): mexendo na estrutura, o cadastro antigo também é mantido quando a
+    // unidade escolhida tem o MESMO NOME do que já estava lá (ex. "Administrativo" sem vínculo).
+    // Só fica vazio se a pessoa foi para um lugar que o cadastro antigo não tem.
+    const stored = editingEmployeeId ? data.employees.find((employee) => employee.id === editingEmployeeId) : undefined;
+    const sameCompany = Boolean(stored && stored.companyId === companyId);
+    const legacyName = (type: CompanyGroupUnitType, id: string) => {
+      const list: Array<{ id: string; name: string }> = type === "department" ? data.departments
+        : type === "sector" ? data.sectors
+          : type === "subsector" ? data.subsectors
+            : data.teams;
+      return list.find((item) => item.id === id)?.name || "";
+    };
+    const sameName = (first: string, second: string) => Boolean(first.trim()) && normalizeKey(first) === normalizeKey(second);
+    const legacyOrPrevious = (type: CompanyGroupUnitType, unitId: string) => {
+      const linked = sourceIdForGroupUnit(selectedFormGroup, type, unitId, companyId);
+      if (linked || !stored || !sameCompany) return linked;
+      const previousId = employeeSourceId(stored, type);
+      if (!structureTouchedRef.current) return previousId;
+      const unitName = selectedFormGroup.units.find((unit) => unit.id === unitId)?.name || "";
+      return previousId && sameName(legacyName(type, previousId), unitName) ? previousId : "";
+    };
     return {
       companyId,
       groupId: selectedStructureScope.groupId,

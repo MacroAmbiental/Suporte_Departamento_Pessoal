@@ -48,7 +48,7 @@ import {
   Power,
   Trash2,
   Users,
-  X,
+  X, PowerOff, RotateCcw
 } from "lucide-react";
 import parseExcelFile from "@/utils/xlsxImport";
 
@@ -3103,6 +3103,77 @@ function clearDatabaseFromScreen() {
     }));
   }
 
+  // Desativar: grava na hora (active=false), tira da edição e mantém o histórico.
+  // Salvar a estrutura não apaga unidade desativada.
+  const persistedGroupUnitIds = useMemo(() => new Set(data.companyGroupUnits.map((unit) => unit.id)), [data.companyGroupUnits]);
+  const inactiveGroupUnits = groupWizardDraft.id
+    ? data.companyGroupUnits.filter((unit) => unit.groupId === groupWizardDraft.id && unit.active === false)
+    : [];
+  const [groupUnitBusyId, setGroupUnitBusyId] = useState("");
+
+  async function deactivateGroupUnit(unitId: string) {
+    setGroupWizardError("");
+    setGroupUnitBusyId(unitId);
+    try {
+      await data.setCompanyGroupUnitActive(unitId, false);
+      removeGroupUnit(unitId);
+    } catch (error) {
+      setGroupWizardError(error instanceof Error ? error.message : "Não foi possível desativar.");
+    } finally {
+      setGroupUnitBusyId("");
+    }
+  }
+
+  async function reactivateGroupUnit(unitId: string) {
+    const unit = data.companyGroupUnits.find((item) => item.id === unitId);
+    if (!unit) return;
+    setGroupWizardError("");
+    setGroupUnitBusyId(unitId);
+    try {
+      await data.setCompanyGroupUnitActive(unitId, true);
+      setGroupWizardDraft((current) => current.units.some((item) => item.id === unitId) ? current : ({
+        ...current,
+        units: [...current.units, {
+          id: unit.id,
+          name: unit.name,
+          type: unit.type as GroupUnitType,
+          parentUnitId: unit.parentUnitId || "",
+          coordinatorEmployeeId: unit.coordinatorEmployeeId || "",
+          links: data.companyGroupUnitLinks
+            .filter((link) => link.groupId === unit.groupId && link.groupUnitId === unit.id)
+            .map((link) => ({ companyId: link.companyId, sourceId: link.sourceId })),
+        }],
+      }));
+    } catch (error) {
+      setGroupWizardError(error instanceof Error ? error.message : "Não foi possível reativar.");
+    } finally {
+      setGroupUnitBusyId("");
+    }
+  }
+
+  async function changeGroupUnitParent(unitId: string, parentUnitId: string) {
+    setGroupWizardError("");
+    setGroupUnitBusyId(unitId);
+    try {
+      await data.setCompanyGroupUnitParent(unitId, parentUnitId);
+      updateGroupUnit(unitId, { parentUnitId });
+    } catch (error) {
+      setGroupWizardError(error instanceof Error ? error.message : "Não foi possível ligar a unidade.");
+    } finally {
+      setGroupUnitBusyId("");
+    }
+  }
+
+  function deactivateUnitButton(unitId: string, label: string) {
+    if (!persistedGroupUnitIds.has(unitId)) return null;
+    return (
+      <button className="icon-button" type="button" disabled={groupUnitBusyId === unitId} onClick={() => void deactivateGroupUnit(unitId)}
+        aria-label={`Desativar ${label}`} title="Desativar (some das listas, mas mantém o histórico)">
+        <PowerOff size={15} />
+      </button>
+    );
+  }
+
   function removeGroupUnit(unitId: string) {
     setGroupWizardDraft((current) => ({
       ...current,
@@ -5925,6 +5996,7 @@ function clearDatabaseFromScreen() {
                                           <span>Departamento</span>
                                           <strong>{unit.name || "Sem nome"}</strong>
                                         </div>
+                                        {deactivateUnitButton(unit.id, "departamento")}
                                         <button className="icon-button" type="button" onClick={() => removeGroupUnit(unit.id)} aria-label="Remover departamento">
                                           <Trash2 size={15} />
                                         </button>
@@ -6013,6 +6085,7 @@ function clearDatabaseFromScreen() {
                                                   >
                                                     {subsectorExpanded ? "Ocultar subsetores" : "Abrir subsetores"}
                                                   </button>
+                                                  {deactivateUnitButton(sectorUnit.id, "setor")}
                                                   <button className="icon-button" type="button" onClick={() => removeGroupUnit(sectorUnit.id)} aria-label="Remover setor">
                                                     <Trash2 size={15} />
                                                   </button>
@@ -6070,6 +6143,7 @@ function clearDatabaseFromScreen() {
                                                               <span>Subsetor</span>
                                                               <strong>{subsector.name || "Sem nome"}</strong>
                                                             </div>
+                                                            {deactivateUnitButton(subsector.id, "subsetor")}
                                                             <button className="icon-button" type="button" onClick={() => removeGroupUnit(subsector.id)} aria-label="Remover subsetor">
                                                               <Trash2 size={15} />
                                                             </button>
@@ -6129,6 +6203,7 @@ function clearDatabaseFromScreen() {
                                     <span>{groupUnitTypeLabels[unit.type]} {index + 1}</span>
                                     <strong>{unit.name || "Sem nome"}</strong>
                                   </div>
+                                  {deactivateUnitButton(unit.id, groupUnitTypeLabels[unit.type].toLowerCase())}
                                   <button className="icon-button" type="button" onClick={() => removeGroupUnit(unit.id)} aria-label={`Remover ${groupUnitTypeLabels[unit.type].toLowerCase()}`}>
                                     <Trash2 size={15} />
                                   </button>
@@ -6157,6 +6232,23 @@ function clearDatabaseFromScreen() {
                                     />
                                   </label>
 
+                                  {(unit.type === "sector" || unit.type === "subsector") && persistedGroupUnitIds.has(unit.id) ? (
+                                    <label className="field">
+                                      <span>{unit.type === "sector" ? "Departamento" : "Setor"} (grava na hora)</span>
+                                      <select
+                                        value={data.companyGroupUnits.find((item) => item.id === unit.id)?.parentUnitId || ""}
+                                        disabled={groupUnitBusyId === unit.id}
+                                        onChange={(event) => void changeGroupUnitParent(unit.id, event.target.value)}
+                                      >
+                                        <option value="">Pelo cadastro antigo</option>
+                                        {data.companyGroupUnits
+                                          .filter((item) => item.groupId === groupWizardDraft.id && item.active !== false && item.type === (unit.type === "sector" ? "department" : "sector"))
+                                          .sort((first, second) => first.name.localeCompare(second.name, "pt-BR"))
+                                          .map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                                      </select>
+                                    </label>
+                                  ) : null}
+
                                   <label className="field group-coordinator-field">
                                     <span>{groupUnitResponsibleLabel(unit.type)}</span>
                                     <select
@@ -6173,6 +6265,19 @@ function clearDatabaseFromScreen() {
                               </article>
                             ));
                           })()}
+                          {inactiveGroupUnits.some((unit) => unit.type === groupWizardLevelTab) ? (
+                            <div className="group-inactive-units">
+                              <strong>{groupUnitTypeLabels[groupWizardLevelTab]} desativado(s) — continuam no histórico</strong>
+                              {inactiveGroupUnits.filter((unit) => unit.type === groupWizardLevelTab).map((unit) => (
+                                <div key={unit.id} className="group-inactive-unit">
+                                  <span>{unit.name}</span>
+                                  <button className="btn btn-secondary btn-sm" type="button" disabled={groupUnitBusyId === unit.id} onClick={() => void reactivateGroupUnit(unit.id)}>
+                                    <RotateCcw size={14} /> Reativar
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     )}
@@ -6191,6 +6296,8 @@ function clearDatabaseFromScreen() {
                   onAdd={(parentId) => addManualGroupUnit("team", parentId)}
                   onUpdate={updateGroupUnit}
                   onRemove={removeGroupUnit}
+                  canDeactivate={(id) => persistedGroupUnitIds.has(id)}
+                  onDeactivate={(id) => void deactivateGroupUnit(id)}
                   persistedTeamName={persistedUnitName}
                   today={todayISO()}
                 />

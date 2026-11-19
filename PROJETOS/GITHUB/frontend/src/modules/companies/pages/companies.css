@@ -2661,3 +2661,9 @@
 .companies-draft-item { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px; border: 1px solid var(--border-color, var(--border)); border-radius: 10px; }
 .companies-draft-item small { display: block; margin-top: 6px; color: var(--text-muted); }
 .companies-draft-item > div:last-child { display: flex; gap: 8px; }
+
+/* Unidades desativadas (mantêm o histórico) */
+.group-inactive-units { margin-top: 16px; padding: 12px; border: 1px dashed var(--border, #cbd5e1); border-radius: 8px; display: grid; gap: 8px; }
+.group-inactive-units > strong { font-size: 13px; color: var(--text-muted, #64748b); }
+.group-inactive-unit { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.group-inactive-unit > span { color: var(--text-muted, #64748b); text-decoration: line-through; }

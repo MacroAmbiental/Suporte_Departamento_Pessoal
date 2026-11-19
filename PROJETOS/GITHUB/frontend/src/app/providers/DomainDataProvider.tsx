@@ -125,6 +125,10 @@ interface DomainDataContextValue extends DomainSnapshot {
   upsertOrganizationalNode: (payload: UpsertPayload<OrganizationalNode>) => Promise<OrganizationalNode>;
   upsertEmployeeAssignment: (payload: UpsertPayload<EmployeeAssignment>) => Promise<EmployeeAssignment>;
   saveCompanyGroupGraph: (payload: CompanyGroupGraphPayload) => Promise<CompanyGroup>;
+  /** Desativa/reativa uma unidade da Estrutura da Empresa sem apagar (histórico fica). */
+  setCompanyGroupUnitActive: (unitId: string, active: boolean) => Promise<void>;
+  /** Liga setor a departamento / subsetor a setor (grava só a unidade). */
+  setCompanyGroupUnitParent: (unitId: string, parentUnitId: string) => Promise<void>;
   deleteCompanyGroupGraph: (groupId: string, options?: DeleteOptions) => Promise<boolean>;
   upsertCompanyGroupEmployeeAssignment: (payload: UpsertPayload<CompanyGroupEmployeeAssignment>) => Promise<CompanyGroupEmployeeAssignment>;
   upsertCompanyGroupLeadershipAssignment: (payload: UpsertPayload<CompanyGroupLeadershipAssignment>) => Promise<CompanyGroupLeadershipAssignment>;
@@ -1743,14 +1747,24 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
 
     const leadershipEmployees = groupLeadershipEmployees(data, groupId, normalizedUnits, employeeAssignments, now);
     const leadershipEmployeeIds = new Set(leadershipEmployees.map(employee => employee.id));
+    // Unidades desativadas não aparecem na edição da estrutura; salvar NÃO pode apagá-las
+    // (nem seus vínculos e responsáveis) — desativar não é excluir.
+    const inactiveUnitIds = new Set(data.companyGroupUnits
+      .filter((item) => item.groupId === groupId && item.active === false && !normalizedUnits.some((unit) => unit.id === item.id))
+      .map((item) => item.id));
+    const keptInactive = {
+      companyGroupUnits: data.companyGroupUnits.filter((item) => inactiveUnitIds.has(item.id)),
+      companyGroupUnitLinks: data.companyGroupUnitLinks.filter((item) => item.groupId === groupId && inactiveUnitIds.has(item.groupUnitId)),
+      companyGroupLeadershipAssignments: data.companyGroupLeadershipAssignments.filter((item) => item.groupId === groupId && inactiveUnitIds.has(item.unitId)),
+    };
     const previousByCollection = {
       employees: data.employees.filter(employee => leadershipEmployeeIds.has(employee.id)),
       companyGroups: data.companyGroups.filter((item) => item.id === groupId),
       companyGroupCompanies: data.companyGroupCompanies.filter((item) => item.groupId === groupId),
-      companyGroupUnits: data.companyGroupUnits.filter((item) => item.groupId === groupId),
-      companyGroupUnitLinks: data.companyGroupUnitLinks.filter((item) => item.groupId === groupId),
+      companyGroupUnits: data.companyGroupUnits.filter((item) => item.groupId === groupId && !inactiveUnitIds.has(item.id)),
+      companyGroupUnitLinks: data.companyGroupUnitLinks.filter((item) => item.groupId === groupId && !inactiveUnitIds.has(item.groupUnitId)),
       companyGroupEmployeeAssignments: data.companyGroupEmployeeAssignments.filter((item) => item.groupId === groupId),
-      companyGroupLeadershipAssignments: data.companyGroupLeadershipAssignments.filter((item) => item.groupId === groupId),
+      companyGroupLeadershipAssignments: data.companyGroupLeadershipAssignments.filter((item) => item.groupId === groupId && !inactiveUnitIds.has(item.unitId)),
     };
 
     const nextByCollection = {
@@ -1779,14 +1793,14 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
       employees: current.employees.map(employee => leadershipEmployees.find(next => next.id === employee.id) || employee),
       companyGroups: [...current.companyGroups.filter((item) => item.id !== groupId), group],
       companyGroupCompanies: [...current.companyGroupCompanies.filter((item) => item.groupId !== groupId), ...groupCompanies],
-      companyGroupUnits: [...current.companyGroupUnits.filter((item) => item.groupId !== groupId), ...normalizedUnits],
-      companyGroupUnitLinks: [...current.companyGroupUnitLinks.filter((item) => item.groupId !== groupId), ...unitLinks],
+      companyGroupUnits: [...current.companyGroupUnits.filter((item) => item.groupId !== groupId), ...normalizedUnits, ...keptInactive.companyGroupUnits],
+      companyGroupUnitLinks: [...current.companyGroupUnitLinks.filter((item) => item.groupId !== groupId), ...unitLinks, ...keptInactive.companyGroupUnitLinks],
       companyGroupEmployeeAssignments: [...current.companyGroupEmployeeAssignments.filter((item) => item.groupId !== groupId), ...employeeAssignments],
-      companyGroupLeadershipAssignments: [...current.companyGroupLeadershipAssignments.filter((item) => item.groupId !== groupId), ...leadershipAssignments],
+      companyGroupLeadershipAssignments: [...current.companyGroupLeadershipAssignments.filter((item) => item.groupId !== groupId), ...leadershipAssignments, ...keptInactive.companyGroupLeadershipAssignments],
     }));
 
     try {
-      const teamIds = new Set([...data.companyGroupUnits.filter(unit => unit.groupId === groupId && unit.type === "team"), ...normalizedUnits.filter(unit => unit.type === "team")].map(unit => unit.id));
+      const teamIds = new Set([...data.companyGroupUnits.filter(unit => unit.groupId === groupId && unit.type === "team" && !inactiveUnitIds.has(unit.id)), ...normalizedUnits.filter(unit => unit.type === "team")].map(unit => unit.id));
       const leadershipIds = new Set([...data.companyGroupLeadershipAssignments, ...leadershipAssignments].filter(item => teamIds.has(item.unitId)).map(item => item.id));
       const atomic = mutations.filter(m => m.collection === "employees" || (m.collection === "companyGroupUnits" && teamIds.has(m.type === "set" ? m.item.id : m.id)) || (m.collection === "companyGroupLeadershipAssignments" && leadershipIds.has(m.type === "set" ? m.item.id : m.id)));
       const atomicSet = new Set(atomic);
@@ -1825,6 +1839,59 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
 
     return group;
   }, [assertPermission, data, groupResponsibleRole, registerUndo, user]);
+
+  const setCompanyGroupUnitActive = useCallback(async (unitId: string, active: boolean) => {
+    assertPermission("companyGroups", "edit");
+    const unit = data.companyGroupUnits.find((item) => item.id === unitId);
+    if (!unit) throw new Error("Unidade não encontrada (salve a estrutura antes de desativar).");
+    if ((unit.active !== false) === active) return;
+    if (!active) {
+      const activeEmployeeIds = new Set(data.employees.filter((employee) => employee.status !== "terminated").map((employee) => employee.id));
+      const inUse = data.companyGroupEmployeeAssignments.filter((item) => item.groupId === unit.groupId && activeEmployeeIds.has(item.employeeId) && [item.departmentUnitId, item.sectorUnitId, item.subsectorUnitId, item.teamUnitId].includes(unitId)).length;
+      if (inUse) throw new Error(`"${unit.name}" ainda tem ${inUse} funcionário(s) ativo(s). Mude-os de lugar antes de desativar.`);
+      const children = data.companyGroupUnits.filter((item) => item.parentUnitId === unitId && item.active !== false).length;
+      if (children) throw new Error(`"${unit.name}" ainda tem ${children} unidade(s) ativa(s) abaixo dela. Desative ou mude essas primeiro.`);
+    }
+    const next: CompanyGroupUnit = { ...unit, active, updatedAt: new Date().toISOString() };
+    await commitEntityBatch([{ type: "set", collection: "companyGroupUnits", item: next }]);
+    setData((current) => ({ ...current, companyGroupUnits: current.companyGroupUnits.map((item) => (item.id === unitId ? next : item)) }));
+    void writeAuditLog({
+      actor: user,
+      action: "edit",
+      entityType: "companyGroupUnits",
+      entityId: unitId,
+      entityLabel: unit.name,
+      description: active ? "Unidade da estrutura reativada." : "Unidade da estrutura desativada (histórico mantido).",
+      changedFields: ["active"],
+      metadata: { groupId: unit.groupId, type: unit.type, active },
+    }).catch(() => undefined);
+  }, [assertPermission, data, user]);
+
+  const setCompanyGroupUnitParent = useCallback(async (unitId: string, parentUnitId: string) => {
+    assertPermission("companyGroups", "edit");
+    const unit = data.companyGroupUnits.find((item) => item.id === unitId);
+    if (!unit) throw new Error("Unidade não encontrada (salve a estrutura antes).");
+    const expected = unit.type === "sector" ? "department" : unit.type === "subsector" ? "sector" : "";
+    if (!expected) throw new Error("Só setor e subsetor são ligados por aqui.");
+    const parent = parentUnitId ? data.companyGroupUnits.find((item) => item.id === parentUnitId) : undefined;
+    if (parentUnitId && (!parent || parent.type !== expected || parent.groupId !== unit.groupId || parent.active === false)) {
+      throw new Error("Escolha um " + (expected === "department" ? "departamento" : "setor") + " ativo do mesmo grupo.");
+    }
+    if ((unit.parentUnitId || "") === parentUnitId) return;
+    const next: CompanyGroupUnit = { ...unit, parentUnitId, updatedAt: new Date().toISOString() };
+    await commitEntityBatch([{ type: "set", collection: "companyGroupUnits", item: next }]);
+    setData((current) => ({ ...current, companyGroupUnits: current.companyGroupUnits.map((item) => (item.id === unitId ? next : item)) }));
+    void writeAuditLog({
+      actor: user,
+      action: "edit",
+      entityType: "companyGroupUnits",
+      entityId: unitId,
+      entityLabel: unit.name,
+      description: `Unidade ligada a ${parent?.name || "nenhuma"} (antes: ${data.companyGroupUnits.find((item) => item.id === unit.parentUnitId)?.name || "pelo cadastro antigo"}).`,
+      changedFields: ["parentUnitId"],
+      metadata: { groupId: unit.groupId, type: unit.type, parentUnitId, previousParentUnitId: unit.parentUnitId || "" },
+    }).catch(() => undefined);
+  }, [assertPermission, data, user]);
 
   const deleteCompanyGroupGraph = useCallback(async (groupId: string, options: DeleteOptions = {}) => {
     assertPermission("companyGroups", "delete");
@@ -2197,6 +2264,8 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     upsertOrganizationalNode: (payload) => upsert<OrganizationalNode>("organizational_nodes", "node", payload),
     upsertEmployeeAssignment: upsertEmployeeAssignmentValidated,
     saveCompanyGroupGraph,
+    setCompanyGroupUnitActive,
+    setCompanyGroupUnitParent,
     deleteCompanyGroupGraph,
     upsertCompanyGroupEmployeeAssignment,
     upsertCompanyGroupLeadershipAssignment,
@@ -2241,7 +2310,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     deleteCustomModule,
     clearDomainData,
     removeItem,
-  }), [applyPermissionProfileToUser, ensureCollectionsLoaded, clearDomainData, completeAlert, confirmAccessKey, data, deleteBenefitContract, deleteBenefitPlan, deleteEmployee, deleteCompany, deleteCompanyGroupGraph, deleteCompanyGroupLeadershipAssignment, deleteCustomModule, deleteDepartment, deleteEmployeeAssignment, deleteOrganizationalNode, deleteSector, deleteSubsector, deleteTeam, deleteTimekeepingColumn, dismissUndo, loading, removeItem, replaceUserPermissions, runUndo, saveCompanyGroupGraph, undoState, upsert, upsertCompanyGroupEmployeeAssignment, upsertCompanyGroupLeadershipAssignment, upsertDocumentAlertWithSnapshot, upsertEmployeeAssignmentValidated, upsertEmployeeDocumentWithAlertSync, upsertEmployeeValidated, upsertSystemUser, upsertTimeRecordWithEmployeeName, upsertTimeRecordsBatch, saveTimekeepingDayRecords]);
+  }), [applyPermissionProfileToUser, ensureCollectionsLoaded, clearDomainData, completeAlert, confirmAccessKey, data, deleteBenefitContract, deleteBenefitPlan, deleteEmployee, deleteCompany, deleteCompanyGroupGraph, deleteCompanyGroupLeadershipAssignment, deleteCustomModule, deleteDepartment, deleteEmployeeAssignment, deleteOrganizationalNode, deleteSector, deleteSubsector, deleteTeam, deleteTimekeepingColumn, dismissUndo, loading, removeItem, replaceUserPermissions, runUndo, saveCompanyGroupGraph, setCompanyGroupUnitActive, setCompanyGroupUnitParent, undoState, upsert, upsertCompanyGroupEmployeeAssignment, upsertCompanyGroupLeadershipAssignment, upsertDocumentAlertWithSnapshot, upsertEmployeeAssignmentValidated, upsertEmployeeDocumentWithAlertSync, upsertEmployeeValidated, upsertSystemUser, upsertTimeRecordWithEmployeeName, upsertTimeRecordsBatch, saveTimekeepingDayRecords]);
 
   return (
     <DomainDataContext.Provider value={value}>
