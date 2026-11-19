@@ -3312,6 +3312,20 @@ export default function Timekeeping() {
     await persistCalculationSettings(calculationForm, true);
   }
 
+  // Status que o DP decidiu (atestado, férias, afastamento, folga, falta confirmada):
+  // marcar/desmarcar feriado não pode apagar.
+  const holidayKeepsStatus = new Set(["medical_certificate", "vacation", "leave", "day_off", "absence_confirmed"]);
+
+  // Status do dia quando ele deixa de ser feriado: o mesmo que o ponto daria sem feriado.
+  function statusWithoutHoliday(employee: Employee | undefined, record: TimeRecord, date: string, settings: CalculationSettings): AttendanceStatus {
+    const leaveEntry = employee ? employeeLeaveEntryForDate(employee, date) : undefined;
+    if (leaveEntry) return leaveEntry.kind === "certificate" ? "medical_certificate" : "leave";
+    const cf = (record.customFields || {}) as Record<string, string>;
+    if ([record.checkIn, record.checkOut, cf.ent2, cf.sai2, cf.ent3, cf.sai3].some((value) => hasFilledTimeValue(value))) return "present";
+    if (employee && normalLimitMinutesForEmployeeDate(employee, date, settings) <= 0) return "dsr";
+    return "absence_pending";
+  }
+
   async function toggleHolidayForCurrentDate() {
     const date = filters.date;
     const holidays = calculationSettings.holidays
@@ -3360,7 +3374,7 @@ export default function Timekeeping() {
         const recordsToUpdate = existingRecordsForVisibleEmployees
           .filter(
             (record) =>
-              record.status !== "holiday" ||
+              (record.status !== "holiday" && !holidayKeepsStatus.has(String(record.status || ""))) ||
               Number(record.overtimePercent || 0) !== Number(nextPercent || 0),
           )
           .map((record) => {
@@ -3368,7 +3382,7 @@ export default function Timekeeping() {
             const baseHourValue = Number(employee?.salary || 0) / 220;
             return {
               ...record,
-              status: "holiday" as AttendanceStatus,
+              status: (holidayKeepsStatus.has(String(record.status || "")) ? record.status : "holiday") as AttendanceStatus,
               overtimePercent: nextPercent,
               overtimeAmount: toFixed2(
                 Number(record.overtimeHours || 0) *
@@ -3383,21 +3397,23 @@ export default function Timekeeping() {
         return;
       }
 
+      // Desmarcar: quem ficou "Feriado" volta ao status normal do dia (antes ficava preso em Feriado).
       const recordsToUpdate = existingRecordsForVisibleEmployees
         .filter(
           (record) =>
-            !isFinancialNeutralStatus(record.status) &&
-            !isFullDayAbsenceStatus(record.status),
-        )
-        .filter(
-          (record) =>
-            Number(record.overtimePercent || 0) !== Number(nextPercent || 0),
+            record.status === "holiday" ||
+            (!isFinancialNeutralStatus(record.status) &&
+              !isFullDayAbsenceStatus(record.status) &&
+              Number(record.overtimePercent || 0) !== Number(nextPercent || 0)),
         )
         .map((record) => {
           const employee = employeeById.get(record.employeeId);
           const baseHourValue = Number(employee?.salary || 0) / 220;
           return {
             ...record,
+            ...(record.status === "holiday"
+              ? { status: statusWithoutHoliday(employee, record, date, nextSettings) }
+              : {}),
             overtimePercent: nextPercent,
             overtimeAmount: toFixed2(
               Number(record.overtimeHours || 0) *
