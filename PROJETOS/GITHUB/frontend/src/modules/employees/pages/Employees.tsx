@@ -570,7 +570,7 @@ function inferGroupUnitId(group: EmployeeFormGroup | undefined, employee: Partia
   )))?.id || "";
 }
 
-function employeeGroupUnitSelection(group: EmployeeFormGroup | undefined, employee: Partial<Employee> | undefined): EmployeeGroupUnitSelection {
+function rawEmployeeGroupUnitSelection(group: EmployeeFormGroup | undefined, employee: Partial<Employee> | undefined): EmployeeGroupUnitSelection {
   if (!group || !employee?.companyId) return { ...emptyGroupUnitSelection };
   const assignment = employee.id
     ? group.employeeAssignments.find((item) => item.employeeId === employee.id)
@@ -587,6 +587,55 @@ function employeeGroupUnitSelection(group: EmployeeFormGroup | undefined, employ
     subsectorUnitId: unitIdFor("subsector"),
     teamUnitId: unitIdFor("team"),
   };
+}
+
+// Departamento (unidade) acima de uma unidade, subindo pelos pais — "" se
+// a unidade não está ligada a nenhum departamento.
+function departmentOfGroupUnit(group: EmployeeFormGroup, unitId: string) {
+  const visited = new Set<string>();
+  let current = group.units.find((unit) => unit.id === unitId);
+  while (current && !visited.has(current.id)) {
+    if (current.type === "department") return current.id;
+    visited.add(current.id);
+    const parentId = current.parentUnitId;
+    current = parentId ? group.units.find((unit) => unit.id === parentId) : undefined;
+  }
+  return "";
+}
+
+// 19/11/2026: descarta setor/subsetor que pertence a OUTRO
+// departamento/setor que não o escolhido (ex: Warlis em Suporte Operacional
+// com o setor Oficina, que é do Administrativo — veio preenchido do cadastro
+// antigo, o select de setores nem mostrava a opção e mesmo assim era salvo).
+// Unidade sem pai conhecido fica como está (não dá pra saber se é de outro).
+function employeeGroupUnitSelection(group: EmployeeFormGroup | undefined, employee: Partial<Employee> | undefined): EmployeeGroupUnitSelection {
+  const selection = rawEmployeeGroupUnitSelection(group, employee);
+  if (!group) return selection;
+  const parentOf = (unitId: string) => group.units.find((unit) => unit.id === unitId)?.parentUnitId || "";
+  const { departmentUnitId } = selection;
+  let { sectorUnitId, subsectorUnitId } = selection;
+  if (departmentUnitId && sectorUnitId) {
+    const sectorDepartment = departmentOfGroupUnit(group, sectorUnitId);
+    if (sectorDepartment && sectorDepartment !== departmentUnitId) sectorUnitId = "";
+  }
+  if (subsectorUnitId) {
+    const subsectorParent = parentOf(subsectorUnitId);
+    const subsectorDepartment = departmentOfGroupUnit(group, subsectorUnitId);
+    if ((sectorUnitId && subsectorParent && subsectorParent !== sectorUnitId)
+      || (!sectorUnitId && selection.sectorUnitId)
+      || (departmentUnitId && subsectorDepartment && subsectorDepartment !== departmentUnitId)) subsectorUnitId = "";
+  }
+  // Equipe NÃO é descartada: é o que o ponto usa e, com departamento
+  // divergente, não dá pra saber qual dos dois está errado (ex: Samuel
+  // Pitombo, equipe Caixas da Produção com departamento Suporte Operacional)
+  // — fica pro DP conferir.
+  return { departmentUnitId, sectorUnitId, subsectorUnitId, teamUnitId: selection.teamUnitId };
+}
+
+function groupUnitSelectionWasCleaned(group: EmployeeFormGroup | undefined, employee: Partial<Employee> | undefined) {
+  const raw = rawEmployeeGroupUnitSelection(group, employee);
+  const clean = employeeGroupUnitSelection(group, employee);
+  return (Object.keys(raw) as Array<keyof EmployeeGroupUnitSelection>).some((key) => raw[key] !== clean[key]);
 }
 
 function sourceIdForGroupUnit(group: EmployeeFormGroup | undefined, type: CompanyGroupUnitType, unitId: string, companyId: string) {
@@ -707,6 +756,10 @@ export default function Employees({
   const [deactivationEmployee, setDeactivationEmployee] = useState<Employee | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const automaticGroupSyncRef = useRef(false);
+  // Fatia 2 (19/11/2026): se a pessoa NÃO mexeu em empresa/departamento/
+  // setor/subsetor/equipe na ficha, salvar não pode apagar o cadastro antigo
+  // (ver employeeStructureForSave).
+  const structureTouchedRef = useRef(false);
   const noticeTerminationSyncRef = useRef(false);
   const pageSize = 10;
 
@@ -838,6 +891,28 @@ export default function Employees({
     return group.units.find((unit) => unit.id === unitId && unit.type === type)?.name || "";
   }
 
+  // Fonte única da estrutura na tela (19/11/2026): lista, exportação e
+  // filtros mostram o MESMO que o Editar funcionário, o ponto e os outros
+  // sistemas usam — a Estrutura da Empresa (companyGroupEmployeeAssignments).
+  // O cadastro antigo (departments/sectors/subsectors/teams via
+  // employee.departmentId etc.) só aparece quando a estrutura está vazia, e
+  // marcado, pra o DP saber que precisa acertar a ficha. Antes a lista e os
+  // filtros de departamento/setor liam o cadastro antigo primeiro (ex: lista
+  // "Reparos", ficha "Reparo 1").
+  function legacyStructureName(employee: Employee, type: CompanyGroupUnitType) {
+    const id = employeeSourceId(employee, type);
+    if (!id) return "";
+    const source = type === "department" ? data.departments : type === "sector" ? data.sectors : type === "subsector" ? data.subsectors : data.teams;
+    return source.find((item) => item.id === id)?.name || "";
+  }
+
+  function structureNameForEmployee(employee: Employee, type: CompanyGroupUnitType) {
+    const current = groupUnitNameForEmployee(employee, type);
+    if (current) return current;
+    const legacy = legacyStructureName(employee, type);
+    return legacy ? `${legacy} (cadastro antigo)` : "";
+  }
+
   const employeeTeamFilterOption = useCallback((employee: Employee) => {
     const group = groupForCompany(employee.companyId);
     if (group?.units.length) {
@@ -858,7 +933,7 @@ export default function Employees({
     const company = companyById.get(team.companyId || employee.companyId);
     return {
       value: `team:${team.id}`,
-      label: company?.name ? `${team.name} · ${company.name}` : team.name,
+      label: `${company?.name ? `${team.name} · ${company.name}` : team.name} (cadastro antigo)`,
     };
   }, [companyById, groupForCompany, teamById]);
 
@@ -881,12 +956,14 @@ export default function Employees({
   const teams = selectedFormUsesGroupStructure ? teamsForDepartment(selectedFormGroup!.units, selectedDepartmentId) : structureItemsForGroup(data.teams, selectedDomainGroup, data.companyGroupCompanies, data.companies).filter(team => Boolean(selectedDepartmentId) && team.departmentId === selectedDepartmentId);
 
   function handleCompanyChange(companyId: string) {
+    structureTouchedRef.current = true;
     const group = domainGroupForCompany(companyId);
     setGroupUnitSelection({ ...emptyGroupUnitSelection });
     setForm({ ...form, companyId, groupId: group?.id || "", departmentId: "", sectorId: "", subsectorId: "", teamId: "", isTeamLead: false });
   }
 
   function handleDepartmentChange(departmentId: string) {
+    structureTouchedRef.current = true;
     if (selectedFormUsesGroupStructure) {
       setGroupUnitSelection((current) => ({ ...current, departmentUnitId: departmentId, sectorUnitId: "", subsectorUnitId: "", teamUnitId: "" }));
       setForm((current) => ({ ...current, isTeamLead: false }));
@@ -896,6 +973,7 @@ export default function Employees({
   }
 
   function handleSectorChange(sectorId: string) {
+    structureTouchedRef.current = true;
     if (selectedFormUsesGroupStructure) {
       setGroupUnitSelection((current) => ({ ...current, sectorUnitId: sectorId, subsectorUnitId: "", teamUnitId: "" }));
       setForm((current) => ({ ...current, isTeamLead: false }));
@@ -905,6 +983,7 @@ export default function Employees({
   }
 
   function handleSubsectorChange(subsectorId: string) {
+    structureTouchedRef.current = true;
     if (selectedFormUsesGroupStructure) {
       setGroupUnitSelection((current) => ({ ...current, subsectorUnitId: subsectorId, teamUnitId: "" }));
       setForm((current) => ({ ...current, isTeamLead: false }));
@@ -914,6 +993,7 @@ export default function Employees({
   }
 
   function handleTeamChange(teamId: string) {
+    structureTouchedRef.current = true;
     if (selectedFormUsesGroupStructure) {
       setGroupUnitSelection((current) => ({ ...current, teamUnitId: teamId }));
       setForm({ ...form, isTeamLead: Boolean(editingEmployeeId && data.companyGroupUnits.find(unit => unit.id === teamId)?.coordinatorEmployeeId === editingEmployeeId) });
@@ -921,6 +1001,27 @@ export default function Employees({
     }
     setForm({ ...form, teamId, isTeamLead: teamId ? Boolean(form.isTeamLead) : false });
   }
+
+  // Filtros Departamentos/Setores/Subsetores pela Estrutura da Empresa
+  // (19/11/2026) — antes usavam o cadastro antigo e não batiam com a ficha.
+  // Com empresa filtrada, só os grupos dessas empresas.
+  const structureFilterUnits = useMemo(() => {
+    const groups = storedCompanyGroups.filter((group) => group.units.length && (
+      !filters.companyIds.length || group.companyIds.some((companyId) => filters.companyIds.includes(companyId))
+    ));
+    const showGroupName = groups.length > 1;
+    return groups.flatMap((group) => group.units.map((unit) => ({
+      id: unit.id,
+      type: unit.type,
+      parentUnitId: unit.parentUnitId || "",
+      label: showGroupName ? `${unit.name} · ${group.name}` : unit.name,
+    })));
+  }, [storedCompanyGroups, filters.companyIds]);
+
+  const structureFilterOptions = useCallback((type: CompanyGroupUnitType, parentIds: string[]) => structureFilterUnits
+    .filter((unit) => unit.type === type && (!parentIds.length || parentIds.includes(unit.parentUnitId)))
+    .map((unit) => ({ value: unit.id, label: unit.label }))
+    .sort((left, right) => left.label.localeCompare(right.label, "pt-BR")), [structureFilterUnits]);
 
   const employeeOptions = useMemo(() => (
     scopedEmployeeSource.map((item) => ({ value: item.id, label: item.name }))
@@ -944,7 +1045,7 @@ export default function Employees({
       if (!options.has(value)) options.set(value, { value, label });
     });
     return Array.from(options.values());
-  }, [data.employees]);
+  }, [scopedEmployeeSource]);
 
   const cpfOptions = useMemo(() => (
     Array.from(new Set(scopedEmployeeSource.map((item) => item.cpf?.trim() || ""))).filter(Boolean).map((cpf) => ({ value: cpf, label: cpf }))
@@ -1020,14 +1121,15 @@ export default function Employees({
   const filteredEmployees = useMemo(() => scopedEmployeeSource.filter((employee) => {
     const login = systemUserByEmployeeId.get(employee.id);
     const teamOption = employeeTeamFilterOption(employee);
+    const structure = employeeGroupUnitSelection(groupForCompany(employee.companyId), employee);
     const search = `${employee.name} ${employee.registration} ${employee.cpf} ${employee.role} ${employee.position} ${teamOption?.label || ""} ${login?.username || ""}`.toLowerCase();
     const displayStatus = getEmployeeDisplayStatus(employee);
     const employeeKind = employeeKindOf(employee);
     return (
       (!filters.companyIds.length || filters.companyIds.includes(employee.companyId))
-      && (!filters.departmentIds.length || filters.departmentIds.includes(employee.departmentId))
-      && (!filters.sectorIds.length || filters.sectorIds.includes(employee.sectorId))
-      && (!filters.subsectorIds.length || filters.subsectorIds.includes(employee.subsectorId ?? ""))
+      && (!filters.departmentIds.length || filters.departmentIds.includes(structure.departmentUnitId))
+      && (!filters.sectorIds.length || filters.sectorIds.includes(structure.sectorUnitId))
+      && (!filters.subsectorIds.length || filters.subsectorIds.includes(structure.subsectorUnitId))
       && (!filters.teamIds.length || filters.teamIds.includes(teamOption?.value || ""))
       && (!filters.roleValues.length || filters.roleValues.includes(normalizeFilterValue(employee.role)))
       && (!filters.employeeIds.length || filters.employeeIds.includes(employee.id))
@@ -1045,7 +1147,7 @@ export default function Employees({
       )
       && (!filters.search || search.includes(filters.search.toLowerCase()))
     );
-  }).sort((left, right) => Number(isEmployeeTerminated(left)) - Number(isEmployeeTerminated(right))), [scopedEmployeeSource, employeeTeamFilterOption, filters, systemUserByEmployeeId, showTerminatedOnly]);
+  }).sort((left, right) => Number(isEmployeeTerminated(left)) - Number(isEmployeeTerminated(right))), [scopedEmployeeSource, employeeTeamFilterOption, groupForCompany, filters, systemUserByEmployeeId, showTerminatedOnly]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
   const paginatedEmployees = useMemo(() => {
@@ -1192,15 +1294,7 @@ export default function Employees({
 
     const rows = filteredEmployees.map((employee) => {
       const company = data.companies.find((item) => item.id === employee.companyId);
-      const department = data.departments.find((item) => item.id === employee.departmentId);
-      const sector = data.sectors.find((item) => item.id === employee.sectorId);
-      const subsector = data.subsectors.find((item) => item.id === employee.subsectorId);
-      const team = data.teams.find((item) => item.id === employee.teamId);
       const login = data.systemUsers.find((systemUser) => systemUser.employeeId === employee.id);
-      const groupDepartmentName = groupUnitNameForEmployee(employee, "department");
-      const groupSectorName = groupUnitNameForEmployee(employee, "sector");
-      const groupSubsectorName = groupUnitNameForEmployee(employee, "subsector");
-      const groupTeamName = groupUnitNameForEmployee(employee, "team");
 
       return {
         "Funcionário": employee.name || "",
@@ -1209,10 +1303,10 @@ export default function Employees({
         "CPF": employee.cpf || "",
         "Telefone": employee.phone || "",
         "Empresa": company?.name || "",
-        "Departamento": department?.name || groupDepartmentName || "",
-        "Setor": sector?.name || groupSectorName || "",
-        "Subsetor": subsector?.name || groupSubsectorName || "",
-        "Equipe": team?.name || groupTeamName || "",
+        "Departamento": structureNameForEmployee(employee, "department"),
+        "Setor": structureNameForEmployee(employee, "sector"),
+        "Subsetor": structureNameForEmployee(employee, "subsector"),
+        "Equipe": structureNameForEmployee(employee, "team"),
         "Encarregado": employee.isTeamLead ? "Sim" : "Não",
         "Função": employee.role || "",
         "Cargo": employee.position || "",
@@ -1733,6 +1827,7 @@ export default function Employees({
 
     setDraftId(id);
     setEditingEmployeeId(draftPayload?.id);
+    structureTouchedRef.current = false;
     setPromotionMode(asPromotion);
     setRegistrationPdfFile(null);
     setEmployeeImportFileName("");
@@ -1745,6 +1840,9 @@ export default function Employees({
         : primaryStructureGroup;
     const draftGroup = draftDomainGroup ? storedGroupById.get(draftDomainGroup.id) : undefined;
     setGroupUnitSelection(employeeGroupUnitSelection(draftGroup, draftPayload));
+    // Setor/equipe de outro departamento foi descartado ao abrir: salvar
+    // grava a estrutura limpa (não mantém o cadastro antigo desses campos).
+    structureTouchedRef.current = groupUnitSelectionWasCleaned(draftGroup, draftPayload);
     setForm({
       ...emptyEmployee,
       ...draftPayload,
@@ -2106,14 +2204,25 @@ export default function Employees({
       };
     }
 
+    // Mudanca: ao limpar a estrutura de grupo, salva vazio em vez de voltar para o vinculo antigo.
+    // 19/11/2026: mas só se a pessoa mexeu na estrutura. Sem mexer, o campo
+    // que a Estrutura da Empresa não consegue preencher (unidade sem vínculo
+    // com o cadastro antigo, ex. "Administrativo") mantém o valor que já
+    // estava — antes, editar só o telefone apagava departamento/setor antigos.
+    const previous = editingEmployeeId && !structureTouchedRef.current
+      ? data.employees.find((employee) => employee.id === editingEmployeeId)
+      : undefined;
+    const legacyOrPrevious = (type: CompanyGroupUnitType, unitId: string) => (
+      sourceIdForGroupUnit(selectedFormGroup, type, unitId, companyId)
+      || (previous && previous.companyId === companyId ? employeeSourceId(previous, type) : "")
+    );
     return {
       companyId,
       groupId: selectedStructureScope.groupId,
-      // Mudanca: ao limpar a estrutura de grupo, salva vazio em vez de voltar para o vinculo antigo.
-      departmentId: sourceIdForGroupUnit(selectedFormGroup, "department", groupUnitSelection.departmentUnitId, companyId) || "",
-      sectorId: sourceIdForGroupUnit(selectedFormGroup, "sector", groupUnitSelection.sectorUnitId, companyId) || "",
-      subsectorId: sourceIdForGroupUnit(selectedFormGroup, "subsector", groupUnitSelection.subsectorUnitId, companyId) || "",
-      teamId: sourceIdForGroupUnit(selectedFormGroup, "team", groupUnitSelection.teamUnitId, companyId) || "",
+      departmentId: legacyOrPrevious("department", groupUnitSelection.departmentUnitId),
+      sectorId: legacyOrPrevious("sector", groupUnitSelection.sectorUnitId),
+      subsectorId: legacyOrPrevious("subsector", groupUnitSelection.subsectorUnitId),
+      teamId: legacyOrPrevious("team", groupUnitSelection.teamUnitId),
     };
   }
 
@@ -2491,26 +2600,21 @@ export default function Employees({
           placeholder="Departamentos"
           value={filters.departmentIds}
           onChange={(departmentIds) => setFilters({ ...filters, departmentIds, sectorIds: [], subsectorIds: [] })}
-          options={structureItemsForGroup(data.departments, primaryStructureGroup, data.companyGroupCompanies, data.companies)
-            .map((item) => ({ value: item.id, label: item.name }))}
+          options={structureFilterOptions("department", [])}
         />
         <MultiSelect
           label="Setores"
           placeholder="Setores"
           value={filters.sectorIds}
           onChange={(sectorIds) => setFilters({ ...filters, sectorIds, subsectorIds: [] })}
-          options={structureItemsForGroup(data.sectors, primaryStructureGroup, data.companyGroupCompanies, data.companies)
-            .filter((item) => !filters.departmentIds.length || filters.departmentIds.includes(item.departmentId))
-            .map((item) => ({ value: item.id, label: item.name }))}
+          options={structureFilterOptions("sector", filters.departmentIds)}
         />
         <MultiSelect
           label="Subsetores"
           placeholder="Subsetores"
           value={filters.subsectorIds}
           onChange={(subsectorIds) => setFilters({ ...filters, subsectorIds })}
-          options={structureItemsForGroup(data.subsectors, primaryStructureGroup, data.companyGroupCompanies, data.companies)
-            .filter((item) => !filters.sectorIds.length || filters.sectorIds.includes(item.sectorId))
-            .map((item) => ({ value: item.id, label: item.name }))}
+          options={structureFilterOptions("subsector", filters.sectorIds)}
         />
         <MultiSelect
           label="Equipes"
@@ -2653,16 +2757,14 @@ export default function Employees({
           <tbody>
             {paginatedEmployees.map((employee) => {
               const company = data.companies.find((item) => item.id === employee.companyId);
-              const sector = data.sectors.find((item) => item.id === employee.sectorId);
-              const team = data.teams.find((item) => item.id === employee.teamId);
               const login = data.systemUsers.find((user) => user.employeeId === employee.id);
               const scheduledStatusText = employeeStatusScheduleText(employee);
               const displayStatus = getEmployeeDisplayStatus(employee);
               const processBadge = getEmployeeProcessBadge(employee);
               const isDismissalApproved = Boolean(employee.registrationData?.dismissalApprovedAt);
               const group = groupForCompany(employee.companyId);
-              const groupSectorName = groupUnitNameForEmployee(employee, "sector");
-              const groupTeamName = groupUnitNameForEmployee(employee, "team");
+              const sectorName = structureNameForEmployee(employee, "sector");
+              const teamName = structureNameForEmployee(employee, "team");
               const responsibilityGroup = (employee.groupId ? storedGroupById.get(employee.groupId) : undefined) || group;
               const responsibilityTeamId = employeeGroupUnitSelection(responsibilityGroup, employee).teamUnitId;
               const responsibilityTeam = data.companyGroupUnits.find(unit => unit.id === responsibilityTeamId && unit.type === "team" && unit.active !== false);
@@ -2679,7 +2781,7 @@ export default function Employees({
                       </div>
                     </div>
                   </td>
-                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{sector?.name || groupSectorName || "-"}</span><br /><span className="muted">Equipe: {team?.name || groupTeamName || "-"}</span>
+                  <td>{company?.name ?? "-"}<br /><span className="muted">Grupo: {group?.name || (employee.companyId ? "Grupo macro" : "-")}</span><br /><span className="muted">{sectorName || "-"}</span><br /><span className="muted">Equipe: {teamName || "-"}</span>
                     {responsibilityTeam?.coordinatorEmployeeId === employee.id ? <div className="employee-team-owner is-assigned">
                       <UserCheck size={14} aria-hidden="true" />
                       <span>Encarregado da equipe</span>
