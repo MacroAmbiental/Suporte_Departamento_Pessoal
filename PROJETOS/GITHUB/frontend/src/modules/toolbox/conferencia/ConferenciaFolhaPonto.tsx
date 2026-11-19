@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, ClipboardList, FileSpreadsheet, Wallet } from "lucide-react";
+import { AlertTriangle, ClipboardList, FileSpreadsheet, FileText, Wallet } from "lucide-react";
 import { readPdf } from "../pdfTools";
 import { normalizarNome } from "../names";
 import {
@@ -17,6 +17,9 @@ import {
 } from "./conferenciaModel";
 import { exportarConferencia } from "./conferenciaExport";
 import { exportarRelacao, exportarRelatorioPonto, lerRelacaoAnterior, montarRelacao, pontoDasLinhas } from "./conferenciaRelatorios";
+import { baixarCsv, montarPagamentosCsv, type ForaDoCsv } from "./pagamentosCsv";
+
+const reais = (valor: number) => valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 function errorMessage(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
@@ -59,6 +62,7 @@ export default function ConferenciaFolhaPonto() {
   const [progresso, setProgresso] = useState("");
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [foraCsv, setForaCsv] = useState<ForaDoCsv[] | null>(null);
 
   // Trocar um arquivo apaga o resultado: nada de exportar dados de um PDF que já não está escolhido.
   function trocar(setter: (file: File | null) => void) {
@@ -67,6 +71,7 @@ export default function ConferenciaFolhaPonto() {
       setDados(null);
       setProgresso("");
       setAviso("");
+      setForaCsv(null);
     };
   }
 
@@ -165,6 +170,27 @@ export default function ConferenciaFolhaPonto() {
     }
   }
 
+  // CSV no layout do financeiro (upload-payments-linked-account): só contas Itaú com agência e conta.
+  async function csvFinanceiro() {
+    if (!dados?.extrato.length) return;
+    setErro("");
+    setForaCsv(null);
+    try {
+      if (!relacaoFile) throw new Error("escolha a relação anterior (Excel) — é dela que vêm agência e conta.");
+      const anterior = await lerRelacaoAnterior(relacaoFile);
+      if (!anterior) throw new Error("a planilha anterior não tem o cabeçalho NOME / CONTAS nas primeiras 15 linhas.");
+      const resultado = montarPagamentosCsv(montarRelacao(dados.extrato, anterior));
+      if (!resultado.quantidade) throw new Error("nenhum funcionário com conta Itaú (agência e conta) foi encontrado.");
+      baixarCsv(resultado.csv, `pagamentos_itau_${competencia.replace("/", "_") || "extrato"}.csv`);
+      setForaCsv(resultado.fora);
+      setAviso(`CSV gerado com ${resultado.quantidade} pagamento(s) Itaú, total ${reais(resultado.total)}.`
+        + (resultado.semCpf ? ` Atenção: ${resultado.semCpf} sem CPF.` : "")
+        + (resultado.fora.length ? ` ${resultado.fora.length} pessoa(s) com valor ficaram fora do CSV (lista abaixo).` : ""));
+    } catch (reason) {
+      setErro(`Não foi possível gerar o CSV do financeiro: ${errorMessage(reason)}`);
+    }
+  }
+
   return (
     <div className="toolbox-panel">
       <p className="toolbox-hint">
@@ -198,10 +224,32 @@ export default function ConferenciaFolhaPonto() {
             title={dados.extrato.length ? "Nome, valor líquido, conta, banco, CPF, empresa e status" : "Precisa do Extrato Mensal"}>
             <Wallet size={16} /> Relação de pagamentos
           </button>
+          <button className="btn btn-secondary" type="button" disabled={!dados.extrato.length || !relacaoFile} onClick={() => void csvFinanceiro()}
+            title={!dados.extrato.length ? "Precisa do Extrato Mensal" : !relacaoFile ? "Precisa da relação anterior (agência e conta)" : "Só contas Itaú: valor, nome, CPF, agência, conta e tipo"}>
+            <FileText size={16} /> CSV do financeiro (Itaú)
+          </button>
           <button className="btn btn-secondary" type="button" disabled={!dados.ponto.length} onClick={() => void relatorioPonto()}
             title={dados.ponto.length ? "Resumo por funcionário + ocorrências por dia" : "Precisa do Cartão Ponto"}>
             <ClipboardList size={16} /> Relatório completo do ponto
           </button>
+        </div>
+      ) : null}
+
+      {foraCsv && foraCsv.length ? (
+        <div className="toolbox-table-wrap">
+          <p className="toolbox-hint">Fora do CSV — pagar à parte ({foraCsv.length}, total {reais(foraCsv.reduce((soma, item) => soma + item.valor, 0))}):</p>
+          <table className="toolbox-table">
+            <thead>
+              <tr><th>Funcionário</th><th>Valor</th><th>Contas</th><th>Banco</th><th>Motivo</th></tr>
+            </thead>
+            <tbody>
+              {foraCsv.map((item, i) => (
+                <tr key={`${item.nome}-${i}`}>
+                  <td>{item.nome}</td><td>{reais(item.valor)}</td><td>{item.conta}</td><td>{item.banco}</td><td>{item.motivo}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : null}
 
