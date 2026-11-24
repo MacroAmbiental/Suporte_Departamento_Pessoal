@@ -67,6 +67,7 @@ export default function ConferenciaFolhaPonto() {
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [foraCsv, setForaCsv] = useState<ForaDoCsv[] | null>(null);
+  const [tipoPagamento, setTipoPagamento] = useState("");
 
   // Trocar um arquivo apaga o resultado: nada de exportar dados de um PDF que já não está escolhido.
   function trocar(setter: (file: File | null) => void) {
@@ -176,7 +177,7 @@ export default function ConferenciaFolhaPonto() {
     }
   }
 
-  // CSV no layout do financeiro (upload-payments-linked-account): só contas Itaú com agência e conta.
+  // CSV de pagamentos da Kesh (upload-payments-linked-account): só contas KESH do cadastro.
   async function csvFinanceiro() {
     if (!dados?.extrato.length) return;
     setErro("");
@@ -184,19 +185,19 @@ export default function ConferenciaFolhaPonto() {
     try {
       const anterior = relacaoFile ? await lerRelacaoAnterior(relacaoFile) : null;
       if (relacaoFile && !anterior) throw new Error("a planilha anterior não tem o cabeçalho NOME / CONTAS nas primeiras 15 linhas.");
-      const resultado = montarPagamentosCsv(montarRelacao(dados.extrato, anterior, cadastroContas));
+      const resultado = montarPagamentosCsv(montarRelacao(dados.extrato, anterior, cadastroContas), tipoPagamento);
       if (!resultado.quantidade) {
-        // Sem ninguém no Itaú (ex.: todos na Kesh): não baixa CSV, mas mostra quem fica de fora.
+        // Ninguém com conta Kesh: não baixa CSV, mas mostra quem fica de fora.
         setForaCsv(resultado.fora);
-        throw new Error("nenhum funcionário com conta Itaú (agência e conta) foi encontrado. Quem tem valor a receber está na lista abaixo.");
+        throw new Error("nenhum funcionário com conta Kesh foi encontrado. Quem tem valor a receber está na lista abaixo.");
       }
-      baixarCsv(resultado.csv, `pagamentos_itau_${competencia.replace("/", "_") || "extrato"}.csv`);
+      baixarCsv(resultado.csv, `pagamentos_kesh_${competencia.replace("/", "_") || "extrato"}.csv`);
       setForaCsv(resultado.fora);
-      setAviso(`CSV gerado com ${resultado.quantidade} pagamento(s) Itaú, total ${reais(resultado.total)}.`
+      setAviso(`CSV gerado com ${resultado.quantidade} pagamento(s) Kesh, total ${reais(resultado.total)}.`
         + (resultado.semCpf ? ` Atenção: ${resultado.semCpf} sem CPF.` : "")
         + (resultado.fora.length ? ` ${resultado.fora.length} pessoa(s) com valor ficaram fora do CSV (lista abaixo).` : ""));
     } catch (reason) {
-      setErro(`Não foi possível gerar o CSV do financeiro: ${errorMessage(reason)}`);
+      setErro(`Não foi possível gerar o CSV da Kesh: ${errorMessage(reason)}`);
     }
   }
 
@@ -234,9 +235,13 @@ export default function ConferenciaFolhaPonto() {
             <Wallet size={16} /> Relação de pagamentos
           </button>
           <button className="btn btn-secondary" type="button" disabled={!dados.extrato.length} onClick={() => void csvFinanceiro()}
-            title={!dados.extrato.length ? "Precisa do Extrato Mensal" : "Só contas Itaú: valor, nome, CPF, agência, conta e tipo"}>
-            <FileText size={16} /> CSV do financeiro (Itaú)
+            title={!dados.extrato.length ? "Precisa do Extrato Mensal" : "Só contas Kesh: valor, nome, CPF e conta (modelo upload-payments-linked-account)"}>
+            <FileText size={16} /> CSV da Kesh
           </button>
+          <label className="toolbox-file conf-tolerancia" title="Coluna TIPO_DE_PAGAMENTO. Pode deixar vazio e preencher na hora de importar na Kesh.">
+            <span>Tipo de pagamento (opcional)</span>
+            <input type="text" value={tipoPagamento} onChange={(event) => setTipoPagamento(event.target.value)} placeholder="vazio" />
+          </label>
           <button className="btn btn-secondary" type="button" disabled={!dados.ponto.length} onClick={() => void relatorioPonto()}
             title={dados.ponto.length ? "Resumo por funcionário + ocorrências por dia" : "Precisa do Cartão Ponto"}>
             <ClipboardList size={16} /> Relatório completo do ponto
