@@ -339,6 +339,19 @@ type FormulaMap = Record<string, string>;
 const calculatedMetricKeys = ["normais", "faltas", "extras", "carga"] as const;
 const manualMetricOverrideField = "__manual_calculation_fields";
 const manualStatusSelectedField = "__manual_status_selected";
+
+// 24/11/2026 — funcionário de FÉRIAS no Secullum (folha oficial) que está
+// trabalhando e recebendo como diarista. No DP o dia fica "present" (conta
+// presença, HE, Performance) com esta marca; o Secullum NÃO é tocado: sem
+// justificativa, sem botão de enviar horário, sem alerta de Neutro/Compensado,
+// e a importação não sobrescreve. Horários são digitados pelo DP (fotos).
+const diaristaFeriasField = "diaristaFerias";
+const DIARISTA_FERIAS_OPTION = "__diarista_ferias";
+const DIARISTA_FERIAS_LABEL = "Diarista (férias no Secullum)";
+
+function isDiaristaFerias(record?: { customFields?: Record<string, string> }) {
+  return record?.customFields?.[diaristaFeriasField] === "true";
+}
 const manualWarningStorageKey = "__timekeeping_manual_warning_dates";
 
 type CalculatedMetricKey = (typeof calculatedMetricKeys)[number];
@@ -4176,6 +4189,8 @@ export default function Timekeeping() {
         const saved = timeRecordByEmployeeDate.get(`${record.employeeId}:${record.date}`);
         const anterior = saved ? JUSTIFICATIVA_SECULLUM_POR_STATUS[saved.status] : undefined;
         if ((!justificativa && !anterior) || saved?.status === record.status || record.date < INICIO_JUSTIFICATIVAS_SECULLUM) return [];
+        // Diarista nas férias: o Secullum mantém FÉRIAS (folha oficial) — não tira nem lança nada.
+        if (isDiaristaFerias(record)) return [];
         const employee = employeeById.get(record.employeeId);
         if (isCoveredBySecullumLeavePeriod(employee, record.date)) return [];
         const cpf = secullumOnlyDigits(employee?.cpf);
@@ -4632,6 +4647,7 @@ export default function Timekeeping() {
 
   function recordHasManualPoint(record?: TimeRecord) {
     if (!record) return false;
+    if (isDiaristaFerias(record)) return true;
 
     const source = String(record.source || "manual").toLowerCase();
     if (source === "seculum" || source === "secullum") return false;
@@ -5043,7 +5059,7 @@ export default function Timekeeping() {
     if (column.key === "checkOut") return record.checkOut || "00:00";
     if (column.key === "overtimePercent")
       return Number(record.overtimePercent || 0);
-    if (column.key === "status") return statusDisplayText(record.status);
+    if (column.key === "status") return isDiaristaFerias(record) ? DIARISTA_FERIAS_LABEL : statusDisplayText(record.status);
     if (column.key === "cid") return record.cid || "";
     if (column.key === "dayTeamId")
       return teamName(record.dayTeamId ?? employeeTeamId(employee));
@@ -6592,6 +6608,7 @@ export default function Timekeeping() {
     macroValue: string,
   ) {
     if (secullumStatus !== "ok" || tableLocked || !canEditTimekeeping) return null;
+    if (isDiaristaFerias(displayRecord(employee))) return null;
     const origin = secullumOriginFor(employee, field);
     const secValue = origin?.value || "";
     const macroEmpty = isEmptyTime(macroValue);
@@ -6704,7 +6721,7 @@ export default function Timekeeping() {
       const consistent = hasRemote && localValue !== null && remoteValue === localValue;
       const divergent = hasRemote && localValue !== null && remoteValue !== localValue;
       const pending = Boolean(draftRecordsByEmployeeId[employee.id]);
-      const expected = secullumExpectedFlagForStatus(String(record.status || ""));
+      const expected = isDiaristaFerias(record) ? null : secullumExpectedFlagForStatus(String(record.status || ""));
       // Vermelho forte quando a opção está contrária à regra do STATUS.
       // Sem valor local ainda não significa false.
       const violatesStatus = localValue !== null && expected !== null && localValue !== expected;
@@ -7130,8 +7147,15 @@ export default function Timekeeping() {
       const availableStatuses = statusOptions.length
         ? statusOptions
         : defaultStatusConditions;
+      const diaristaFerias = isDiaristaFerias(record);
       const selectedCondition = statusConditionFor(record.status);
-      const selectStyle = selectedCondition
+      const selectStyle = diaristaFerias
+        ? {
+          backgroundColor: themedStatusBackground("#e3edff", "#1565c0"),
+          color: themedStatusText("#1565c0"),
+          borderColor: themedStatusText("#1565c0"),
+        }
+        : selectedCondition
         ? {
           backgroundColor: themedStatusBackground(selectedCondition.rowColor, selectedCondition.textColor),
           color: themedStatusText(selectedCondition.textColor),
@@ -7144,14 +7168,27 @@ export default function Timekeeping() {
           <select
             className={`badge ${badgeClass(record.status)}`}
             style={selectStyle}
-            value={record.status}
+            value={diaristaFerias ? DIARISTA_FERIAS_OPTION : record.status}
+            title={diaristaFerias ? "Férias no Secullum, trabalhando como diarista: conta como presença no DP e nada é enviado ao Secullum" : undefined}
             onChange={(event) => {
+              if (event.target.value === DIARISTA_FERIAS_OPTION) {
+                void saveRecord(employee, {
+                  status: "present",
+                  customFields: {
+                    ...(record.customFields || {}),
+                    [manualStatusSelectedField]: "true",
+                    [diaristaFeriasField]: "true",
+                  },
+                });
+                return;
+              }
               const nextStatus = event.target.value as AttendanceStatus;
               const patch: Partial<TimeRecord> = {
                 status: nextStatus,
                 customFields: {
                   ...(record.customFields || {}),
                   [manualStatusSelectedField]: "true",
+                  [diaristaFeriasField]: "false",
                 },
               };
               if (requiresSecullumFlagsOff(nextStatus)) {
@@ -7188,6 +7225,7 @@ export default function Timekeeping() {
                 {status.label}
               </option>
             ))}
+            <option value={DIARISTA_FERIAS_OPTION}>{DIARISTA_FERIAS_LABEL}</option>
           </select>
         </td>
       );
