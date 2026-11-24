@@ -140,7 +140,28 @@ export async function lerRelacaoAnterior(file: File): Promise<RelacaoAnterior | 
   return null;
 }
 
-export type LinhaRelacao = { nome: string; valor: number | null; conta: string; banco: string; cpf: string; empresa: string; status: "ATIVO" | "INATIVO" };
+export type LinhaRelacao = { nome: string; valor: number | null; conta: string; banco: string; cpf: string; empresa: string; status: "ATIVO" | "INATIVO"; origemConta?: "cadastro" | "anterior" };
+
+type FichaComConta = { name: string; cpf: string; registrationData?: Record<string, string> };
+
+const SIGLA_TIPO: Record<string, string> = { "Conta corrente": "C/C", "Conta salário": "C/S", "Poupança": "C/P" };
+
+/**
+ * Conta de pagamento gravada na ficha do funcionário (seção "Conta de pagamento (salário)").
+ * Com agência sai no mesmo formato da relação antiga ("AG:4293 C/S: 69437-0"), que o CSV do Itaú sabe ler;
+ * sem agência (Kesh) sai só o número da conta.
+ */
+export function cadastroDasFichas(fichas: FichaComConta[]): CadastroBancario[] {
+  return fichas.flatMap((ficha) => {
+    const r = ficha.registrationData || {};
+    const conta = (r.paymentAccount || "").trim();
+    const banco = (r.paymentBank || "").trim();
+    if (!conta && !banco) return [];
+    const agencia = (r.paymentAgency || "").trim();
+    const contaTexto = agencia ? `AG:${agencia} ${SIGLA_TIPO[r.paymentAccountType || ""] || "C"}: ${conta}` : conta;
+    return [{ nome: ficha.name, cpf: ficha.cpf, conta: contaTexto, banco: banco.toUpperCase() }];
+  });
+}
 
 const statusDe = (valor: number | null) => (valor !== null && valor !== 0 ? "ATIVO" : "INATIVO");
 
@@ -148,7 +169,26 @@ const statusDe = (valor: number | null) => (valor !== null && valor !== 0 ? "ATI
  * Relação anterior = cadastro de nomes, contas e bancos (o valor nunca vem dela).
  * Valor e empresa vêm sempre do extrato atual; quem é novo no extrato também entra.
  */
-export function montarRelacao(extrato: RegistroFolha[], anterior: RelacaoAnterior | null): LinhaRelacao[] {
+export function montarRelacao(extrato: RegistroFolha[], anterior: RelacaoAnterior | null, cadastro: CadastroBancario[] = []): LinhaRelacao[] {
+  const linhas = montarRelacaoAnterior(extrato, anterior);
+  if (!cadastro.length) return linhas;
+  // A conta da ficha do funcionário vale mais que a da relação anterior.
+  const fichaPorCpf = new Map<string, CadastroBancario>();
+  const fichaPorNome = new Map<string, CadastroBancario>();
+  for (const item of cadastro) {
+    const cpf = soDigitos(item.cpf).padStart(11, "0");
+    if (soDigitos(item.cpf) && !fichaPorCpf.has(cpf)) fichaPorCpf.set(cpf, item);
+    const nome = normalizarNome(item.nome);
+    if (nome && !fichaPorNome.has(nome)) fichaPorNome.set(nome, item);
+  }
+  return linhas.map((linha) => {
+    const ficha = (soDigitos(linha.cpf) && fichaPorCpf.get(soDigitos(linha.cpf).padStart(11, "0"))) || fichaPorNome.get(normalizarNome(linha.nome));
+    if (ficha) return { ...linha, conta: ficha.conta, banco: ficha.banco, origemConta: "cadastro" };
+    return linha.conta || linha.banco ? { ...linha, origemConta: "anterior" } : linha;
+  });
+}
+
+function montarRelacaoAnterior(extrato: RegistroFolha[], anterior: RelacaoAnterior | null): LinhaRelacao[] {
   const registros = [...extrato].sort((a, b) => porNomeNormalizado(a.nome, b.nome));
   const porNome = new Map(registros.map((r) => [normalizarNome(r.nome), r]));
   const porCpf = new Map(registros.filter((r) => r.cpf).map((r) => [soDigitos(r.cpf), r]));

@@ -17,6 +17,7 @@ import {
   Trash2,
   UserPlus,
   UserCheck,
+  Upload,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
@@ -44,6 +45,7 @@ import { employeeStandardDocumentNames } from "@/modules/records/utils/recordsDo
 import { createUsernameFromName, normalizeUsername, storedScreenActions, systemScreens, withInheritedScreens } from "@/services/accessControl";
 import { conferirSenhaServidor } from "@/services/firebaseSession";
 import VerSenhaLogin from "../components/VerSenhaLogin";
+import ImportarContasPagamento from "../components/ImportarContasPagamento";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import type {
   AppScreen,
@@ -230,6 +232,12 @@ const employeeImportFields = [
   { key: "salaryPeriod", label: "Por", aliases: ["salario por", "por"] },
   { key: "workHours", label: "Horário de Trabalho", aliases: ["horario de trabalho", "horário de trabalho"] },
   { key: "breakHours", label: "Horário de Intervalo", aliases: ["horario de intervalo", "intervalo"] },
+  // Conta onde o salário é pago (não confundir com bankAccount/bankNumber, que são FGTS/PIS da ficha).
+  { key: "paymentBank", label: "Banco", aliases: ["banco do salario", "banco do salário", "banco pagamento"] },
+  { key: "paymentAgency", label: "Agência", aliases: ["agencia do salario", "agência do salário", "agencia pagamento"] },
+  { key: "paymentAccount", label: "Conta", aliases: ["conta do salario", "conta do salário", "conta pagamento", "conta salario"] },
+  { key: "paymentAccountType", label: "Tipo de conta", aliases: ["tipo de conta", "tipo da conta"] },
+  { key: "paymentPixKey", label: "Chave PIX", aliases: ["chave pix", "pix"] },
   { key: "fgts", label: "FGTS", aliases: ["fgts"] },
   { key: "fgtsDate", label: "Opção em", aliases: ["fgts", "opcao fgts", "opção em"] },
   { key: "bankAccount", label: "Conta vinculada no banco", aliases: ["conta vinculada", "conta bancaria", "conta bancária"] },
@@ -270,6 +278,7 @@ const employeeRegistrationSections: EmployeeRegistrationSection[] = [
   { title: "Dados pessoais e filiação", fields: ["birthDate", "birthPlace", "nationality", "maritalStatus", "fatherName", "motherName"] },
   { title: "Documentos e qualificação", fields: ["rg", "rgIssueDate", "rgIssuer", "voterTitle", "voterZone", "voterSection", "professionalCouncil", "ctpsNumber", "ctpsSeries", "ctpsIssueDate", "ctpsUf", "cpf", "driversLicense", "employeeCategory", "militaryDocument", "militaryCategory", "color", "sex", "educationLevel", "homePhone", "mobilePhone", "disability", "position", "role", "cbo"] },
   { title: "Admissão", fields: ["admissionDate", "salary", "salaryPeriod", "workHours", "breakHours"] },
+  { title: "Conta de pagamento (salário)", subtitle: "Conta onde o salário cai. Aparece na Relação de pagamentos da Caixa de ferramentas.", fields: ["paymentBank", "paymentAgency", "paymentAccount", "paymentAccountType", "paymentPixKey"] },
   { title: "FGTS", fields: ["fgts", "fgtsDate", "bankAccount", "rectificationDate"] },
   { title: "Programa de Integração Social - PIS", fields: ["pisRegisteredAt", "pisNumber", "bankDomicile", "bankNumber", "bankAgencyCode", "bankAgencyAddress"] },
   { title: "Alterações de salário, cargo e/ou função", fields: ["salaryRoleChanges"] },
@@ -279,6 +288,8 @@ const employeeRegistrationSections: EmployeeRegistrationSection[] = [
   { title: "Contribuição sindical", fields: ["unionContribution"] },
   { title: "Observações e informações complementares", fields: ["notes", "email", "emergencyContact"] },
 ];
+
+const paymentAccountTypes = ["Conta de pagamento", "Conta corrente", "Conta salário", "Poupança"];
 
 const dateRegistrationFields = new Set<EmployeeImportField>([
   "birthDate",
@@ -694,6 +705,7 @@ export default function Employees({
   const { can, user } = useAuth();
   const canCreateEmployees = can("employees", "create");
   const canEditEmployees = can("employees", "edit");
+  const [importarContasOpen, setImportarContasOpen] = useState(false);
   const canDeleteEmployees = can("employees", "delete");
   const canManageEmployeeScreen = can("employees", "manage");
   const undoTimer = useRef<number | undefined>(undefined);
@@ -2399,6 +2411,12 @@ export default function Employees({
         {config.label}
         {multilineRegistrationFields.has(field) ? (
           <textarea {...commonProps} />
+        ) : field === "paymentAccountType" ? (
+          <select value={value} onChange={(event) => setRegistrationField(field, event.target.value)}>
+            <option value="">Não informado</option>
+            {paymentAccountTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            {value && !paymentAccountTypes.includes(value) ? <option value={value}>{value}</option> : null}
+          </select>
         ) : (
           <input type={dateRegistrationFields.has(field) ? "date" : "text"} {...commonProps} />
         )}
@@ -2591,6 +2609,12 @@ export default function Employees({
             <Save size={17} />
             Exportar Excel
           </button>
+          {canEditEmployees ? (
+            <button className="btn btn-secondary" type="button" title="Importar o CSV de contas da Kesh para a conta de pagamento dos funcionários" onClick={() => setImportarContasOpen(true)}>
+              <Upload size={17} />
+              Importar contas
+            </button>
+          ) : null}
           {!showTerminatedOnly && canCreateEmployees ? (
             <button className="btn btn-primary" type="button" disabled={wizardOpen || wizardSaving || draftSaving} onClick={() => startDraft()}>
               <Plus size={17} />
@@ -2900,6 +2924,8 @@ export default function Employees({
           </article>
         </div>
       ) : null}
+
+      {importarContasOpen ? <ImportarContasPagamento onClose={() => setImportarContasOpen(false)} /> : null}
 
       {exportModalOpen ? (
         <ModalPortal className="modal-backdrop" role="presentation">

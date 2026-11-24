@@ -16,7 +16,8 @@ import {
   type Situacao,
 } from "./conferenciaModel";
 import { exportarConferencia } from "./conferenciaExport";
-import { exportarRelacao, exportarRelatorioPonto, lerRelacaoAnterior, montarRelacao, pontoDasLinhas } from "./conferenciaRelatorios";
+import { cadastroDasFichas, exportarRelacao, exportarRelatorioPonto, lerRelacaoAnterior, montarRelacao, pontoDasLinhas } from "./conferenciaRelatorios";
+import { useDomainData } from "@/hooks/useDomainData";
 import { baixarCsv, montarPagamentosCsv, type ForaDoCsv } from "./pagamentosCsv";
 
 const reais = (valor: number) => valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -51,6 +52,9 @@ function periodoConfere(competencia: string, periodo: string) {
 }
 
 export default function ConferenciaFolhaPonto() {
+  const { employees } = useDomainData();
+  // Contas de pagamento gravadas nas fichas (Funcionários → Conta de pagamento).
+  const cadastroContas = useMemo(() => cadastroDasFichas(employees), [employees]);
   const [extratoFile, setExtratoFile] = useState<File | null>(null);
   const [pontoFile, setPontoFile] = useState<File | null>(null);
   const [tolerancia, setTolerancia] = useState(5);
@@ -159,12 +163,14 @@ export default function ConferenciaFolhaPonto() {
     try {
       const anterior = relacaoFile ? await lerRelacaoAnterior(relacaoFile) : null;
       if (relacaoFile && !anterior) throw new Error("a planilha anterior não tem o cabeçalho NOME / CONTAS nas primeiras 15 linhas.");
-      const linhas = montarRelacao(dados.extrato, anterior);
+      const linhas = montarRelacao(dados.extrato, anterior, cadastroContas);
       await exportarRelacao(linhas, competencia);
-      const comConta = linhas.filter((linha) => linha.conta || linha.banco).length;
-      setAviso(`Relação gerada com ${linhas.length} funcionário(s). ${anterior
-        ? `Conta/banco encontrados para ${comConta} (aba "${anterior.aba}" da relação anterior).`
-        : "Conta e banco ficaram vazios porque nenhuma relação anterior foi escolhida."}`);
+      const doCadastro = linhas.filter((linha) => linha.origemConta === "cadastro").length;
+      const daAnterior = linhas.filter((linha) => linha.origemConta === "anterior").length;
+      const semConta = linhas.length - doCadastro - daAnterior;
+      setAviso(`Relação gerada com ${linhas.length} funcionário(s). Conta do cadastro: ${doCadastro}.`
+        + (anterior ? ` Da relação anterior (aba "${anterior.aba}"): ${daAnterior}.` : "")
+        + (semConta ? ` Sem conta: ${semConta}.` : ""));
     } catch (reason) {
       setErro(`Não foi possível gerar a relação de pagamentos: ${errorMessage(reason)}`);
     }
@@ -176,11 +182,14 @@ export default function ConferenciaFolhaPonto() {
     setErro("");
     setForaCsv(null);
     try {
-      if (!relacaoFile) throw new Error("escolha a relação anterior (Excel) — é dela que vêm agência e conta.");
-      const anterior = await lerRelacaoAnterior(relacaoFile);
-      if (!anterior) throw new Error("a planilha anterior não tem o cabeçalho NOME / CONTAS nas primeiras 15 linhas.");
-      const resultado = montarPagamentosCsv(montarRelacao(dados.extrato, anterior));
-      if (!resultado.quantidade) throw new Error("nenhum funcionário com conta Itaú (agência e conta) foi encontrado.");
+      const anterior = relacaoFile ? await lerRelacaoAnterior(relacaoFile) : null;
+      if (relacaoFile && !anterior) throw new Error("a planilha anterior não tem o cabeçalho NOME / CONTAS nas primeiras 15 linhas.");
+      const resultado = montarPagamentosCsv(montarRelacao(dados.extrato, anterior, cadastroContas));
+      if (!resultado.quantidade) {
+        // Sem ninguém no Itaú (ex.: todos na Kesh): não baixa CSV, mas mostra quem fica de fora.
+        setForaCsv(resultado.fora);
+        throw new Error("nenhum funcionário com conta Itaú (agência e conta) foi encontrado. Quem tem valor a receber está na lista abaixo.");
+      }
       baixarCsv(resultado.csv, `pagamentos_itau_${competencia.replace("/", "_") || "extrato"}.csv`);
       setForaCsv(resultado.fora);
       setAviso(`CSV gerado com ${resultado.quantidade} pagamento(s) Itaú, total ${reais(resultado.total)}.`
@@ -202,7 +211,7 @@ export default function ConferenciaFolhaPonto() {
         <FileField label="Cartão Ponto (PDF)" onChange={trocar(setPontoFile)} />
         <FileField
           label="Relação anterior (Excel, opcional)"
-          hint="Só para trazer conta e banco. O valor sempre vem do extrato."
+          hint="Só para quem ainda não tem conta na ficha do funcionário. O valor sempre vem do extrato."
           accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           onChange={setRelacaoFile}
         />
@@ -224,8 +233,8 @@ export default function ConferenciaFolhaPonto() {
             title={dados.extrato.length ? "Nome, valor líquido, conta, banco, CPF, empresa e status" : "Precisa do Extrato Mensal"}>
             <Wallet size={16} /> Relação de pagamentos
           </button>
-          <button className="btn btn-secondary" type="button" disabled={!dados.extrato.length || !relacaoFile} onClick={() => void csvFinanceiro()}
-            title={!dados.extrato.length ? "Precisa do Extrato Mensal" : !relacaoFile ? "Precisa da relação anterior (agência e conta)" : "Só contas Itaú: valor, nome, CPF, agência, conta e tipo"}>
+          <button className="btn btn-secondary" type="button" disabled={!dados.extrato.length} onClick={() => void csvFinanceiro()}
+            title={!dados.extrato.length ? "Precisa do Extrato Mensal" : "Só contas Itaú: valor, nome, CPF, agência, conta e tipo"}>
             <FileText size={16} /> CSV do financeiro (Itaú)
           </button>
           <button className="btn btn-secondary" type="button" disabled={!dados.ponto.length} onClick={() => void relatorioPonto()}

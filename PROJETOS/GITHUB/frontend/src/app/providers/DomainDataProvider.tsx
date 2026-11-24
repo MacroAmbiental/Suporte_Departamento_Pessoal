@@ -140,6 +140,7 @@ interface DomainDataContextValue extends DomainSnapshot {
   upsertBenefitCustomField: (payload: UpsertPayload<BenefitCustomField>) => Promise<BenefitCustomField>;
   upsertEmployeeBenefit: (payload: UpsertPayload<EmployeeBenefit>) => Promise<EmployeeBenefit>;
   upsertEmployee: (payload: UpsertPayload<Employee>, selection?: EmployeeStructureSelection) => Promise<Employee>;
+  saveEmployeesRegistrationFields: (updates: { employeeId: string; fields: Record<string, string> }[], description: string) => Promise<number>;
   upsertEmployeePromotion: (payload: UpsertPayload<EmployeePromotion>) => Promise<EmployeePromotion>;
   upsertEmployeeDraft: (payload: UpsertPayload<EmployeeDraft>) => Promise<EmployeeDraft>;
   upsertAppDraft: (payload: UpsertPayload<AppDraft>) => Promise<AppDraft>;
@@ -2137,6 +2138,54 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     return savedEmployee;
   }, [assertPermission, data.employees, registerUndo, syncDismissedEmployee, user]);
 
+  // Grava só alguns campos de registrationData em vários funcionários de uma vez
+  // (ex.: contas de pagamento importadas). Não passa pelo fluxo completo da ficha
+  // (liderança, processos), que não muda nesse caso.
+  const saveEmployeesRegistrationFields = useCallback(async (updates: { employeeId: string; fields: Record<string, string> }[], description: string) => {
+    assertPermission("employees", "edit");
+    const snapshot = dataRef.current;
+    const byId = new Map(snapshot.employees.map((employee) => [employee.id, employee]));
+    const now = new Date().toISOString();
+    const before: Employee[] = [];
+    const after: Employee[] = [];
+    for (const { employeeId, fields } of updates) {
+      const employee = byId.get(employeeId);
+      if (!employee) continue;
+      before.push(employee);
+      after.push({ ...employee, registrationData: { ...(employee.registrationData || {}), ...fields }, updatedAt: now });
+    }
+    if (!after.length) return 0;
+
+    const apply = async (items: Employee[]) => {
+      await commitEntityBatch(items.map((item) => ({ type: "set" as const, collection: "employees" as const, item })));
+      const changed = new Map(items.map((item) => [item.id, item]));
+      setData((current) => {
+        const next = { ...current, employees: current.employees.map((employee) => changed.get(employee.id) || employee) };
+        dataRef.current = next;
+        return next;
+      });
+    };
+    await apply(after);
+
+    const keys = Array.from(new Set(updates.flatMap((update) => Object.keys(update.fields))));
+    registerUndo(`${after.length} funcionário(s) atualizado(s).`, async () => {
+      // merge não apaga chave: volta cada campo ao valor anterior (ou vazio).
+      await apply(before.map((employee) => ({
+        ...employee,
+        registrationData: { ...(employee.registrationData || {}), ...Object.fromEntries(keys.map((key) => [key, employee.registrationData?.[key] || ""])) },
+      })));
+    });
+    void writeAuditLog({
+      actor: user,
+      action: "bulk",
+      entityType: "employees",
+      entityLabel: "Funcionários",
+      description,
+      metadata: { count: after.length, fields: keys.join(",") },
+    }).catch(() => undefined);
+    return after.length;
+  }, [assertPermission, registerUndo, user]);
+
   const deleteOrganizationalNode = useCallback(async (id: string) => {
     const nodeIds = descendantNodeIds(id);
     return deleteMany({
@@ -2277,6 +2326,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     upsertBenefitCustomField: (payload) => upsert<BenefitCustomField>("benefitCustomFields", "benefit-field", payload),
     upsertEmployeeBenefit: (payload) => upsert<EmployeeBenefit>("employeeBenefits", "employee-benefit", payload),
     upsertEmployee: upsertEmployeeValidated,
+    saveEmployeesRegistrationFields,
     upsertEmployeePromotion: (payload) => upsert<EmployeePromotion>("employeePromotions", "promotion", payload),
     upsertEmployeeDraft: (payload) => upsert<EmployeeDraft>("employeeDrafts", "draft", payload),
     upsertAppDraft: (payload) => upsert<AppDraft>("appDrafts", "draft", payload),
@@ -2310,7 +2360,7 @@ export function DomainDataProvider({ children }: { children: ReactNode }) {
     deleteCustomModule,
     clearDomainData,
     removeItem,
-  }), [applyPermissionProfileToUser, ensureCollectionsLoaded, clearDomainData, completeAlert, confirmAccessKey, data, deleteBenefitContract, deleteBenefitPlan, deleteEmployee, deleteCompany, deleteCompanyGroupGraph, deleteCompanyGroupLeadershipAssignment, deleteCustomModule, deleteDepartment, deleteEmployeeAssignment, deleteOrganizationalNode, deleteSector, deleteSubsector, deleteTeam, deleteTimekeepingColumn, dismissUndo, loading, removeItem, replaceUserPermissions, runUndo, saveCompanyGroupGraph, setCompanyGroupUnitActive, setCompanyGroupUnitParent, undoState, upsert, upsertCompanyGroupEmployeeAssignment, upsertCompanyGroupLeadershipAssignment, upsertDocumentAlertWithSnapshot, upsertEmployeeAssignmentValidated, upsertEmployeeDocumentWithAlertSync, upsertEmployeeValidated, upsertSystemUser, upsertTimeRecordWithEmployeeName, upsertTimeRecordsBatch, saveTimekeepingDayRecords]);
+  }), [applyPermissionProfileToUser, ensureCollectionsLoaded, clearDomainData, completeAlert, confirmAccessKey, data, deleteBenefitContract, deleteBenefitPlan, deleteEmployee, deleteCompany, deleteCompanyGroupGraph, deleteCompanyGroupLeadershipAssignment, deleteCustomModule, deleteDepartment, deleteEmployeeAssignment, deleteOrganizationalNode, deleteSector, deleteSubsector, deleteTeam, deleteTimekeepingColumn, dismissUndo, loading, removeItem, replaceUserPermissions, runUndo, saveCompanyGroupGraph, setCompanyGroupUnitActive, setCompanyGroupUnitParent, undoState, upsert, upsertCompanyGroupEmployeeAssignment, upsertCompanyGroupLeadershipAssignment, upsertDocumentAlertWithSnapshot, upsertEmployeeAssignmentValidated, upsertEmployeeDocumentWithAlertSync, upsertEmployeeValidated, saveEmployeesRegistrationFields, upsertSystemUser, upsertTimeRecordWithEmployeeName, upsertTimeRecordsBatch, saveTimekeepingDayRecords]);
 
   return (
     <DomainDataContext.Provider value={value}>
