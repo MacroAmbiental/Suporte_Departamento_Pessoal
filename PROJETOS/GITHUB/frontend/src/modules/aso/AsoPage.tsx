@@ -13,11 +13,13 @@ import {
   asoCandidates,
   asoManualReasonLabels,
   asoRecipientLabels,
+  asoSchedulableStages,
   currentAsoDocument,
   asoStages,
   clinicLate,
   daysBetween,
   firstGuideDate,
+  scheduleMissed,
   secondGuideDue,
   secondGuideDueDate,
   type AsoCase,
@@ -62,7 +64,7 @@ export default function AsoPage() {
   const today = todayISO();
   const { user, can } = useAuth();
   const canEdit = can("aso", "edit");
-  const { cases, recentlyClosed, ready, loadError, saveGuide, addManualCase, cancelManualCase, linkCaseDocument, markGuideSent, markSecondGuideSent, markExamDone, markAsoReceived, markSentToSertras } = useAsoCases(user);
+  const { cases, recentlyClosed, ready, loadError, saveGuide, addManualCase, cancelManualCase, linkCaseDocument, markGuideSent, markSecondGuideSent, scheduleExam, rescheduleExam, markExamDone, markAsoReceived, markSentToSertras } = useAsoCases(user);
   const [selectedKey, setSelectedKey] = useState("");
   const situationTags = useEmployeeSituationTags(data.employees, today);
   const [search, setSearch] = useState("");
@@ -264,6 +266,16 @@ export default function AsoPage() {
     await markAsoReceived(asoCase, newDueDate, file.name, `ASO novo anexado em Registros (vence em ${formatDate(newDueDate)}).`);
   }
 
+  // Linha do agendamento no cartão (da guia emitida até o exame feito).
+  function scheduleLine(asoCase: AsoCase | undefined) {
+    if (!asoCase?.scheduledDate || !asoSchedulableStages.includes(asoCase.stage)) return null;
+    const times = asoCase.reschedules?.length || 0;
+    const suffix = times ? ` · reagendado ${times}x` : "";
+    return scheduleMissed(asoCase, today)
+      ? { text: `Agendado para ${formatDate(asoCase.scheduledDate)}${suffix}: passou e o exame não foi marcado`, late: true }
+      : { text: `Exame agendado para ${formatDate(asoCase.scheduledDate)}${suffix}`, late: false };
+  }
+
   // Linha da etapa no cartão: o que já foi feito e o próximo prazo.
   function stageLine(asoCase: AsoCase | undefined) {
     if (!asoCase) return null;
@@ -352,7 +364,8 @@ export default function AsoPage() {
                 // Depois do ASO novo, o vencimento antigo não é mais problema.
                 const renewed = card.asoCase?.stage === "aso_received" || card.asoCase?.stage === "closed";
                 const line = stageLine(card.asoCase);
-                const overdue = (!renewed && card.dueDate < today) || Boolean(line?.late);
+                const schedule = scheduleLine(card.asoCase);
+                const overdue = (!renewed && card.dueDate < today) || Boolean(line?.late) || Boolean(schedule?.late);
                 return (
                   <article
                     className={`abandonment-card is-case ${overdue ? "aso-card-overdue" : ""}`}
@@ -372,6 +385,7 @@ export default function AsoPage() {
                     ) : null}
                     {!renewed ? <em className={card.dueDate < today ? "aso-overdue-text" : ""}>{dueLabel(card.dueDate, today)}</em> : null}
                     {line ? <span className={`aso-stage-line ${line.late ? "aso-overdue-text" : ""}`}>{line.text}</span> : null}
+                    {schedule ? <span className={`aso-stage-line ${schedule.late ? "aso-overdue-text" : ""}`}>{schedule.text}</span> : null}
                     {renderTags(situationTags.get(card.employeeId))}
                     {card.document?.fileUrl ? (
                       <button
@@ -419,6 +433,8 @@ export default function AsoPage() {
           cancelManualCase={cancelManualCase}
           markGuideSent={markGuideSent}
           markSecondGuideSent={markSecondGuideSent}
+          scheduleExam={scheduleExam}
+          rescheduleExam={rescheduleExam}
           markExamDone={markExamDone}
           receiveAso={receiveAso}
           markSentToSertras={markSentToSertras}

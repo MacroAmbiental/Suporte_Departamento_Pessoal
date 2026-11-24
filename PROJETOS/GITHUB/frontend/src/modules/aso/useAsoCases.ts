@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { collection, doc, onSnapshot, orderBy, query, updateDoc, where, writeBatch } from "firebase/firestore";
+import { arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc, where, writeBatch } from "firebase/firestore";
 import { firestore } from "@/services/firebase";
 import { uploadEmployeeDocumentFile } from "@/services/documentStorage";
 import {
@@ -12,6 +12,7 @@ import {
   type AsoGuideRecipient,
   type AsoManualReason,
   type AsoPerson,
+  type AsoRescheduleReason,
   type AsoStage,
 } from "@/modules/aso/asoModel";
 
@@ -116,6 +117,29 @@ export function useAsoCases(user: CurrentUser) {
     }, notes)
   ), [moveStage]);
 
+  // Agendamento não muda a etapa: grava o caso e um evento no histórico (etapa igual).
+  const saveSchedule = useCallback(async (item: AsoCase, patch: Record<string, unknown>, notes: string) => {
+    if (!firestore) throw new Error("Banco de dados não configurado.");
+    const now = new Date().toISOString();
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, ASO_CASES_COLLECTION, item.id), { ...patch, updatedAt: now });
+    batch.set(doc(collection(firestore, ASO_CASES_COLLECTION, item.id, ASO_EVENTS_SUBCOLLECTION)), {
+      stageFrom: item.stage, stageTo: item.stage, notes, createdAt: now, createdBy: person,
+    });
+    await batch.commit();
+  }, [person]);
+
+  const scheduleExam = useCallback((item: AsoCase, date: string, notes: string) => (
+    saveSchedule(item, { scheduledDate: date }, notes)
+  ), [saveSchedule]);
+
+  const rescheduleExam = useCallback((item: AsoCase, date: string, reason: AsoRescheduleReason, reasonNotes: string, notes: string) => (
+    saveSchedule(item, {
+      scheduledDate: date,
+      reschedules: arrayUnion({ fromDate: item.scheduledDate || "", toDate: date, reason, notes: reasonNotes, at: new Date().toISOString(), by: person }),
+    }, notes)
+  ), [person, saveSchedule]);
+
   const markExamDone = useCallback((item: AsoCase, examDate: string, notes: string) => (
     moveStage(item.id, item.stage, { stage: "exam_done", examDate }, notes)
   ), [moveStage]);
@@ -137,7 +161,7 @@ export function useAsoCases(user: CurrentUser) {
     await updateDoc(doc(firestore, ASO_CASES_COLLECTION, item.id), { documentId, updatedAt: new Date().toISOString() });
   }, []);
 
-  return { cases, recentlyClosed, ready, loadError, saveGuide, addManualCase, cancelManualCase, linkCaseDocument, markGuideSent, markSecondGuideSent, markExamDone, markAsoReceived, markSentToSertras };
+  return { cases, recentlyClosed, ready, loadError, saveGuide, addManualCase, cancelManualCase, linkCaseDocument, markGuideSent, markSecondGuideSent, scheduleExam, rescheduleExam, markExamDone, markAsoReceived, markSentToSertras };
 }
 
 export function useAsoEvents(caseId: string | null) {

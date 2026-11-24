@@ -35,3 +35,20 @@
 .aso-add-results button { display: grid; gap: 2px; width: 100%; padding: 8px 10px; text-align: left; border: 1px solid var(--border); border-radius: 8px; background: var(--surface, #fff); color: var(--text); cursor: pointer; font: inherit; }
 .aso-add-results button:hover { border-color: #0b9369; }
 .aso-add-results small { color: var(--text-muted, #5b6b7a); }
+
+/* Agendamento do exame (24/11/2026) */
+.aso-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.aso-reschedule-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.9em;
+}

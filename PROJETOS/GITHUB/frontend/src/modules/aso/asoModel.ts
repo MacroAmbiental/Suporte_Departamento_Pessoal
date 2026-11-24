@@ -59,6 +59,10 @@ export type AsoCase = {
   secondGuideSentTo?: AsoGuideRecipient;
   secondGuideSentChannel?: AsoChannel;
   secondGuideSentAt?: string;
+  // Agendamento do exame na clínica (pedido da Estefane, 24/11/2026). Não é etapa:
+  // vale da guia emitida até o exame feito. Reagendar troca a data e guarda o histórico.
+  scheduledDate?: string;
+  reschedules?: AsoReschedule[];
   // Etapa 4: dia em que o funcionário fez o exame.
   examDate?: string;
   // Etapa 5: ASO novo anexado em Registros e o vencimento dele.
@@ -79,6 +83,31 @@ export const asoManualReasonLabels: Record<AsoManualReason, string> = {
   correction: "Correção",
   other: "Outro",
 };
+
+export type AsoRescheduleReason = "employee_missed" | "clinic" | "employee_request" | "other";
+export const asoRescheduleReasonLabels: Record<AsoRescheduleReason, string> = {
+  employee_missed: "Funcionário faltou",
+  clinic: "Clínica remarcou",
+  employee_request: "Pedido do funcionário/encarregado",
+  other: "Outro",
+};
+
+export type AsoReschedule = {
+  fromDate: string;
+  toDate: string;
+  reason: AsoRescheduleReason;
+  notes?: string;
+  at: string;
+  by: AsoPerson;
+};
+
+// Etapas em que o exame pode ser agendado/reagendado.
+export const asoSchedulableStages: AsoStage[] = ["guide_issued", "guide_sent", "guide_resent"];
+
+/** Agendamento que já passou e o exame ainda não foi marcado. */
+export function scheduleMissed(item: Pick<AsoCase, "stage" | "scheduledDate">, today: string) {
+  return Boolean(item.scheduledDate) && asoSchedulableStages.includes(item.stage) && (item.scheduledDate as string) < today;
+}
 
 export type AsoGuideRecipient = "supervisor" | "employee";
 export const asoRecipientLabels: Record<AsoGuideRecipient, string> = {

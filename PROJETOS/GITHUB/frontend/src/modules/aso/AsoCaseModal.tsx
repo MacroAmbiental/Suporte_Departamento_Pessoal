@@ -12,12 +12,16 @@ import {
   secondGuideDue,
   secondGuideDueDate,
   asoRecipientLabels,
+  asoRescheduleReasonLabels,
+  asoSchedulableStages,
   asoStages,
   clinicLate,
   defaultNewAsoDueDate,
+  scheduleMissed,
   type AsoCase,
   type AsoChannel,
   type AsoGuideRecipient,
+  type AsoRescheduleReason,
 } from "@/modules/aso/asoModel";
 import { useAsoEvents, type AsoCaseSeed } from "@/modules/aso/useAsoCases";
 import { addDaysISO } from "@/modules/vacation/data/vacationsRepository";
@@ -41,6 +45,8 @@ type Props = {
   cancelManualCase: (item: AsoCase, notes: string) => Promise<void>;
   markGuideSent: (item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, sentDate: string, notes: string) => Promise<void>;
   markSecondGuideSent: (item: AsoCase, to: AsoGuideRecipient, channel: AsoChannel, sentDate: string, notes: string) => Promise<void>;
+  scheduleExam: (item: AsoCase, date: string, notes: string) => Promise<void>;
+  rescheduleExam: (item: AsoCase, date: string, reason: AsoRescheduleReason, reasonNotes: string, notes: string) => Promise<void>;
   markExamDone: (item: AsoCase, examDate: string, notes: string) => Promise<void>;
   receiveAso: (item: AsoCase, file: File, newDueDate: string) => Promise<void>;
   markSentToSertras: (item: AsoCase, sentDate: string, notes: string) => Promise<void>;
@@ -179,9 +185,109 @@ function GuideSendStep({ title, intro, initialMessage, initialRecipient, initial
   );
 }
 
+// Agendamento do exame: data marcada na clínica e, depois, reagendamentos com motivo.
+function AsoScheduleStep({ asoCase, canEdit, busy, onSchedule, onReschedule }: {
+  asoCase: AsoCase;
+  canEdit: boolean;
+  busy: boolean;
+  onSchedule: (date: string) => void;
+  onReschedule: (date: string, reason: AsoRescheduleReason, reasonNotes: string) => void;
+}) {
+  const scheduled = asoCase.scheduledDate || "";
+  const [date, setDate] = useState(scheduled);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [reason, setReason] = useState<AsoRescheduleReason>("employee_missed");
+  const [reasonNotes, setReasonNotes] = useState("");
+  const history = asoCase.reschedules || [];
+  const missed = scheduleMissed(asoCase, todayISO());
+
+  return (
+    <div className="aso-case-step">
+      <h3>Agendamento do exame</h3>
+      {scheduled ? (
+        <p className={missed ? "aso-overdue-text" : "abandonment-muted"}>
+          Agendado para {formatDate(scheduled)}{history.length ? ` (reagendado ${history.length}x)` : ""}.
+          {missed ? " A data passou e o exame não foi marcado como feito." : ""}
+        </p>
+      ) : (
+        <p className="abandonment-muted">Informe a data que a clínica marcou para o exame.</p>
+      )}
+
+      {canEdit && !scheduled ? (
+        <div className="aso-case-row">
+          <label className="field">
+            Data do agendamento
+            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </label>
+          <div className="form-actions">
+            <button className="btn btn-primary" type="button" disabled={busy || !date} onClick={() => onSchedule(date)}>
+              <Check size={16} /> {busy ? "Salvando..." : "Salvar agendamento"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {canEdit && scheduled ? (
+        <>
+          <label className="aso-checkbox">
+            <input
+              type="checkbox"
+              checked={rescheduling}
+              onChange={(event) => { setRescheduling(event.target.checked); setDate(event.target.checked ? "" : scheduled); }}
+            />
+            Reagendamento
+          </label>
+          {rescheduling ? (
+            <>
+              <div className="aso-case-row">
+                <label className="field">
+                  Nova data
+                  <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+                </label>
+                <label className="field">
+                  Motivo
+                  <select value={reason} onChange={(event) => setReason(event.target.value as AsoRescheduleReason)}>
+                    {Object.entries(asoRescheduleReasonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label className="field">
+                  {reason === "other" ? "Observação" : "Observação (opcional)"}
+                  <input type="text" value={reasonNotes} onChange={(event) => setReasonNotes(event.target.value)} />
+                </label>
+              </div>
+              <div className="form-actions">
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={busy || !date || date === scheduled || (reason === "other" && !reasonNotes.trim())}
+                  onClick={() => onReschedule(date, reason, reasonNotes.trim())}
+                >
+                  <Check size={16} /> {busy ? "Salvando..." : "Salvar reagendamento"}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {history.length ? (
+        <ul className="aso-reschedule-list">
+          {history.map((item, index) => (
+            <li key={`${item.at}-${index}`}>
+              {formatDate(item.fromDate)} → {formatDate(item.toDate)} · {asoRescheduleReasonLabels[item.reason] || item.reason}
+              {item.notes ? ` · ${item.notes}` : ""}
+              <small className="abandonment-muted"> ({item.by?.name || "-"}, {formatDateTime(item.at)})</small>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export default function AsoCaseModal({
   seed, teamName, asoCase, currentAsoUrl, currentAsoName, canEdit, alert, canEditObservation, saveObservation,
-  onClose, saveGuide, cancelManualCase, markGuideSent, markSecondGuideSent, markExamDone, receiveAso, markSentToSertras,
+  onClose, saveGuide, cancelManualCase, markGuideSent, markSecondGuideSent, scheduleExam, rescheduleExam, markExamDone, receiveAso, markSentToSertras,
 }: Props) {
   const events = useAsoEvents(asoCase?.id || null);
   const stage = asoCase?.stage || "notified";
@@ -189,7 +295,7 @@ export default function AsoCaseModal({
   const [error, setError] = useState("");
   const [guideFile, setGuideFile] = useState<File | null>(null);
   const today = todayISO();
-  const [examDate, setExamDate] = useState(todayISO());
+  const [examDate, setExamDate] = useState(() => (asoCase?.scheduledDate && asoCase.scheduledDate <= todayISO() ? asoCase.scheduledDate : todayISO()));
   const [notes, setNotes] = useState("");
   const [newAsoFile, setNewAsoFile] = useState<File | null>(null);
   const [newDueDate, setNewDueDate] = useState(() => (asoCase?.examDate ? defaultNewAsoDueDate(asoCase.examDate) : ""));
@@ -277,6 +383,17 @@ export default function AsoCaseModal({
               </button>
             </div>
           </div>
+        ) : null}
+
+        {asoCase && asoSchedulableStages.includes(stage) ? (
+          <AsoScheduleStep
+            asoCase={asoCase}
+            canEdit={canEdit}
+            busy={busy}
+            onSchedule={(date) => run(() => scheduleExam(asoCase, date, `Exame agendado para ${formatDate(date)}.`))}
+            onReschedule={(date, reason, reasonNotes) => run(() => rescheduleExam(asoCase, date, reason, reasonNotes,
+              `Exame reagendado de ${formatDate(asoCase.scheduledDate || "")} para ${formatDate(date)} (${asoRescheduleReasonLabels[reason]}${reasonNotes ? `: ${reasonNotes}` : ""}).`))}
+          />
         ) : null}
 
         {canEdit && asoCase && stage === "guide_issued" ? (
@@ -424,7 +541,7 @@ export default function AsoCaseModal({
             <ol className="abandonment-timeline">
               {events.map((event) => (
                 <li key={event.id}>
-                  <strong>{stageLabel(event.stageFrom)} → {stageLabel(event.stageTo)}</strong>
+                  <strong>{event.stageFrom === event.stageTo ? `${stageLabel(event.stageTo)} · agendamento` : `${stageLabel(event.stageFrom)} → ${stageLabel(event.stageTo)}`}</strong>
                   <span>{event.notes}</span>
                   <small className="abandonment-muted">{formatDateTime(event.createdAt)} · {event.createdBy?.name || "-"}</small>
                 </li>
