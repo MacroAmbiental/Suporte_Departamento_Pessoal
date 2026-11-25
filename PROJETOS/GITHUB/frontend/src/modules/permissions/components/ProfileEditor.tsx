@@ -9,6 +9,7 @@ export type ProfileDraft = {
   name: string;
   description: string;
   active: boolean;
+  exclusive: boolean;
   targets: PermissionProfileTarget[];
   permissions: Partial<Record<AppScreen, PermissionAction[]>>;
 };
@@ -168,6 +169,10 @@ export default function ProfileEditor({ draft, onChange, disabled, canGrant, tar
             </>
           ) : loginLinkedCount ? <span>{loginLinkedCount} login(s) recebem pelo cadastro.</span> : null}
         </div>
+        <label className="people-show-none">
+          <input type="checkbox" checked={draft.exclusive} disabled={disabled} onChange={(event) => onChange({ ...draft, exclusive: event.target.checked })} />
+          {" "}Acesso só deste perfil: quem recebe pelo cadastro do login não soma os outros perfis (empresa, departamento...)
+        </label>
       </section>
 
       <section className="profile-section">

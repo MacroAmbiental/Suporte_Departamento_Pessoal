@@ -41,6 +41,10 @@ export function profilesForUser(
 ): AppliedProfile[] {
   const byId = new Map(profiles.map((profile) => [profile.id, profile]));
   overrides.forEach((profile) => byId.set(profile.id, profile));
+  // Perfil exclusivo no login (25/11/2026, caso da Segurança do Trabalho): a pessoa fica
+  // só com ele, sem somar os perfis que a pegam pelo público (empresa, departamento...).
+  const loginProfile = systemUser.permissionProfileId ? byId.get(systemUser.permissionProfileId) : undefined;
+  if (loginProfile?.active && loginProfile.exclusive) return [{ profile: loginProfile, reason: "login" }];
   const applied: AppliedProfile[] = [];
   byId.forEach((profile) => {
     if (!profile.active) return;

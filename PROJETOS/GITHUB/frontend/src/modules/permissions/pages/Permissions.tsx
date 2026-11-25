@@ -405,6 +405,7 @@ export default function Permissions() {
       name: profile.name,
       description: profile.description || "",
       active: profile.active,
+      exclusive: Boolean(profile.exclusive),
       targets: [...(profile.targets || [])],
       // Abas novas que o perfil ainda não tem aparecem com o que ele tem em Funcionários.
       permissions: withInheritedScreens(profile.permissions),
@@ -449,7 +450,7 @@ export default function Permissions() {
       showScopedProfileMessage();
       return;
     }
-    guardDirty(() => loadDraft({ name: "", description: "", active: true, targets: [], permissions: {} }, NEW_PROFILE));
+    guardDirty(() => loadDraft({ name: "", description: "", active: true, exclusive: false, targets: [], permissions: {} }, NEW_PROFILE));
   }
 
   function duplicateProfile() {
@@ -482,6 +483,7 @@ export default function Permissions() {
         name: draft.name.trim(),
         description: draft.description,
         active: draft.active,
+        exclusive: draft.exclusive,
         targets: draft.targets,
         // Grava todas as telas (inclusive as abas novas) para não depender de herança.
         permissions: { ...emptyMatrix(), ...draft.permissions },

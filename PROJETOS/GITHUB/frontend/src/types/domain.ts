@@ -178,6 +178,8 @@ export interface PermissionProfile {
   permissions: Partial<Record<AppScreen, PermissionAction[]>>;
   targets: PermissionProfileTarget[];
   active: boolean;
+  // Quem recebe este perfil pelo login fica SÓ com ele (não soma os perfis por público).
+  exclusive?: boolean;
   createdByUserId?: string;
   updatedByUserId?: string;
   createdAt: string;
